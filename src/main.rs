@@ -7,7 +7,7 @@ mod ui;
 mod window;
 
 use anyhow::Result;
-use muda::{Menu, MenuEvent, MenuId, MenuItem, Submenu};
+use muda::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use obs::ObsEngine;
 use obs::mock::MockObsEngine;
 use renderer::SharedGpuState;
@@ -43,6 +43,49 @@ impl NativeMenu {
     fn build() -> Self {
         let menu = Menu::new();
 
+        // App menu (macOS: first submenu becomes the application menu)
+        let app_menu = Submenu::new("Lodestone", true);
+        app_menu.append(&PredefinedMenuItem::about(None, None)).ok();
+        app_menu.append(&PredefinedMenuItem::separator()).ok();
+        app_menu
+            .append(&PredefinedMenuItem::services(None))
+            .ok();
+        app_menu.append(&PredefinedMenuItem::separator()).ok();
+        app_menu
+            .append(&PredefinedMenuItem::hide(None))
+            .ok();
+        app_menu
+            .append(&PredefinedMenuItem::hide_others(None))
+            .ok();
+        app_menu
+            .append(&PredefinedMenuItem::show_all(None))
+            .ok();
+        app_menu.append(&PredefinedMenuItem::separator()).ok();
+        app_menu
+            .append(&PredefinedMenuItem::quit(None))
+            .ok();
+        menu.append(&app_menu).ok();
+
+        // File menu
+        let file_menu = Submenu::new("File", true);
+        file_menu
+            .append(&PredefinedMenuItem::close_window(None))
+            .ok();
+        menu.append(&file_menu).ok();
+
+        // Edit menu
+        let edit_menu = Submenu::new("Edit", true);
+        edit_menu.append(&PredefinedMenuItem::undo(None)).ok();
+        edit_menu.append(&PredefinedMenuItem::redo(None)).ok();
+        edit_menu.append(&PredefinedMenuItem::separator()).ok();
+        edit_menu.append(&PredefinedMenuItem::cut(None)).ok();
+        edit_menu.append(&PredefinedMenuItem::copy(None)).ok();
+        edit_menu.append(&PredefinedMenuItem::paste(None)).ok();
+        edit_menu
+            .append(&PredefinedMenuItem::select_all(None))
+            .ok();
+        menu.append(&edit_menu).ok();
+
         // View menu
         let view_menu = Submenu::new("View", true);
         let add_panel_menu = Submenu::new("Add Panel", true);
@@ -61,8 +104,22 @@ impl NativeMenu {
 
         view_menu.append(&add_panel_menu).ok();
         view_menu.append(&reset_layout).ok();
+        view_menu.append(&PredefinedMenuItem::separator()).ok();
+        view_menu
+            .append(&PredefinedMenuItem::fullscreen(None))
+            .ok();
 
         menu.append(&view_menu).ok();
+
+        // Window menu
+        let window_menu = Submenu::new("Window", true);
+        window_menu
+            .append(&PredefinedMenuItem::minimize(None))
+            .ok();
+        window_menu
+            .append(&PredefinedMenuItem::maximize(None))
+            .ok();
+        menu.append(&window_menu).ok();
 
         Self {
             menu,

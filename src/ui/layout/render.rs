@@ -266,8 +266,8 @@ pub fn render_layout(
                             text_color,
                         );
 
-                        // Close button
-                        if response.hovered() || is_active {
+                        // Close button (visible only when hovering the tab)
+                        if response.hovered() {
                             let cc = egui::pos2(tab_rect.max.x - 12.0, tab_rect.center().y);
                             let cr = egui::Rect::from_center_size(cc, egui::vec2(14.0, 14.0));
                             let close_resp = ui.interact(
@@ -342,60 +342,44 @@ pub fn render_layout(
                         egui::pos2(plus_x, tab_bar_rect.min.y),
                         egui::vec2(ADD_BUTTON_WIDTH, TAB_BAR_HEIGHT),
                     );
-                    let plus_resp = ui.interact(
-                        plus_rect,
-                        egui::Id::new(("ftab_add", fgid.0)),
-                        egui::Sense::click(),
-                    );
-                    let pc = if plus_resp.hovered() {
-                        TEXT_BRIGHT
-                    } else {
-                        TEXT_DIM
+                    // "+" menu button — use child_ui for the menu, then repaint
+                    let (btn_rect, btn_hovered) = {
+                        let mut child_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(plus_rect)
+                                .id_salt(("ftab_add", fgid.0)),
+                        );
+                        let menu = child_ui.menu_button(
+                            egui::RichText::new("+").size(14.0).color(TEXT_DIM),
+                            |ui| {
+                                for &pt in DOCKABLE_TYPES {
+                                    if ui.button(pt.display_name()).clicked() {
+                                        actions.push(LayoutAction::AddPanel {
+                                            target_group: fgid,
+                                            panel_type: pt,
+                                        });
+                                        ui.close();
+                                    }
+                                }
+                            },
+                        );
+                        (menu.response.rect, menu.response.hovered())
                     };
-                    if plus_resp.hovered() {
-                        painter.rect_filled(plus_rect, 0.0, TAB_HOVER_BG);
+                    // Repaint custom styling over the default button chrome
+                    let painter = ui.painter();
+                    if btn_hovered {
+                        painter.rect_filled(btn_rect, 0.0, TAB_HOVER_BG);
+                    } else {
+                        painter.rect_filled(btn_rect, 0.0, TAB_BAR_BG);
                     }
+                    let pc = if btn_hovered { TEXT_BRIGHT } else { TEXT_DIM };
                     painter.text(
-                        plus_rect.center(),
+                        btn_rect.center(),
                         egui::Align2::CENTER_CENTER,
                         "+",
-                        egui::FontId::proportional(16.0),
+                        egui::FontId::proportional(14.0),
                         pc,
                     );
-
-                    let popup_id = egui::Id::new(("fadd_popup", fgid.0));
-                    if plus_resp.clicked() {
-                        #[allow(deprecated)]
-                        ctx.memory_mut(|m| {
-                            let open = m.is_popup_open(popup_id);
-                            m.close_popup(popup_id);
-                            if !open {
-                                m.open_popup(popup_id);
-                            }
-                        });
-                    }
-                    #[allow(deprecated)]
-                    let popup_open = ctx.memory(|m| m.is_popup_open(popup_id));
-                    if popup_open {
-                        egui::Area::new(popup_id)
-                            .fixed_pos(egui::pos2(plus_rect.min.x, plus_rect.max.y + 2.0))
-                            .order(egui::Order::Foreground)
-                            .show(ctx, |ui| {
-                                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    ui.set_min_width(140.0);
-                                    for &pt in DOCKABLE_TYPES {
-                                        if ui.button(pt.display_name()).clicked() {
-                                            actions.push(LayoutAction::AddPanel {
-                                                target_group: fgid,
-                                                panel_type: pt,
-                                            });
-                                            #[allow(deprecated)]
-                                            ctx.memory_mut(|m| m.close_popup(popup_id));
-                                        }
-                                    }
-                                });
-                            });
-                    }
 
                     // --- Content area (frame fill is already CONTENT_BG) ---
                     let active = group.active_tab_entry();
@@ -659,8 +643,8 @@ fn render_tab_bar(
                 );
                 painter.galley(label_pos, galley, text_color);
 
-                // Close button (visible on hover or if active)
-                if response.hovered() || is_active {
+                // Close button (visible only when hovering the tab)
+                if response.hovered() {
                     let close_center = egui::pos2(tab_rect.max.x - 12.0, tab_rect.center().y);
                     let close_rect =
                         egui::Rect::from_center_size(close_center, egui::vec2(14.0, 14.0));
@@ -769,88 +753,86 @@ fn render_tab_bar(
             });
     }
 
-    // "+" button after the last tab — drawn with the painter, click detected via Area
+    // "+" button after the last tab — painted inline, no separate Area.
+    // We use the tab bar painter for visuals and a dedicated egui::Area only
+    // for the menu popup (which needs its own layer to size freely).
     let plus_x = tab_bar_rect.min.x + tab_count as f32 * tab_width;
     let plus_rect = egui::Rect::from_min_size(
         egui::pos2(plus_x, tab_bar_rect.min.y),
         egui::vec2(ADD_BUTTON_WIDTH, TAB_BAR_HEIGHT),
     );
-    let plus_area_id = egui::Id::new(("tab_add_btn", group_id.0));
     let gid = group_id;
 
-    egui::Area::new(plus_area_id)
+    // Detect hover/click via a minimal Area exactly sized to the button
+    let plus_area_id = egui::Id::new(("tab_add_btn", gid.0));
+    let plus_response = egui::Area::new(plus_area_id)
         .fixed_pos(plus_rect.min)
         .sense(egui::Sense::click())
         .show(ctx, |ui| {
-            let response = ui.allocate_response(plus_rect.size(), egui::Sense::click());
+            ui.allocate_exact_size(plus_rect.size(), egui::Sense::click())
+                .1
+        })
+        .inner;
 
-            let plus_color = if response.hovered() {
-                TEXT_BRIGHT
-            } else {
-                TEXT_DIM
-            };
-            if response.hovered() {
-                painter.rect_filled(plus_rect, 0.0, TAB_HOVER_BG);
-            }
-            painter.text(
-                plus_rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "+",
-                egui::FontId::proportional(16.0),
-                plus_color,
-            );
+    // Paint the "+" on the tab bar painter (not inside the Area)
+    let plus_hovered = plus_response.hovered();
+    if plus_hovered {
+        painter.rect_filled(plus_rect, 0.0, TAB_HOVER_BG);
+    }
+    painter.text(
+        plus_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "+",
+        egui::FontId::proportional(14.0),
+        if plus_hovered { TEXT_BRIGHT } else { TEXT_DIM },
+    );
 
-            // Show add-panel menu on click using a separate Area for proper sizing
-            let popup_id = egui::Id::new(("add_panel_popup", gid.0));
-            if response.clicked() {
-                #[allow(deprecated)]
-                ctx.memory_mut(|m| {
-                    let currently_open = m.is_popup_open(popup_id);
-                    m.close_popup(popup_id);
-                    if !currently_open {
-                        m.open_popup(popup_id);
+    // Toggle popup on click, using manual state to avoid same-frame close
+    let popup_state_id = egui::Id::new(("add_popup_open", gid.0));
+    let was_open: bool = ctx.data(|d| d.get_temp(popup_state_id).unwrap_or(false));
+    let mut is_open = was_open;
+
+    if plus_response.clicked() {
+        is_open = !is_open;
+    }
+
+    if is_open {
+        let popup_pos = egui::pos2(plus_rect.min.x, plus_rect.max.y + 2.0);
+        egui::Area::new(egui::Id::new(("add_panel_popup", gid.0)))
+            .fixed_pos(popup_pos)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_min_width(120.0);
+                    for &pt in DOCKABLE_TYPES {
+                        if ui.selectable_label(false, pt.display_name()).clicked() {
+                            actions.push(LayoutAction::AddPanel {
+                                target_group: gid,
+                                panel_type: pt,
+                            });
+                            is_open = false;
+                        }
                     }
                 });
-            }
+            });
 
-            #[allow(deprecated)]
-            let is_open = ctx.memory(|m| m.is_popup_open(popup_id));
-            if is_open {
-                let popup_pos = egui::pos2(plus_rect.min.x, plus_rect.max.y + 2.0);
-                egui::Area::new(popup_id)
-                    .fixed_pos(popup_pos)
-                    .order(egui::Order::Foreground)
-                    .show(ctx, |ui| {
-                        egui::Frame::popup(ui.style()).show(ui, |ui| {
-                            ui.set_min_width(140.0);
-                            for &pt in DOCKABLE_TYPES {
-                                if ui.button(pt.display_name()).clicked() {
-                                    actions.push(LayoutAction::AddPanel {
-                                        target_group: gid,
-                                        panel_type: pt,
-                                    });
-                                    #[allow(deprecated)]
-                                    ctx.memory_mut(|m| m.close_popup(popup_id));
-                                }
-                            }
-                        });
-                    });
-
-                // Close popup when clicking outside it
-                if ctx.input(|i| i.pointer.any_pressed())
-                    && let Some(pos) = ctx.pointer_interact_pos()
-                {
-                    let on_popup = ctx
-                        .layer_id_at(pos)
-                        .is_some_and(|layer| layer.id == popup_id);
-                    let on_button = plus_rect.contains(pos);
-                    if !on_popup && !on_button {
-                        #[allow(deprecated)]
-                        ctx.memory_mut(|m| m.close_popup(popup_id));
-                    }
-                }
+        // Close on click outside (only if popup was open last frame)
+        if was_open
+            && !plus_response.clicked()
+            && ctx.input(|i| i.pointer.any_pressed())
+            && let Some(pos) = ctx.pointer_interact_pos()
+        {
+            let popup_id = egui::Id::new(("add_panel_popup", gid.0));
+            let on_popup = ctx
+                .layer_id_at(pos)
+                .is_some_and(|layer| layer.id == popup_id);
+            if !on_popup && !plus_rect.contains(pos) {
+                is_open = false;
             }
-        });
+        }
+    }
+
+    ctx.data_mut(|d| d.insert_temp(popup_state_id, is_open));
 }
 
 // ---------------------------------------------------------------------------

@@ -286,7 +286,7 @@ impl LayoutTree {
     pub fn collect_leaves_with_rects(
         &self,
         rect: egui::Rect,
-    ) -> Vec<(PanelId, PanelType, egui::Rect)> {
+    ) -> Vec<(PanelId, PanelType, egui::Rect, NodeId)> {
         let mut result = Vec::new();
         self.collect_rects_recursive(self.root, rect, &mut result);
         result
@@ -296,14 +296,14 @@ impl LayoutTree {
         &self,
         node_id: NodeId,
         rect: egui::Rect,
-        result: &mut Vec<(PanelId, PanelType, egui::Rect)>,
+        result: &mut Vec<(PanelId, PanelType, egui::Rect, NodeId)>,
     ) {
         match self.nodes.get(&node_id) {
             Some(LayoutNode::Leaf {
                 panel_type,
                 panel_id,
             }) => {
-                result.push((*panel_id, *panel_type, rect));
+                result.push((*panel_id, *panel_type, rect, node_id));
             }
             Some(LayoutNode::Split {
                 direction,
@@ -428,11 +428,26 @@ impl LayoutTree {
         Some(leaf)
     }
 
-    fn find_parent(&self, target: NodeId) -> Option<NodeId> {
+    pub fn find_parent(&self, target: NodeId) -> Option<NodeId> {
         for (id, node) in &self.nodes {
             if let LayoutNode::Split { first, second, .. } = node {
                 if *first == target || *second == target {
                     return Some(*id);
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns the parent split's NodeId and which side (First/Second) this node is on.
+    pub fn find_parent_with_side(&self, target: NodeId) -> Option<(NodeId, MergeSide)> {
+        for (id, node) in &self.nodes {
+            if let LayoutNode::Split { first, second, .. } = node {
+                if *first == target {
+                    return Some((*id, MergeSide::First));
+                }
+                if *second == target {
+                    return Some((*id, MergeSide::Second));
                 }
             }
         }
@@ -572,8 +587,8 @@ mod tests {
             egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
         let leaves = tree.collect_leaves_with_rects(total_rect);
         assert_eq!(leaves.len(), 2);
-        let (_, _, rect1) = &leaves[0];
-        let (_, _, rect2) = &leaves[1];
+        let (_, _, rect1, _) = &leaves[0];
+        let (_, _, rect2, _) = &leaves[1];
         assert!((rect1.width() - 300.0).abs() < 1.0);
         assert!((rect2.width() - 700.0).abs() < 1.0);
     }

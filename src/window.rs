@@ -95,12 +95,32 @@ impl WindowState {
 
         // Apply layout actions after the egui frame
         for action in pending_actions {
+            use crate::ui::layout::render::LayoutAction;
             match action {
-                crate::ui::layout::render::LayoutAction::Resize { node_id, new_ratio } => {
+                LayoutAction::Resize { node_id, new_ratio } => {
                     self.layout.resize(node_id, new_ratio);
                 }
-                // Other actions will be handled in future tasks
-                _ => {}
+                LayoutAction::SwapType { node_id, new_type } => {
+                    self.layout.swap_type(node_id, new_type);
+                }
+                LayoutAction::Close { node_id } => {
+                    // remove_leaf finds the parent, replaces parent with sibling
+                    self.layout.remove_leaf(node_id);
+                }
+                LayoutAction::Duplicate { node_id } => {
+                    self.layout
+                        .split(node_id, crate::ui::layout::SplitDirection::Vertical, 0.5);
+                }
+                LayoutAction::Split { node_id, direction } => {
+                    self.layout.split(node_id, direction, 0.5);
+                }
+                LayoutAction::Merge { node_id, keep } => {
+                    self.layout.merge(node_id, keep);
+                }
+                LayoutAction::Detach { node_id: _ } => {
+                    // Detach is deferred to AppManager in Task 9.
+                    // For now, this is a no-op.
+                }
             }
         }
 

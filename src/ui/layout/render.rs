@@ -11,6 +11,14 @@ pub enum LayoutAction {
     Merge { node_id: NodeId, keep: MergeSide },
 }
 
+/// All dockable panel types for the type selector dropdown.
+const DOCKABLE_TYPES: &[PanelType] = &[
+    PanelType::Preview,
+    PanelType::SceneEditor,
+    PanelType::AudioMixer,
+    PanelType::StreamControls,
+];
+
 pub fn render_layout(
     ctx: &egui::Context,
     layout: &LayoutTree,
@@ -21,20 +29,72 @@ pub fn render_layout(
 
     // Snapshot leaves with their computed rects
     let leaves = layout.collect_leaves_with_rects(available_rect);
+    let leaf_count = leaves.len();
 
     // Draw each panel in its allocated rect
-    for (panel_id, panel_type, rect) in leaves {
-        // Use egui::Area to position content at the exact rect
+    for (panel_id, panel_type, rect, node_id) in &leaves {
+        let panel_id = *panel_id;
+        let panel_type = *panel_type;
+        let node_id = *node_id;
+        let rect = *rect;
+
         egui::Area::new(egui::Id::new(("panel", panel_id.0)))
             .fixed_pos(rect.min)
             .show(ctx, |ui| {
                 ui.set_min_size(rect.size());
                 ui.set_max_size(rect.size());
 
-                // Panel header (minimal for now — expanded in Task 7)
-                ui.horizontal(|ui| {
-                    ui.label(panel_type.display_name());
+                // --- Panel Header ---
+                let header_response = ui.horizontal(|ui| {
+                    // Panel type dropdown
+                    let combo_id = egui::Id::new(("panel_type_combo", panel_id.0));
+                    let mut selected = panel_type;
+                    let combo = egui::ComboBox::from_id_salt(combo_id)
+                        .selected_text(selected.display_name())
+                        .width(120.0)
+                        .show_ui(ui, |ui| {
+                            for &pt in DOCKABLE_TYPES {
+                                if ui
+                                    .selectable_value(&mut selected, pt, pt.display_name())
+                                    .clicked()
+                                {
+                                    // selection changed
+                                }
+                            }
+                        });
+                    let _ = combo;
+                    if selected != panel_type {
+                        actions.push(LayoutAction::SwapType {
+                            node_id,
+                            new_type: selected,
+                        });
+                    }
+
+                    // Spacer to push close button to the right
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Close button — disabled if this is the only leaf
+                        let close_btn = ui.add_enabled(
+                            leaf_count > 1,
+                            egui::Button::new("×").small(),
+                        );
+                        if close_btn.clicked() {
+                            actions.push(LayoutAction::Close { node_id });
+                        }
+                    });
                 });
+
+                // Context menu on the header
+                header_response.response.context_menu(|ui| {
+                    if ui.button("Detach to Window").clicked() {
+                        actions.push(LayoutAction::Detach { node_id });
+                        ui.close();
+                    }
+                    if ui.button("Duplicate").clicked() {
+                        actions.push(LayoutAction::Duplicate { node_id });
+                        ui.close();
+                    }
+                });
+
                 ui.separator();
 
                 // Panel content
@@ -75,7 +135,7 @@ pub fn render_layout(
             }
         }
 
-        // Drag interaction: use an Area to place a drag-sensitive rect at the divider.
+        // Drag interaction
         let divider_id = egui::Id::new(("divider", divider.node_id.0));
         let node_id = divider.node_id;
         let direction = divider.direction;
@@ -94,7 +154,6 @@ pub fn render_layout(
 
         let response = area_response.inner;
 
-        // Set cursor on hover
         if response.hovered() || response.dragged() {
             match direction {
                 SplitDirection::Vertical => {
@@ -106,7 +165,6 @@ pub fn render_layout(
             }
         }
 
-        // Handle drag
         if response.dragged() {
             if let Some(pointer_pos) = ctx.pointer_interact_pos() {
                 let new_ratio = match direction {

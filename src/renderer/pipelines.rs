@@ -142,6 +142,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 /// | 128    | (total)         |      |                                |
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[allow(dead_code)]
 pub struct WidgetParams {
     pub rect: [f32; 4],
     pub color: [f32; 4],
@@ -156,6 +157,7 @@ pub struct WidgetParams {
     pub _pad1: [f32; 2],
 }
 
+#[allow(dead_code)]
 pub struct WidgetPipeline {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -242,6 +244,7 @@ impl WidgetPipeline {
     /// The render pass must already be active.  This method writes the params
     /// to the uniform buffer, creates a bind group, sets the pipeline, and
     /// issues a draw call for 4 vertices (triangle strip quad).
+    #[allow(dead_code)]
     pub fn draw_widget(
         &self,
         render_pass: &mut wgpu::RenderPass<'_>,
@@ -277,8 +280,7 @@ mod tests {
         // expected uniform size.
         let size = std::mem::size_of::<WidgetParams>();
         assert_eq!(
-            size,
-            128,
+            size, 128,
             "WidgetParams size ({size}) must be exactly 128 bytes to match the WGSL struct"
         );
     }

@@ -239,9 +239,9 @@ impl ObsEngine for MockObsEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::output::StreamDestination;
     use super::super::scene::SourceType;
+    use super::*;
 
     #[test]
     fn init_creates_default_scene() {

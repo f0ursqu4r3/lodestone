@@ -34,6 +34,7 @@ pub struct TextSection {
 /// 3. Creates a `glyphon::TextAtlas` backed by the wgpu device
 /// 4. Creates a `glyphon::TextRenderer`
 /// 5. Prepares and renders text sections into a wgpu render pass
+#[allow(dead_code)]
 pub struct GlyphonRenderer {
     sections: Vec<TextSection>,
 }
@@ -55,6 +56,7 @@ impl GlyphonRenderer {
     ///
     /// In the real implementation this would layout the text with cosmic-text,
     /// rasterize glyphs via the swash cache, and upload them to the text atlas.
+    #[allow(dead_code)]
     pub fn prepare(&mut self, sections: &[TextSection]) -> Result<()> {
         self.sections = sections.to_vec();
         // No-op: real implementation would prepare glyphs here.

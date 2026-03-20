@@ -9,9 +9,9 @@ use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureFormat};
 use winit::window::Window;
 
-use pipelines::{WidgetParams, WidgetPipeline};
+use pipelines::WidgetPipeline;
 use preview::PreviewRenderer;
-use text::{GlyphonRenderer, TextSection};
+use text::GlyphonRenderer;
 
 use crate::obs::RgbaFrame;
 
@@ -23,7 +23,9 @@ pub struct Renderer {
     #[allow(dead_code)]
     pub format: TextureFormat,
     egui_renderer: egui_wgpu::Renderer,
+    #[allow(dead_code)]
     text_renderer: GlyphonRenderer,
+    #[allow(dead_code)]
     widget_pipeline: WidgetPipeline,
     preview_renderer: PreviewRenderer,
 }
@@ -111,15 +113,6 @@ impl Renderer {
     }
 
     pub fn render(&mut self) -> Result<()> {
-        // Prepare test label for text rendering
-        let test_label = TextSection {
-            text: "Lodestone".to_string(),
-            position: [20.0, 20.0],
-            size: 24.0,
-            color: [255, 255, 255, 255],
-        };
-        self.text_renderer.prepare(&[test_label])?;
-
         let output = self
             .surface
             .get_current_texture()
@@ -166,15 +159,6 @@ impl Renderer {
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) -> Result<()> {
-        // Prepare test label for text rendering
-        let test_label = TextSection {
-            text: "Lodestone".to_string(),
-            position: [20.0, 20.0],
-            size: 24.0,
-            color: [255, 255, 255, 255],
-        };
-        self.text_renderer.prepare(&[test_label])?;
-
         let output = self
             .surface
             .get_current_texture()
@@ -253,49 +237,11 @@ impl Renderer {
         }
 
         // Pass 3: SDF widget rendering (behind egui)
-        {
-            let mut widget_pass = encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("widget_pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                })
-                .forget_lifetime();
-
-            // Test widget: a dark semi-transparent panel
-            let test_widget = WidgetParams {
-                rect: [20.0, 20.0, 220.0, 400.0],
-                color: [0.12, 0.12, 0.14, 0.85],
-                border_color: [0.3, 0.3, 0.35, 0.5],
-                corner_radius: 12.0,
-                border_width: 1.0,
-                shadow_offset: [4.0, 4.0],
-                shadow_blur: 16.0,
-                _pad0: [0.0; 7],
-                shadow_color: [0.0, 0.0, 0.0, 0.4],
-                viewport_size: [
-                    self.surface_config.width as f32,
-                    self.surface_config.height as f32,
-                ],
-                _pad1: [0.0, 0.0],
-            };
-            self.widget_pipeline.draw_widget(
-                &mut widget_pass,
-                &self.device,
-                &self.queue,
-                &test_widget,
-            );
-        }
+        // Widget pipeline is available for custom-rendered panels.
+        // Currently no widgets to draw — panels use egui's built-in rendering.
+        // To draw a widget:
+        //   let mut widget_pass = encoder.begin_render_pass(...).forget_lifetime();
+        //   self.widget_pipeline.draw_widget(&mut widget_pass, &self.device, &self.queue, &params);
 
         // Pass 4: egui overlay
         {

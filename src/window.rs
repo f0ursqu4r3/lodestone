@@ -285,6 +285,10 @@ impl WindowState {
                 LayoutAction::DockFloatingToGrid { group_id } => {
                     self.layout.insert_floating_into_grid(group_id);
                 }
+                LayoutAction::CloseFloatingGroup { group_id } => {
+                    self.layout.remove_floating(group_id);
+                    self.layout.groups.remove(&group_id);
+                }
             }
         }
 

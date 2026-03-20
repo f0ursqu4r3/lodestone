@@ -67,6 +67,8 @@ pub enum LayoutAction {
     ReattachToMain,
     /// Dock a floating group back into the grid.
     DockFloatingToGrid { group_id: GroupId },
+    /// Close an entire floating group (all tabs).
+    CloseFloatingGroup { group_id: GroupId },
 }
 
 /// All dockable panel types for the type selector dropdown.
@@ -157,7 +159,12 @@ pub fn render_layout(
                 ..Default::default()
             };
 
-            let win_response = egui::Window::new("\u{2630}") // ☰ hamburger icon as title
+            // Track open state for close button
+            let open_state_id = egui::Id::new(("floating_open", fg.group_id.0));
+            let mut is_open = ctx.data(|d| d.get_temp::<bool>(open_state_id).unwrap_or(true));
+
+            let active_name = group.active_tab_entry().panel_type.display_name();
+            let win_response = egui::Window::new(active_name)
                 .id(win_id)
                 .title_bar(true)
                 .frame(dark_frame)
@@ -166,7 +173,8 @@ pub fn render_layout(
                 .min_size(egui::vec2(200.0, 100.0))
                 .resizable(true)
                 .order(egui::Order::Foreground)
-                .collapsible(false)
+                .collapsible(true)
+                .open(&mut is_open)
                 .show(ctx, |ui| {
                     let fgid = fg.group_id;
                     let tab_count = group.tabs.len();
@@ -380,9 +388,24 @@ pub fn render_layout(
                 });
 
             // Store the floating window's actual rect for drop target hit testing
-            if let Some(inner_response) = win_response {
+            if let Some(ref inner_response) = win_response {
                 let rect_id = egui::Id::new(("floating_rect", fg.group_id.0));
                 ctx.data_mut(|d| d.insert_temp(rect_id, inner_response.response.rect));
+
+                // Shift+drag on title bar: enter group dock mode
+                let shift_held = ctx.input(|i| i.modifiers.shift);
+                if shift_held && inner_response.response.dragged() {
+                    let dock_drag_id = egui::Id::new("floating_dock_drag");
+                    ctx.data_mut(|d| d.insert_temp(dock_drag_id, fg.group_id));
+                }
+            }
+
+            // Handle close button (is_open set to false by egui)
+            ctx.data_mut(|d| d.insert_temp(open_state_id, is_open));
+            if !is_open {
+                actions.push(LayoutAction::CloseFloatingGroup {
+                    group_id: fg.group_id,
+                });
             }
         }
     }
@@ -405,6 +428,48 @@ pub fn render_layout(
     // --- Drag ghost and drop zones ---
     if let Some(drag) = &layout.drag {
         render_drag_overlay(ctx, drag, &all_drop_rects, layout, &mut actions);
+    }
+
+    // --- Shift+drag floating group dock overlay ---
+    let dock_drag_id = egui::Id::new("floating_dock_drag");
+    let shift_held = ctx.input(|i| i.modifiers.shift);
+    if let Some(dragging_gid) = ctx.data(|d| d.get_temp::<GroupId>(dock_drag_id)) {
+        if shift_held {
+            if let Some(pointer_pos) = ctx.pointer_interact_pos() {
+                // Show drop zone overlay on grid groups
+                let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;
+                for &(gid, rect) in &group_rects {
+                    if rect.contains(pointer_pos) {
+                        let zone = hit_test_drop_zone(rect, pointer_pos);
+                        hovered_group = Some((gid, zone, rect));
+                        break;
+                    }
+                }
+
+                if let Some((_, zone, group_rect)) = &hovered_group {
+                    let highlight = drop_zone_highlight_rect(*group_rect, *zone);
+                    let overlay_layer = egui::LayerId::new(
+                        egui::Order::Foreground,
+                        egui::Id::new("dock_group_overlay"),
+                    );
+                    let overlay_painter = ctx.layer_painter(overlay_layer);
+                    overlay_painter.rect_filled(highlight, 0.0, DROP_ZONE_TINT);
+                }
+
+                // On release: dock the floating group into the target
+                if ctx.input(|i| i.pointer.any_released()) {
+                    if let Some((_target_gid, _zone, _)) = hovered_group {
+                        actions.push(LayoutAction::DockFloatingToGrid {
+                            group_id: dragging_gid,
+                        });
+                    }
+                    ctx.data_mut(|d| d.remove::<GroupId>(dock_drag_id));
+                }
+            }
+        } else {
+            // Shift released — cancel dock drag
+            ctx.data_mut(|d| d.remove::<GroupId>(dock_drag_id));
+        }
     }
 
     actions

@@ -18,17 +18,9 @@ impl UiRoot {
 
     pub fn run(&self, state: &mut AppState, raw_input: egui::RawInput) -> egui::FullOutput {
         self.ctx.run(raw_input, |ctx| {
-            egui::Window::new("Lodestone")
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.label("egui integration working");
-                    let status = match &state.stream_status {
-                        crate::state::StreamStatus::Offline => "Offline",
-                        crate::state::StreamStatus::Connecting => "Connecting...",
-                        crate::state::StreamStatus::Live { .. } => "Live",
-                    };
-                    ui.label(format!("Status: {status}"));
-                });
+            scene_editor::draw(ctx, state);
+            audio_mixer::draw(ctx, state);
+            stream_controls::draw(ctx, state);
         })
     }
 }

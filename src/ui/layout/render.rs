@@ -157,7 +157,7 @@ pub fn render_layout(
                 ..Default::default()
             };
 
-            egui::Window::new("")
+            let win_response = egui::Window::new("")
                 .id(win_id)
                 .title_bar(false)
                 .frame(dark_frame)
@@ -386,15 +386,33 @@ pub fn render_layout(
                     ui.add_space(PANEL_PADDING);
                     crate::ui::draw_panel(active.panel_type, ui, state, active.panel_id);
                 });
+
+            // Store the floating window's actual rect for drop target hit testing
+            if let Some(inner_response) = win_response {
+                let rect_id = egui::Id::new(("floating_rect", fg.group_id.0));
+                ctx.data_mut(|d| d.insert_temp(rect_id, inner_response.response.rect));
+            }
         }
     }
+
+    // --- Collect floating group rects for drop targeting ---
+    // Floating groups are checked first (higher z-order) so they take
+    // priority over grid groups they overlap.
+    let mut all_drop_rects: Vec<(GroupId, egui::Rect)> = Vec::new();
+    for fg in &floating_snapshot {
+        let rect_id = egui::Id::new(("floating_rect", fg.group_id.0));
+        if let Some(rect) = ctx.data(|d| d.get_temp::<egui::Rect>(rect_id)) {
+            all_drop_rects.push((fg.group_id, rect));
+        }
+    }
+    all_drop_rects.extend_from_slice(&group_rects);
 
     // --- Dividers ---
     render_dividers(ctx, layout, available_rect, &mut actions);
 
     // --- Drag ghost and drop zones ---
     if let Some(drag) = &layout.drag {
-        render_drag_overlay(ctx, drag, &group_rects, layout, &mut actions);
+        render_drag_overlay(ctx, drag, &all_drop_rects, layout, &mut actions);
     }
 
     actions

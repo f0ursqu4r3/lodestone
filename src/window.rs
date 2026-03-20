@@ -202,9 +202,15 @@ impl WindowState {
                     if let Some(drag) = self.layout.drag.take()
                         && let Some(entry) = self.layout.take_tab(drag.source_group, drag.tab_index)
                     {
+                        // Floating groups can't be split — always add as a tab
+                        let is_floating = self.layout.is_floating(target_group);
                         match zone {
+                            _ if is_floating => {
+                                if let Some(group) = self.layout.groups.get_mut(&target_group) {
+                                    group.add_tab_entry(entry);
+                                }
+                            }
                             DropZone::Center | DropZone::TabBar { .. } => {
-                                // Add as a new tab in the target group
                                 if let Some(group) = self.layout.groups.get_mut(&target_group) {
                                     group.add_tab_entry(entry);
                                 }

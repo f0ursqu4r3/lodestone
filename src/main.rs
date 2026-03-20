@@ -7,6 +7,7 @@ mod ui;
 mod window;
 
 use anyhow::Result;
+use muda::{Menu, MenuEvent, MenuId, MenuItem, Submenu};
 use obs::ObsEngine;
 use obs::mock::MockObsEngine;
 use renderer::SharedGpuState;
@@ -15,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 #[allow(unused_imports)]
 use ui::layout::{
-    DockLayout, SplitDirection, deserialize_full_layout, serialize_full_layout,
+    DockLayout, PanelType, SplitDirection, deserialize_full_layout, serialize_full_layout,
 };
 use window::{DetachRequest, WindowState};
 use winit::{
@@ -27,6 +28,68 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
+/// Holds the native menu bar and IDs for each menu item.
+struct NativeMenu {
+    #[allow(dead_code)]
+    menu: Menu,
+    add_preview: MenuId,
+    add_scene_editor: MenuId,
+    add_audio_mixer: MenuId,
+    add_stream_controls: MenuId,
+    reset_layout: MenuId,
+}
+
+impl NativeMenu {
+    fn build() -> Self {
+        let menu = Menu::new();
+
+        // View menu
+        let view_menu = Submenu::new("View", true);
+        let add_panel_menu = Submenu::new("Add Panel", true);
+
+        let add_preview = MenuItem::new("Preview", true, None);
+        let add_scene_editor = MenuItem::new("Scene Editor", true, None);
+        let add_audio_mixer = MenuItem::new("Audio Mixer", true, None);
+        let add_stream_controls = MenuItem::new("Stream Controls", true, None);
+
+        add_panel_menu.append(&add_preview).ok();
+        add_panel_menu.append(&add_scene_editor).ok();
+        add_panel_menu.append(&add_audio_mixer).ok();
+        add_panel_menu.append(&add_stream_controls).ok();
+
+        let reset_layout = MenuItem::new("Reset Layout", true, None);
+
+        view_menu.append(&add_panel_menu).ok();
+        view_menu.append(&reset_layout).ok();
+
+        menu.append(&view_menu).ok();
+
+        Self {
+            menu,
+            add_preview: add_preview.id().clone(),
+            add_scene_editor: add_scene_editor.id().clone(),
+            add_audio_mixer: add_audio_mixer.id().clone(),
+            add_stream_controls: add_stream_controls.id().clone(),
+            reset_layout: reset_layout.id().clone(),
+        }
+    }
+
+    /// Map a menu event ID to a panel type for the "Add Panel" action.
+    fn panel_type_for_id(&self, id: &MenuId) -> Option<PanelType> {
+        if *id == self.add_preview {
+            Some(PanelType::Preview)
+        } else if *id == self.add_scene_editor {
+            Some(PanelType::SceneEditor)
+        } else if *id == self.add_audio_mixer {
+            Some(PanelType::AudioMixer)
+        } else if *id == self.add_stream_controls {
+            Some(PanelType::StreamControls)
+        } else {
+            None
+        }
+    }
+}
+
 struct AppManager {
     gpu: Option<SharedGpuState>,
     windows: HashMap<WindowId, WindowState>,
@@ -37,6 +100,8 @@ struct AppManager {
     engine: MockObsEngine,
     pending_detaches: Vec<DetachRequest>,
     modifiers: ModifiersState,
+    native_menu: Option<NativeMenu>,
+    focused_window_id: Option<WindowId>,
 }
 
 impl AppManager {
@@ -62,6 +127,8 @@ impl AppManager {
             engine,
             pending_detaches: Vec::new(),
             modifiers: ModifiersState::empty(),
+            native_menu: None,
+            focused_window_id: None,
         }
     }
 
@@ -108,6 +175,43 @@ impl AppManager {
             }
             Err(e) => {
                 log::warn!("Failed to serialize layout: {e}");
+            }
+        }
+    }
+
+    /// Handle a native menu event by mapping the menu item ID to a layout action.
+    fn handle_menu_event(&mut self, id: &MenuId) {
+        let Some(native_menu) = &self.native_menu else {
+            return;
+        };
+
+        if *id == native_menu.reset_layout {
+            self.reset_layout();
+            return;
+        }
+
+        if let Some(panel_type) = native_menu.panel_type_for_id(id) {
+            // Add panel to the currently focused window, falling back to main
+            let target_id = match self.focused_window_id.or(self.main_window_id) {
+                Some(id) => id,
+                None => return,
+            };
+            if let Some(win) = self.windows.get_mut(&target_id) {
+                // Find the first group and add as a tab, or insert at root
+                let first_group = win.layout.groups.keys().next().copied();
+                if let Some(gid) = first_group {
+                    if let Some(group) = win.layout.groups.get_mut(&gid) {
+                        group.add_tab(panel_type);
+                    }
+                } else {
+                    win.layout.insert_at_root(
+                        panel_type,
+                        ui::layout::PanelId::next(),
+                        SplitDirection::Vertical,
+                        0.8,
+                    );
+                }
+                self.save_layout();
             }
         }
     }
@@ -163,6 +267,18 @@ impl ApplicationHandler for AppManager {
         self.main_window_id = Some(window_id);
         self.windows.insert(window_id, win_state);
 
+        // Attach native menu bar — must happen after window is fully initialized.
+        let native_menu = NativeMenu::build();
+        #[cfg(target_os = "macos")]
+        {
+            native_menu.menu.init_for_nsapp();
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let _ = unsafe { native_menu.menu.init_for_hwnd(window.rwh().hwnd) };
+        }
+        self.native_menu = Some(native_menu);
+
         // Spawn mock data driver on the tokio runtime
         self.runtime
             .spawn(mock_driver::run_mock_driver(self.state.clone()));
@@ -182,6 +298,9 @@ impl ApplicationHandler for AppManager {
         }
 
         match &event {
+            WindowEvent::Focused(true) => {
+                self.focused_window_id = Some(window_id);
+            }
             WindowEvent::ModifiersChanged(mods) => {
                 self.modifiers = mods.state();
             }
@@ -209,20 +328,8 @@ impl ApplicationHandler for AppManager {
                 if Some(window_id) == self.main_window_id {
                     event_loop.exit();
                 } else {
-                    // Reattach panels from the detached window back to the main window.
-                    if let Some(detached_win) = self.windows.remove(&window_id)
-                        && let Some(main_id) = self.main_window_id
-                        && let Some(main_win) = self.windows.get_mut(&main_id)
-                    {
-                        let panels = detached_win.layout.collect_all_panels();
-                        for (panel_id, panel_type) in panels {
-                            main_win.layout.insert_at_root(
-                                panel_type,
-                                panel_id,
-                                SplitDirection::Vertical,
-                                0.5,
-                            );
-                        }
+                    // Close the detached window — panels are discarded, not reattached.
+                    if let Some(detached_win) = self.windows.remove(&window_id) {
                         // Drop the leaked Window so the OS window actually closes.
                         // SAFETY: the pointer was created via Box::leak(Box::new(window))
                         // in `resumed` / `about_to_wait`, and we are the sole owner.
@@ -259,6 +366,47 @@ impl ApplicationHandler for AppManager {
                     if layout_changed {
                         self.save_layout();
                     }
+
+                    // Check for reattach request from detached windows
+                    if Some(window_id) != self.main_window_id
+                        && self
+                            .windows
+                            .get(&window_id)
+                            .is_some_and(|w| w.reattach_pending)
+                    {
+                        if let Some(detached_win) = self.windows.remove(&window_id)
+                            && let Some(main_id) = self.main_window_id
+                            && let Some(main_win) = self.windows.get_mut(&main_id)
+                        {
+                            let panels = detached_win.layout.collect_all_panels();
+                            for (panel_id, panel_type) in panels {
+                                main_win.layout.insert_at_root(
+                                    panel_type,
+                                    panel_id,
+                                    SplitDirection::Vertical,
+                                    0.5,
+                                );
+                            }
+                            let win_ptr = detached_win.window as *const Window as *mut Window;
+                            unsafe {
+                                drop(Box::from_raw(win_ptr));
+                            }
+                        }
+                        self.save_layout();
+                    }
+                }
+                // Update detached window title to match the active panel name
+                if Some(window_id) != self.main_window_id
+                    && let Some(win) = self.windows.get(&window_id)
+                {
+                    let title = win
+                        .layout
+                        .groups
+                        .values()
+                        .next()
+                        .map(|g| g.active_tab_entry().panel_type.display_name())
+                        .unwrap_or("Lodestone");
+                    win.window.set_title(title);
                 }
                 if let Some(win) = self.windows.get(&window_id) {
                     win.window.request_redraw();
@@ -269,6 +417,11 @@ impl ApplicationHandler for AppManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        // Process native menu events
+        if let Ok(event) = MenuEvent::receiver().try_recv() {
+            self.handle_menu_event(&event.id);
+        }
+
         // Create windows for any pending detach requests.
         if let Some(gpu) = &self.gpu {
             for detach in self.pending_detaches.drain(..) {

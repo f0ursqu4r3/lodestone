@@ -21,6 +21,7 @@ env_logger = "0.11"
 rand = "0.10.0"
 pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
+muda = "0.17.1"
 
 [dev-dependencies]
 tempfile = "3"

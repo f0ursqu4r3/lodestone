@@ -4,9 +4,7 @@
 //! values for the window to apply after the egui frame completes.
 
 use super::interactions::{collect_dividers, drop_zone_highlight_rect, hit_test_drop_zone};
-use super::tree::{
-    DockLayout, DropZone, GroupId, NodeId, PanelType, SplitDirection,
-};
+use super::tree::{DockLayout, DropZone, GroupId, NodeId, PanelType, SplitDirection};
 
 // ---------------------------------------------------------------------------
 // Theme constants
@@ -23,6 +21,8 @@ const TEXT_DIM: egui::Color32 = egui::Color32::from_gray(0xa0);
 const TEXT_BRIGHT: egui::Color32 = egui::Color32::from_gray(0xe0);
 const DIVIDER_COLOR: egui::Color32 = egui::Color32::from_gray(60);
 const TAB_BAR_HEIGHT: f32 = 28.0;
+const PANEL_PADDING: f32 = 6.0;
+const ADD_BUTTON_WIDTH: f32 = 28.0;
 
 // ---------------------------------------------------------------------------
 // LayoutAction
@@ -46,17 +46,27 @@ pub enum LayoutAction {
     /// Begin dragging a tab.
     StartDrag { group_id: GroupId, tab_index: usize },
     /// Drop a dragged tab onto a target group zone.
-    DropOnZone { target_group: GroupId, zone: DropZone },
+    DropOnZone {
+        target_group: GroupId,
+        zone: DropZone,
+    },
     /// Drop a dragged tab into empty space (creates a floating group).
     DropOnEmpty { pos: egui::Pos2 },
     /// Cancel the current drag operation.
     CancelDrag,
     /// Add a new panel tab to an existing group.
-    AddPanel { target_group: GroupId, panel_type: PanelType },
+    AddPanel {
+        target_group: GroupId,
+        panel_type: PanelType,
+    },
     /// Add a new panel at the root level of the split tree.
     AddPanelAtRoot { panel_type: PanelType },
     /// Reset the layout to the default configuration.
     ResetLayout,
+    /// Reattach all panels from this window back to the main window.
+    ReattachToMain,
+    /// Dock a floating group back into the grid.
+    DockFloatingToGrid { group_id: GroupId },
 }
 
 /// All dockable panel types for the type selector dropdown.
@@ -71,34 +81,12 @@ pub const DOCKABLE_TYPES: &[PanelType] = &[
 // Menu bar
 // ---------------------------------------------------------------------------
 
-/// Render the top menu bar. Returns layout actions and the remaining rect below the bar.
+/// Returns the available rect for the layout (full window area since the menu is now native).
 pub fn render_menu_bar(
     ctx: &egui::Context,
     _layout: &DockLayout,
 ) -> (Vec<LayoutAction>, egui::Rect) {
-    let mut actions = Vec::new();
-
-    egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-        egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("View", |ui| {
-                ui.menu_button("Add Panel", |ui| {
-                    for &pt in DOCKABLE_TYPES {
-                        if ui.button(pt.display_name()).clicked() {
-                            actions.push(LayoutAction::AddPanelAtRoot { panel_type: pt });
-                            ui.close();
-                        }
-                    }
-                });
-                ui.separator();
-                if ui.button("Reset Layout").clicked() {
-                    actions.push(LayoutAction::ResetLayout);
-                    ui.close();
-                }
-            });
-        });
-    });
-
-    (actions, ctx.available_rect())
+    (Vec::new(), ctx.available_rect())
 }
 
 // ---------------------------------------------------------------------------
@@ -107,11 +95,15 @@ pub fn render_menu_bar(
 
 /// Render the full layout (grid groups, floating groups, dividers, drag overlays).
 /// Returns layout actions to be applied after the egui frame.
+///
+/// When `is_main` is true, this is the main window. When false, the tab context menu
+/// includes a "Reattach to Main Window" option.
 pub fn render_layout(
     ctx: &egui::Context,
     layout: &DockLayout,
     state: &mut crate::state::AppState,
     available_rect: egui::Rect,
+    is_main: bool,
 ) -> Vec<LayoutAction> {
     let mut actions = Vec::new();
 
@@ -120,53 +112,296 @@ pub fn render_layout(
 
     for &(group_id, rect) in &group_rects {
         if let Some(group) = layout.groups.get(&group_id) {
-            let tab_bar_rect = egui::Rect::from_min_size(
-                rect.min,
-                egui::vec2(rect.width(), TAB_BAR_HEIGHT),
-            );
-            let content_rect = egui::Rect::from_min_max(
-                egui::pos2(rect.min.x, rect.min.y + TAB_BAR_HEIGHT),
-                rect.max,
-            );
+            {
+                let tab_bar_rect =
+                    egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), TAB_BAR_HEIGHT));
+                let content_rect = egui::Rect::from_min_max(
+                    egui::pos2(rect.min.x, rect.min.y + TAB_BAR_HEIGHT),
+                    rect.max,
+                );
 
-            render_tab_bar(ctx, layout, group_id, group, tab_bar_rect, &mut actions);
-            render_content(ctx, group_id, group, content_rect, state);
+                render_tab_bar(
+                    ctx,
+                    layout,
+                    group_id,
+                    group,
+                    tab_bar_rect,
+                    &mut actions,
+                    TabBarContext {
+                        is_main,
+                        is_floating: false,
+                    },
+                );
+                render_content(ctx, group_id, group, content_rect, state);
+            }
         }
     }
 
     // --- Floating groups ---
+    // Rendered as egui::Window with custom dark styling. We render tab bar inline
+    // using the window's own UI so the window sizes correctly.
     let floating_snapshot: Vec<_> = layout.floating.clone();
     for fg in &floating_snapshot {
         if let Some(group) = layout.groups.get(&fg.group_id) {
             let win_id = egui::Id::new(("floating_group", fg.group_id.0));
-            let mut open = true;
-            egui::Window::new(group.active_tab_entry().panel_type.display_name())
+            let dark_frame = egui::Frame {
+                fill: CONTENT_BG,
+                stroke: egui::Stroke::new(1.0, egui::Color32::from_gray(50)),
+                shadow: egui::Shadow {
+                    offset: [0, 4],
+                    blur: 16,
+                    spread: 4,
+                    color: egui::Color32::from_black_alpha(120),
+                },
+                inner_margin: egui::Margin::ZERO,
+                ..Default::default()
+            };
+
+            egui::Window::new("")
                 .id(win_id)
-                .open(&mut open)
+                .title_bar(false)
+                .frame(dark_frame)
                 .default_pos(fg.pos)
                 .default_size(fg.size)
+                .min_size(egui::vec2(200.0, 100.0))
+                .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
-                    // Tab bar inside floating window
-                    let tab_bar_rect =
-                        ui.allocate_space(egui::vec2(ui.available_width(), TAB_BAR_HEIGHT)).1;
-                    render_tab_bar(ctx, layout, fg.group_id, group, tab_bar_rect, &mut actions);
+                    let fgid = fg.group_id;
+                    let tab_count = group.tabs.len();
+                    let collapse_btn_width = 24.0_f32;
 
-                    // Content
+                    // --- Inline tab bar ---
+                    let (tab_bar_rect, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), TAB_BAR_HEIGHT),
+                        egui::Sense::hover(),
+                    );
+                    let painter = ui.painter();
+
+                    // Tab bar background
+                    painter.rect_filled(tab_bar_rect, 0.0, TAB_BAR_BG);
+
+                    // Collapse button (upper-left) — docks the floating group back to grid
+                    let collapse_rect = egui::Rect::from_min_size(
+                        tab_bar_rect.min,
+                        egui::vec2(collapse_btn_width, TAB_BAR_HEIGHT),
+                    );
+                    let collapse_resp = ui.interact(
+                        collapse_rect,
+                        egui::Id::new(("fcollapse", fgid.0)),
+                        egui::Sense::click(),
+                    );
+                    let collapse_color = if collapse_resp.hovered() {
+                        TEXT_BRIGHT
+                    } else {
+                        TEXT_DIM
+                    };
+                    if collapse_resp.hovered() {
+                        painter.rect_filled(collapse_rect, 0.0, TAB_HOVER_BG);
+                    }
+                    painter.text(
+                        collapse_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "\u{25BE}", // ▾ small down triangle
+                        egui::FontId::proportional(14.0),
+                        collapse_color,
+                    );
+                    if collapse_resp.clicked() {
+                        actions.push(LayoutAction::DockFloatingToGrid { group_id: fgid });
+                    }
+                    collapse_resp.on_hover_text("Dock to grid");
+
+                    // Tabs start after the collapse button
+                    let tabs_start_x = tab_bar_rect.min.x + collapse_btn_width;
+                    let available_for_tabs =
+                        tab_bar_rect.width() - collapse_btn_width - ADD_BUTTON_WIDTH;
+                    let max_tab_width = 160.0_f32;
+                    let tab_width = if tab_count > 0 {
+                        (available_for_tabs / tab_count as f32).min(max_tab_width)
+                    } else {
+                        max_tab_width
+                    };
+
+                    for (i, tab) in group.tabs.iter().enumerate() {
+                        let is_active = i == group.active_tab;
+                        let tab_rect = egui::Rect::from_min_size(
+                            egui::pos2(tabs_start_x + i as f32 * tab_width, tab_bar_rect.min.y),
+                            egui::vec2(tab_width, TAB_BAR_HEIGHT),
+                        );
+                        let tab_id = egui::Id::new(("ftab", fgid.0, i));
+                        let response = ui.interact(tab_rect, tab_id, egui::Sense::click_and_drag());
+
+                        // Background
+                        let bg = if is_active {
+                            TAB_ACTIVE_BG
+                        } else if response.hovered() {
+                            TAB_HOVER_BG
+                        } else {
+                            TAB_BAR_BG
+                        };
+                        painter.rect_filled(tab_rect, 0.0, bg);
+
+                        // Accent
+                        if is_active {
+                            painter.rect_filled(
+                                egui::Rect::from_min_size(
+                                    egui::pos2(tab_rect.min.x, tab_rect.max.y - 2.0),
+                                    egui::vec2(tab_width, 2.0),
+                                ),
+                                0.0,
+                                TAB_ACCENT,
+                            );
+                        }
+
+                        // Label
+                        let text_color = if is_active { TEXT_BRIGHT } else { TEXT_DIM };
+                        let galley = painter.layout(
+                            tab.panel_type.display_name().to_string(),
+                            egui::FontId::proportional(12.0),
+                            text_color,
+                            (tab_width - 28.0).max(10.0),
+                        );
+                        painter.galley(
+                            egui::pos2(tab_rect.min.x + 8.0, tab_rect.center().y - 6.0),
+                            galley,
+                            text_color,
+                        );
+
+                        // Close button
+                        if response.hovered() || is_active {
+                            let cc = egui::pos2(tab_rect.max.x - 12.0, tab_rect.center().y);
+                            let cr = egui::Rect::from_center_size(cc, egui::vec2(14.0, 14.0));
+                            let close_resp = ui.interact(
+                                cr,
+                                egui::Id::new(("ftab_close", fgid.0, i)),
+                                egui::Sense::click(),
+                            );
+                            let close_color = if close_resp.hovered() {
+                                TEXT_BRIGHT
+                            } else {
+                                TEXT_DIM
+                            };
+                            let s = 3.5;
+                            painter.line_segment(
+                                [cc - egui::vec2(s, s), cc + egui::vec2(s, s)],
+                                egui::Stroke::new(1.5, close_color),
+                            );
+                            painter.line_segment(
+                                [cc + egui::vec2(-s, s), cc + egui::vec2(s, -s)],
+                                egui::Stroke::new(1.5, close_color),
+                            );
+                            if close_resp.clicked() {
+                                actions.push(LayoutAction::Close {
+                                    group_id: fgid,
+                                    tab_index: i,
+                                });
+                            }
+                        }
+
+                        if response.clicked() {
+                            actions.push(LayoutAction::SetActiveTab {
+                                group_id: fgid,
+                                tab_index: i,
+                            });
+                        }
+
+                        // Context menu
+                        let tab_idx = i;
+                        response.context_menu(|ui: &mut egui::Ui| {
+                            if ui.button("Dock to Grid").clicked() {
+                                actions.push(LayoutAction::DockFloatingToGrid { group_id: fgid });
+                                ui.close();
+                            }
+                            if ui.button("Pop Out to Window").clicked() {
+                                actions.push(LayoutAction::DetachToWindow {
+                                    group_id: fgid,
+                                    tab_index: tab_idx,
+                                });
+                                ui.close();
+                            }
+                            ui.separator();
+                            if tab_count > 1 && ui.button("Close Others").clicked() {
+                                actions.push(LayoutAction::CloseOthers {
+                                    group_id: fgid,
+                                    tab_index: tab_idx,
+                                });
+                                ui.close();
+                            }
+                            if ui.button("Close").clicked() {
+                                actions.push(LayoutAction::Close {
+                                    group_id: fgid,
+                                    tab_index: tab_idx,
+                                });
+                                ui.close();
+                            }
+                        });
+                    }
+
+                    // "+" button (after collapse button + tabs)
+                    let plus_x = tabs_start_x + tab_count as f32 * tab_width;
+                    let plus_rect = egui::Rect::from_min_size(
+                        egui::pos2(plus_x, tab_bar_rect.min.y),
+                        egui::vec2(ADD_BUTTON_WIDTH, TAB_BAR_HEIGHT),
+                    );
+                    let plus_resp = ui.interact(
+                        plus_rect,
+                        egui::Id::new(("ftab_add", fgid.0)),
+                        egui::Sense::click(),
+                    );
+                    let pc = if plus_resp.hovered() {
+                        TEXT_BRIGHT
+                    } else {
+                        TEXT_DIM
+                    };
+                    if plus_resp.hovered() {
+                        painter.rect_filled(plus_rect, 0.0, TAB_HOVER_BG);
+                    }
+                    painter.text(
+                        plus_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "+",
+                        egui::FontId::proportional(16.0),
+                        pc,
+                    );
+
+                    let popup_id = egui::Id::new(("fadd_popup", fgid.0));
+                    if plus_resp.clicked() {
+                        #[allow(deprecated)]
+                        ctx.memory_mut(|m| {
+                            let open = m.is_popup_open(popup_id);
+                            m.close_popup(popup_id);
+                            if !open {
+                                m.open_popup(popup_id);
+                            }
+                        });
+                    }
+                    #[allow(deprecated)]
+                    let popup_open = ctx.memory(|m| m.is_popup_open(popup_id));
+                    if popup_open {
+                        egui::Area::new(popup_id)
+                            .fixed_pos(egui::pos2(plus_rect.min.x, plus_rect.max.y + 2.0))
+                            .order(egui::Order::Foreground)
+                            .show(ctx, |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    ui.set_min_width(140.0);
+                                    for &pt in DOCKABLE_TYPES {
+                                        if ui.button(pt.display_name()).clicked() {
+                                            actions.push(LayoutAction::AddPanel {
+                                                target_group: fgid,
+                                                panel_type: pt,
+                                            });
+                                            #[allow(deprecated)]
+                                            ctx.memory_mut(|m| m.close_popup(popup_id));
+                                        }
+                                    }
+                                });
+                            });
+                    }
+
+                    // --- Content area (frame fill is already CONTENT_BG) ---
                     let active = group.active_tab_entry();
-                    let panel_id = active.panel_id;
-                    let panel_type = active.panel_type;
-                    crate::ui::draw_panel(panel_type, ui, state, panel_id);
+                    ui.add_space(PANEL_PADDING);
+                    crate::ui::draw_panel(active.panel_type, ui, state, active.panel_id);
                 });
-
-            if !open {
-                // Close all tabs in the floating group
-                for i in (0..group.tabs.len()).rev() {
-                    actions.push(LayoutAction::Close {
-                        group_id: fg.group_id,
-                        tab_index: i,
-                    });
-                }
-            }
         }
     }
 
@@ -242,20 +477,18 @@ fn render_dividers(
                 }
 
                 if response.dragged()
-                    && let Some(pos) = ui.ctx().pointer_interact_pos() {
-                        let new_ratio = match direction {
-                            SplitDirection::Vertical => {
-                                (pos.x - parent_rect.min.x) / parent_rect.width()
-                            }
-                            SplitDirection::Horizontal => {
-                                (pos.y - parent_rect.min.y) / parent_rect.height()
-                            }
-                        };
-                        actions.push(LayoutAction::Resize {
-                            node_id,
-                            new_ratio,
-                        });
-                    }
+                    && let Some(pos) = ui.ctx().pointer_interact_pos()
+                {
+                    let new_ratio = match direction {
+                        SplitDirection::Vertical => {
+                            (pos.x - parent_rect.min.x) / parent_rect.width()
+                        }
+                        SplitDirection::Horizontal => {
+                            (pos.y - parent_rect.min.y) / parent_rect.height()
+                        }
+                    };
+                    actions.push(LayoutAction::Resize { node_id, new_ratio });
+                }
             });
     }
 }
@@ -274,38 +507,26 @@ fn render_drag_overlay(
 ) {
     if let Some(pointer_pos) = ctx.pointer_interact_pos() {
         // Ghost label following cursor
-        let ghost_layer = egui::LayerId::new(
-            egui::Order::Tooltip,
-            egui::Id::new("drag_ghost"),
-        );
+        let ghost_layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("drag_ghost"));
         let painter = ctx.layer_painter(ghost_layer);
         let text = drag.panel_type.display_name();
         let font = egui::FontId::proportional(13.0);
         let galley = painter.layout_no_wrap(text.to_string(), font, TEXT_BRIGHT);
-        let text_rect = egui::Rect::from_min_size(
-            pointer_pos + egui::vec2(12.0, -8.0),
-            galley.size(),
-        )
-        .expand(4.0);
+        let text_rect =
+            egui::Rect::from_min_size(pointer_pos + egui::vec2(12.0, -8.0), galley.size())
+                .expand(4.0);
         painter.rect_filled(
             text_rect,
             4.0,
             egui::Color32::from_rgba_premultiplied(0x1e, 0x1e, 0x2e, 0xd0),
         );
-        painter.galley(
-            text_rect.min + egui::vec2(4.0, 4.0),
-            galley,
-            TEXT_BRIGHT,
-        );
+        painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, TEXT_BRIGHT);
 
         // Drop zone overlays on grid groups
         let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;
         for &(gid, rect) in group_rects {
             if gid == drag.source_group
-                && layout
-                    .groups
-                    .get(&gid)
-                    .is_some_and(|g| g.tabs.len() <= 1)
+                && layout.groups.get(&gid).is_some_and(|g| g.tabs.len() <= 1)
             {
                 continue;
             }
@@ -318,23 +539,29 @@ fn render_drag_overlay(
 
         if let Some((_, zone, group_rect)) = &hovered_group {
             let highlight = drop_zone_highlight_rect(*group_rect, *zone);
-            let overlay_layer = egui::LayerId::new(
-                egui::Order::Foreground,
-                egui::Id::new("drop_overlay"),
-            );
+            let overlay_layer =
+                egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop_overlay"));
             let overlay_painter = ctx.layer_painter(overlay_layer);
             overlay_painter.rect_filled(highlight, 0.0, DROP_ZONE_TINT);
         }
 
-        // On mouse release: emit drop action
+        // On mouse release: emit drop action or cancel
         if ctx.input(|i| i.pointer.any_released()) {
             if let Some((target_gid, zone, _)) = hovered_group {
-                actions.push(LayoutAction::DropOnZone {
-                    target_group: target_gid,
-                    zone,
-                });
+                // Drop on the same group center = cancel (no-op reorder)
+                let is_self_center =
+                    target_gid == drag.source_group && matches!(zone, DropZone::Center);
+                if is_self_center {
+                    actions.push(LayoutAction::CancelDrag);
+                } else {
+                    actions.push(LayoutAction::DropOnZone {
+                        target_group: target_gid,
+                        zone,
+                    });
+                }
             } else {
-                actions.push(LayoutAction::DropOnEmpty { pos: pointer_pos });
+                // Drop outside any group = cancel (detach only via context menu)
+                actions.push(LayoutAction::CancelDrag);
             }
         }
     } else {
@@ -346,6 +573,12 @@ fn render_drag_overlay(
 // Tab bar rendering
 // ---------------------------------------------------------------------------
 
+/// Context flags for tab bar rendering.
+struct TabBarContext {
+    is_main: bool,
+    is_floating: bool,
+}
+
 /// Render the tab bar for a group. Emits actions for tab clicks, drags, close, and context menus.
 fn render_tab_bar(
     ctx: &egui::Context,
@@ -354,6 +587,7 @@ fn render_tab_bar(
     group: &super::tree::Group,
     tab_bar_rect: egui::Rect,
     actions: &mut Vec<LayoutAction>,
+    tctx: TabBarContext,
 ) {
     let painter = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Middle,
@@ -363,8 +597,10 @@ fn render_tab_bar(
 
     let tab_count = group.tabs.len();
     let max_tab_width = 160.0_f32;
+    // Reserve space for the "+" button at the end of the tab bar
+    let available_for_tabs = tab_bar_rect.width() - ADD_BUTTON_WIDTH;
     let tab_width = if tab_count > 0 {
-        (tab_bar_rect.width() / tab_count as f32).min(max_tab_width)
+        (available_for_tabs / tab_count as f32).min(max_tab_width)
     } else {
         max_tab_width
     };
@@ -383,14 +619,13 @@ fn render_tab_bar(
         let tab_area_id = egui::Id::new(("tab_area", group_id.0, i));
         let gid = group_id;
         let tab_idx = i;
-        let is_dragging = layout.drag.is_none();
+        let no_active_drag = layout.drag.is_none();
 
         egui::Area::new(tab_area_id)
             .fixed_pos(tab_rect.min)
             .sense(egui::Sense::click_and_drag())
             .show(ctx, |ui| {
-                let response =
-                    ui.allocate_response(tab_rect.size(), egui::Sense::click_and_drag());
+                let response = ui.allocate_response(tab_rect.size(), egui::Sense::click_and_drag());
 
                 // Background
                 let bg = if is_active {
@@ -402,17 +637,18 @@ fn render_tab_bar(
                 };
                 painter.rect_filled(tab_rect, 0.0, bg);
 
-                // Accent line for active tab
+                // Accent line at bottom of active tab
                 if is_active {
-                    let accent_rect =
-                        egui::Rect::from_min_size(tab_rect.min, egui::vec2(tab_width, 2.0));
+                    let accent_rect = egui::Rect::from_min_size(
+                        egui::pos2(tab_rect.min.x, tab_rect.max.y - 2.0),
+                        egui::vec2(tab_width, 2.0),
+                    );
                     painter.rect_filled(accent_rect, 0.0, TAB_ACCENT);
                 }
 
                 // Label
                 let text_color = if is_active { TEXT_BRIGHT } else { TEXT_DIM };
-                let label_pos =
-                    egui::pos2(tab_rect.min.x + 8.0, tab_rect.center().y - 6.0);
+                let label_pos = egui::pos2(tab_rect.min.x + 8.0, tab_rect.center().y - 6.0);
                 let available_text_width = tab_width - 28.0;
                 let font = egui::FontId::proportional(12.0);
                 let galley = painter.layout(
@@ -425,12 +661,10 @@ fn render_tab_bar(
 
                 // Close button (visible on hover or if active)
                 if response.hovered() || is_active {
-                    let close_center =
-                        egui::pos2(tab_rect.max.x - 12.0, tab_rect.center().y);
+                    let close_center = egui::pos2(tab_rect.max.x - 12.0, tab_rect.center().y);
                     let close_rect =
                         egui::Rect::from_center_size(close_center, egui::vec2(14.0, 14.0));
-                    let close_resp =
-                        ui.allocate_rect(close_rect, egui::Sense::click());
+                    let close_resp = ui.allocate_rect(close_rect, egui::Sense::click());
 
                     let close_color = if close_resp.hovered() {
                         TEXT_BRIGHT
@@ -471,7 +705,7 @@ fn render_tab_bar(
                 }
 
                 // Drag to start
-                if response.drag_started() && is_dragging {
+                if response.drag_started() && no_active_drag {
                     actions.push(LayoutAction::StartDrag {
                         group_id: gid,
                         tab_index: tab_idx,
@@ -480,31 +714,41 @@ fn render_tab_bar(
 
                 // Context menu
                 response.context_menu(|ui: &mut egui::Ui| {
-                    ui.menu_button("Add Panel", |ui: &mut egui::Ui| {
-                        for &pt in DOCKABLE_TYPES {
-                            if ui.button(pt.display_name()).clicked() {
-                                actions.push(LayoutAction::AddPanel {
-                                    target_group: gid,
-                                    panel_type: pt,
-                                });
-                                ui.close();
-                            }
+                    if tctx.is_floating {
+                        // Floating group inside main window — offer to dock back
+                        if ui.button("Dock to Grid").clicked() {
+                            actions.push(LayoutAction::DockFloatingToGrid { group_id: gid });
+                            ui.close();
                         }
-                    });
-                    ui.separator();
-                    if ui.button("Detach").clicked() {
-                        actions.push(LayoutAction::DetachToFloat {
-                            group_id: gid,
-                            tab_index: tab_idx,
-                        });
-                        ui.close();
-                    }
-                    if ui.button("Pop Out to Window").clicked() {
-                        actions.push(LayoutAction::DetachToWindow {
-                            group_id: gid,
-                            tab_index: tab_idx,
-                        });
-                        ui.close();
+                        if ui.button("Pop Out to Window").clicked() {
+                            actions.push(LayoutAction::DetachToWindow {
+                                group_id: gid,
+                                tab_index: tab_idx,
+                            });
+                            ui.close();
+                        }
+                    } else if tctx.is_main {
+                        // Grid group in main window
+                        if ui.button("Detach").clicked() {
+                            actions.push(LayoutAction::DetachToFloat {
+                                group_id: gid,
+                                tab_index: tab_idx,
+                            });
+                            ui.close();
+                        }
+                        if ui.button("Pop Out to Window").clicked() {
+                            actions.push(LayoutAction::DetachToWindow {
+                                group_id: gid,
+                                tab_index: tab_idx,
+                            });
+                            ui.close();
+                        }
+                    } else {
+                        // Detached OS window
+                        if ui.button("Reattach to Main Window").clicked() {
+                            actions.push(LayoutAction::ReattachToMain);
+                            ui.close();
+                        }
                     }
                     ui.separator();
                     if tab_count > 1 && ui.button("Close Others").clicked() {
@@ -524,6 +768,89 @@ fn render_tab_bar(
                 });
             });
     }
+
+    // "+" button after the last tab — drawn with the painter, click detected via Area
+    let plus_x = tab_bar_rect.min.x + tab_count as f32 * tab_width;
+    let plus_rect = egui::Rect::from_min_size(
+        egui::pos2(plus_x, tab_bar_rect.min.y),
+        egui::vec2(ADD_BUTTON_WIDTH, TAB_BAR_HEIGHT),
+    );
+    let plus_area_id = egui::Id::new(("tab_add_btn", group_id.0));
+    let gid = group_id;
+
+    egui::Area::new(plus_area_id)
+        .fixed_pos(plus_rect.min)
+        .sense(egui::Sense::click())
+        .show(ctx, |ui| {
+            let response = ui.allocate_response(plus_rect.size(), egui::Sense::click());
+
+            let plus_color = if response.hovered() {
+                TEXT_BRIGHT
+            } else {
+                TEXT_DIM
+            };
+            if response.hovered() {
+                painter.rect_filled(plus_rect, 0.0, TAB_HOVER_BG);
+            }
+            painter.text(
+                plus_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "+",
+                egui::FontId::proportional(16.0),
+                plus_color,
+            );
+
+            // Show add-panel menu on click using a separate Area for proper sizing
+            let popup_id = egui::Id::new(("add_panel_popup", gid.0));
+            if response.clicked() {
+                #[allow(deprecated)]
+                ctx.memory_mut(|m| {
+                    let currently_open = m.is_popup_open(popup_id);
+                    m.close_popup(popup_id);
+                    if !currently_open {
+                        m.open_popup(popup_id);
+                    }
+                });
+            }
+
+            #[allow(deprecated)]
+            let is_open = ctx.memory(|m| m.is_popup_open(popup_id));
+            if is_open {
+                let popup_pos = egui::pos2(plus_rect.min.x, plus_rect.max.y + 2.0);
+                egui::Area::new(popup_id)
+                    .fixed_pos(popup_pos)
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.set_min_width(140.0);
+                            for &pt in DOCKABLE_TYPES {
+                                if ui.button(pt.display_name()).clicked() {
+                                    actions.push(LayoutAction::AddPanel {
+                                        target_group: gid,
+                                        panel_type: pt,
+                                    });
+                                    #[allow(deprecated)]
+                                    ctx.memory_mut(|m| m.close_popup(popup_id));
+                                }
+                            }
+                        });
+                    });
+
+                // Close popup when clicking outside it
+                if ctx.input(|i| i.pointer.any_pressed())
+                    && let Some(pos) = ctx.pointer_interact_pos()
+                {
+                    let on_popup = ctx
+                        .layer_id_at(pos)
+                        .is_some_and(|layer| layer.id == popup_id);
+                    let on_button = plus_rect.contains(pos);
+                    if !on_popup && !on_button {
+                        #[allow(deprecated)]
+                        ctx.memory_mut(|m| m.close_popup(popup_id));
+                    }
+                }
+            }
+        });
 }
 
 // ---------------------------------------------------------------------------
@@ -551,6 +878,10 @@ fn render_content(
 
             ui.set_min_size(content_rect.size());
             ui.set_max_size(content_rect.size());
-            crate::ui::draw_panel(panel_type, ui, state, panel_id);
+
+            // Add inner padding around panel content
+            let padded_rect = content_rect.shrink(PANEL_PADDING);
+            let mut padded_ui = ui.new_child(egui::UiBuilder::new().max_rect(padded_rect));
+            crate::ui::draw_panel(panel_type, &mut padded_ui, state, panel_id);
         });
 }

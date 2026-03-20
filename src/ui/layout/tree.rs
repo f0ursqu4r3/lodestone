@@ -637,6 +637,33 @@ impl DockLayout {
         );
     }
 
+    /// Move an existing floating group into the grid by splitting at the root.
+    /// The group must already exist in `self.groups` and be in `self.floating`.
+    pub fn insert_floating_into_grid(&mut self, group_id: GroupId) {
+        // Remove from floating list (group stays in self.groups)
+        self.remove_floating(group_id);
+
+        // Add to the split tree at root level
+        let old_root = self.root;
+        let old_root_new_id = self.alloc_node_id();
+        if let Some(old_root_node) = self.nodes.remove(&old_root) {
+            self.nodes.insert(old_root_new_id, old_root_node);
+        }
+
+        let new_leaf_id = self.alloc_node_id();
+        self.nodes.insert(new_leaf_id, SplitNode::Leaf { group_id });
+
+        self.nodes.insert(
+            old_root,
+            SplitNode::Split {
+                direction: SplitDirection::Vertical,
+                ratio: 0.5,
+                first: old_root_new_id,
+                second: new_leaf_id,
+            },
+        );
+    }
+
     /// Collect all grid groups with their computed screen rects.
     pub fn collect_groups_with_rects(&self, rect: egui::Rect) -> Vec<(GroupId, egui::Rect)> {
         let mut result = Vec::new();

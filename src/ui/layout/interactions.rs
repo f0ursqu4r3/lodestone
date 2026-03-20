@@ -99,18 +99,30 @@ pub fn drop_zone_highlight_rect(group_rect: egui::Rect, zone: DropZone) -> egui:
     match zone {
         DropZone::Left => egui::Rect::from_min_max(
             group_rect.min,
-            egui::pos2(group_rect.min.x + group_rect.width() * 0.5, group_rect.max.y),
+            egui::pos2(
+                group_rect.min.x + group_rect.width() * 0.5,
+                group_rect.max.y,
+            ),
         ),
         DropZone::Right => egui::Rect::from_min_max(
-            egui::pos2(group_rect.min.x + group_rect.width() * 0.5, group_rect.min.y),
+            egui::pos2(
+                group_rect.min.x + group_rect.width() * 0.5,
+                group_rect.min.y,
+            ),
             group_rect.max,
         ),
         DropZone::Top => egui::Rect::from_min_max(
             group_rect.min,
-            egui::pos2(group_rect.max.x, group_rect.min.y + group_rect.height() * 0.5),
+            egui::pos2(
+                group_rect.max.x,
+                group_rect.min.y + group_rect.height() * 0.5,
+            ),
         ),
         DropZone::Bottom => egui::Rect::from_min_max(
-            egui::pos2(group_rect.min.x, group_rect.min.y + group_rect.height() * 0.5),
+            egui::pos2(
+                group_rect.min.x,
+                group_rect.min.y + group_rect.height() * 0.5,
+            ),
             group_rect.max,
         ),
         DropZone::Center | DropZone::TabBar { .. } => group_rect,
@@ -125,31 +137,46 @@ mod tests {
     #[test]
     fn hit_test_center() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
-        assert_eq!(hit_test_drop_zone(rect, egui::pos2(250.0, 200.0)), DropZone::Center);
+        assert_eq!(
+            hit_test_drop_zone(rect, egui::pos2(250.0, 200.0)),
+            DropZone::Center
+        );
     }
 
     #[test]
     fn hit_test_left() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
-        assert_eq!(hit_test_drop_zone(rect, egui::pos2(30.0, 200.0)), DropZone::Left);
+        assert_eq!(
+            hit_test_drop_zone(rect, egui::pos2(30.0, 200.0)),
+            DropZone::Left
+        );
     }
 
     #[test]
     fn hit_test_right() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
-        assert_eq!(hit_test_drop_zone(rect, egui::pos2(480.0, 200.0)), DropZone::Right);
+        assert_eq!(
+            hit_test_drop_zone(rect, egui::pos2(480.0, 200.0)),
+            DropZone::Right
+        );
     }
 
     #[test]
     fn hit_test_top() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
-        assert_eq!(hit_test_drop_zone(rect, egui::pos2(250.0, 30.0)), DropZone::Top);
+        assert_eq!(
+            hit_test_drop_zone(rect, egui::pos2(250.0, 30.0)),
+            DropZone::Top
+        );
     }
 
     #[test]
     fn hit_test_bottom() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
-        assert_eq!(hit_test_drop_zone(rect, egui::pos2(250.0, 380.0)), DropZone::Bottom);
+        assert_eq!(
+            hit_test_drop_zone(rect, egui::pos2(250.0, 380.0)),
+            DropZone::Bottom
+        );
     }
 
     #[test]

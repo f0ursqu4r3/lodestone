@@ -173,8 +173,7 @@ pub fn serialize_with_detached(layout: &DockLayout, detached: &[DetachedEntry]) 
 
 /// Deserialize a [`DockLayout`] and detached entries from a TOML string.
 pub fn deserialize_full_layout(toml_str: &str) -> Result<(DockLayout, Vec<DetachedEntry>)> {
-    let doc: SerializedLayout =
-        toml::from_str(toml_str).context("failed to parse layout TOML")?;
+    let doc: SerializedLayout = toml::from_str(toml_str).context("failed to parse layout TOML")?;
 
     // Rebuild groups.
     let mut groups: HashMap<GroupId, Group> = HashMap::new();

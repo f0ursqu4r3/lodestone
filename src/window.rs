@@ -26,8 +26,9 @@ pub struct WindowState {
     pub egui_state: egui_winit::State,
     pub egui_ctx: egui::Context,
     pub layout: DockLayout,
-    #[allow(dead_code)]
     pub is_main: bool,
+    /// Set to true when user requests reattaching this window's panels to main.
+    pub reattach_pending: bool,
 }
 
 impl WindowState {
@@ -59,6 +60,7 @@ impl WindowState {
         );
 
         let egui_ctx = egui::Context::default();
+        egui_ctx.set_visuals(egui::Visuals::dark());
         let max_tex = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),
@@ -78,6 +80,7 @@ impl WindowState {
             egui_ctx,
             layout,
             is_main,
+            reattach_pending: false,
         })
     }
 
@@ -97,18 +100,25 @@ impl WindowState {
         let raw_input = self.egui_state.take_egui_input(self.window);
 
         let layout = &self.layout;
+        let is_main = self.is_main;
         let mut pending_actions = Vec::new();
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            let (menu_actions, available_rect) =
-                crate::ui::layout::render::render_menu_bar(ctx, layout);
-            let mut actions = menu_actions;
-            actions.extend(crate::ui::layout::render::render_layout(
+            // Detached single-panel windows skip the menu bar — the OS window
+            // title bar acts as the header.
+            let available_rect = if is_main {
+                let (menu_actions, rect) = crate::ui::layout::render::render_menu_bar(ctx, layout);
+                pending_actions = menu_actions;
+                rect
+            } else {
+                ctx.available_rect()
+            };
+            pending_actions.extend(crate::ui::layout::render::render_layout(
                 ctx,
                 layout,
                 state,
                 available_rect,
+                is_main,
             ));
-            pending_actions = actions;
         });
 
         // Apply layout actions after the egui frame
@@ -123,9 +133,10 @@ impl WindowState {
                     tab_index,
                 } => {
                     if let Some(group) = self.layout.groups.get_mut(&group_id)
-                        && tab_index < group.tabs.len() {
-                            group.active_tab = tab_index;
-                        }
+                        && tab_index < group.tabs.len()
+                    {
+                        group.active_tab = tab_index;
+                    }
                 }
                 LayoutAction::Close {
                     group_id,
@@ -138,11 +149,12 @@ impl WindowState {
                     tab_index,
                 } => {
                     if let Some(group) = self.layout.groups.get_mut(&group_id)
-                        && tab_index < group.tabs.len() {
-                            let kept = group.tabs[tab_index].clone();
-                            group.tabs = vec![kept];
-                            group.active_tab = 0;
-                        }
+                        && tab_index < group.tabs.len()
+                    {
+                        let kept = group.tabs[tab_index].clone();
+                        group.tabs = vec![kept];
+                        group.active_tab = 0;
+                    }
                 }
                 LayoutAction::DetachToFloat {
                     group_id,
@@ -170,74 +182,68 @@ impl WindowState {
                     tab_index,
                 } => {
                     if let Some(group) = self.layout.groups.get(&group_id)
-                        && let Some(tab) = group.tabs.get(tab_index) {
-                            self.layout.drag = Some(DragState {
-                                panel_id: tab.panel_id,
-                                panel_type: tab.panel_type,
-                                source_group: group_id,
-                                tab_index,
-                            });
-                        }
+                        && let Some(tab) = group.tabs.get(tab_index)
+                    {
+                        self.layout.drag = Some(DragState {
+                            panel_id: tab.panel_id,
+                            panel_type: tab.panel_type,
+                            source_group: group_id,
+                            tab_index,
+                        });
+                    }
                 }
-                LayoutAction::DropOnZone {
-                    target_group,
-                    zone,
-                } => {
+                LayoutAction::DropOnZone { target_group, zone } => {
                     if let Some(drag) = self.layout.drag.take()
-                        && let Some(entry) =
-                            self.layout.take_tab(drag.source_group, drag.tab_index)
-                        {
-                            match zone {
-                                DropZone::Center | DropZone::TabBar { .. } => {
-                                    // Add as a new tab in the target group
-                                    if let Some(group) =
-                                        self.layout.groups.get_mut(&target_group)
-                                    {
-                                        group.add_tab_entry(entry);
-                                    }
-                                }
-                                DropZone::Left => {
-                                    self.layout.split_group_with_tab(
-                                        target_group,
-                                        SplitDirection::Vertical,
-                                        entry,
-                                        true,
-                                    );
-                                }
-                                DropZone::Right => {
-                                    self.layout.split_group_with_tab(
-                                        target_group,
-                                        SplitDirection::Vertical,
-                                        entry,
-                                        false,
-                                    );
-                                }
-                                DropZone::Top => {
-                                    self.layout.split_group_with_tab(
-                                        target_group,
-                                        SplitDirection::Horizontal,
-                                        entry,
-                                        true,
-                                    );
-                                }
-                                DropZone::Bottom => {
-                                    self.layout.split_group_with_tab(
-                                        target_group,
-                                        SplitDirection::Horizontal,
-                                        entry,
-                                        false,
-                                    );
+                        && let Some(entry) = self.layout.take_tab(drag.source_group, drag.tab_index)
+                    {
+                        match zone {
+                            DropZone::Center | DropZone::TabBar { .. } => {
+                                // Add as a new tab in the target group
+                                if let Some(group) = self.layout.groups.get_mut(&target_group) {
+                                    group.add_tab_entry(entry);
                                 }
                             }
+                            DropZone::Left => {
+                                self.layout.split_group_with_tab(
+                                    target_group,
+                                    SplitDirection::Vertical,
+                                    entry,
+                                    true,
+                                );
+                            }
+                            DropZone::Right => {
+                                self.layout.split_group_with_tab(
+                                    target_group,
+                                    SplitDirection::Vertical,
+                                    entry,
+                                    false,
+                                );
+                            }
+                            DropZone::Top => {
+                                self.layout.split_group_with_tab(
+                                    target_group,
+                                    SplitDirection::Horizontal,
+                                    entry,
+                                    true,
+                                );
+                            }
+                            DropZone::Bottom => {
+                                self.layout.split_group_with_tab(
+                                    target_group,
+                                    SplitDirection::Horizontal,
+                                    entry,
+                                    false,
+                                );
+                            }
                         }
+                    }
                 }
                 LayoutAction::DropOnEmpty { pos } => {
                     if let Some(drag) = self.layout.drag.take()
-                        && let Some(entry) =
-                            self.layout.take_tab(drag.source_group, drag.tab_index)
-                        {
-                            self.layout.add_floating_group(entry, pos);
-                        }
+                        && let Some(entry) = self.layout.take_tab(drag.source_group, drag.tab_index)
+                    {
+                        self.layout.add_floating_group(entry, pos);
+                    }
                 }
                 LayoutAction::CancelDrag => {
                     self.layout.drag = None;
@@ -260,6 +266,12 @@ impl WindowState {
                 }
                 LayoutAction::ResetLayout => {
                     self.layout = DockLayout::default_layout();
+                }
+                LayoutAction::ReattachToMain => {
+                    self.reattach_pending = true;
+                }
+                LayoutAction::DockFloatingToGrid { group_id } => {
+                    self.layout.insert_floating_into_grid(group_id);
                 }
             }
         }

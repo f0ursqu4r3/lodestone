@@ -10,6 +10,6 @@ pub use serialize::{
 };
 #[allow(unused_imports)]
 pub use tree::{
-    DockLayout, DropZone, FloatingGroup, GroupId, NodeId, PanelId, PanelType, SplitDirection,
-    SplitNode, TabEntry,
+    DockLayout, DragState, DropZone, FloatingGroup, Group, GroupId, NodeId, PanelId, PanelType,
+    SplitDirection, SplitNode, TabEntry, split_rect,
 };

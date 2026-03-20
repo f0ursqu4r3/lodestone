@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 #[allow(unused_imports)]
 use ui::layout::{
-    DockLayout, GroupId, PanelId, SplitDirection, deserialize_full_layout, serialize_full_layout,
+    DockLayout, SplitDirection, deserialize_full_layout, serialize_full_layout,
 };
 use window::{DetachRequest, WindowState};
 use winit::{
@@ -281,7 +281,7 @@ impl ApplicationHandler for AppManager {
                 let window: &'static Window = Box::leak(Box::new(window));
 
                 let layout =
-                    DockLayout::new_with_ids(GroupId::next(), detach.panel_id, detach.panel_type);
+                    DockLayout::new_with_ids(detach.group_id, detach.panel_id, detach.panel_type);
                 let win_state =
                     WindowState::new(window, gpu, layout, false).expect("init detached window");
                 self.windows.insert(window.id(), win_state);

@@ -85,12 +85,24 @@ impl WindowState {
         let raw_input = self.egui_state.take_egui_input(self.window);
 
         let layout = &self.layout;
+        let mut pending_actions = Vec::new();
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             let available_rect = ctx.available_rect();
-            let _actions =
+            let actions =
                 crate::ui::layout::render::render_layout(ctx, layout, state, available_rect);
-            // Actions will be processed in future tasks (e.g., Task 7/8)
+            pending_actions = actions;
         });
+
+        // Apply layout actions after the egui frame
+        for action in pending_actions {
+            match action {
+                crate::ui::layout::render::LayoutAction::Resize { node_id, new_ratio } => {
+                    self.layout.resize(node_id, new_ratio);
+                }
+                // Other actions will be handled in future tasks
+                _ => {}
+            }
+        }
 
         let pixels_per_point = full_output.pixels_per_point;
         let paint_jobs = self

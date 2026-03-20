@@ -45,6 +45,7 @@ src/
 ### Task 1: Project Setup & Dependencies
 
 **Files:**
+
 - Modify: `Cargo.toml`
 - Create: `src/main.rs` (replace placeholder)
 
@@ -104,6 +105,7 @@ git commit -m "Add project dependencies and minimal entry point"
 ### Task 2: Core Types — OBS Scene/Source/Output
 
 **Files:**
+
 - Create: `src/obs/mod.rs`
 - Create: `src/obs/scene.rs`
 - Create: `src/obs/output.rs`
@@ -380,6 +382,7 @@ git commit -m "Add OBS abstraction types: scenes, sources, output, encoder"
 ### Task 3: MockObsEngine
 
 **Files:**
+
 - Create: `src/obs/mock.rs`
 - Modify: `src/obs/mod.rs` (uncomment `pub mod mock;`)
 
@@ -706,6 +709,7 @@ git commit -m "Implement MockObsEngine with scene/source CRUD and stream control
 ### Task 4: AppState & State Types
 
 **Files:**
+
 - Create: `src/state.rs`
 - Create: `src/settings.rs` (stub with just `AppSettings` struct and `Default` impl — full settings in Task 5)
 
@@ -947,6 +951,7 @@ git commit -m "Add AppState, settings types, and state management"
 ### Task 5: Settings Persistence
 
 **Files:**
+
 - Modify: `src/settings.rs` (expand stub from Task 4 with load/save, profiles, platform paths)
 
 - [ ] **Step 1: Write tests for settings serialization**
@@ -1190,6 +1195,7 @@ git commit -m "Add settings persistence with TOML serialization and platform-awa
 ### Task 6: winit + wgpu Shell
 
 **Files:**
+
 - Modify: `src/main.rs`
 - Create: `src/renderer/mod.rs`
 
@@ -1471,6 +1477,7 @@ git commit -m "Add winit + wgpu shell with dark background clear pass"
 ### Task 7: egui-wgpu Integration
 
 **Files:**
+
 - Modify: `src/renderer/mod.rs`
 - Create: `src/ui/mod.rs`
 - Modify: `src/main.rs`
@@ -1707,6 +1714,7 @@ git commit -m "Integrate egui-wgpu for layout and input routing"
 ### Task 8: Glyphon Text Rendering
 
 **Files:**
+
 - Modify: `src/renderer/text.rs`
 - Modify: `src/renderer/mod.rs`
 
@@ -1837,6 +1845,7 @@ Note: The glyphon API changes between versions. The above is structured for glyp
 - [ ] **Step 2: Integrate into the render loop**
 
 Update `src/renderer/mod.rs`:
+
 - Add `GlyphonRenderer` as a field of `Renderer`
 - Call `text_renderer.prepare()` before the render pass
 - Call `text_renderer.render()` as the last sub-pass (text renders on top of everything)
@@ -1862,6 +1871,7 @@ git commit -m "Add glyphon text rendering pass with font system initialization"
 ### Task 9: SDF Widget Pipeline
 
 **Files:**
+
 - Modify: `src/renderer/pipelines.rs`
 - Modify: `src/renderer/mod.rs`
 
@@ -2085,6 +2095,7 @@ Note: The `draw_widget` method creates a new bind group per call. This is fine f
 - [ ] **Step 3: Integrate into Renderer**
 
 Update `src/renderer/mod.rs`:
+
 - Add `WidgetPipeline` as a field
 - Initialize in `new()`
 - In the render method (after clear, before text), draw test widgets: a panel-shaped rounded rect with shadow to verify the pipeline works
@@ -2127,6 +2138,7 @@ The blur pipeline is a separate render technique used for panel backgrounds. Imp
 3. Composite the blurred texture under the panel fill
 
 This requires:
+
 - A second WGSL shader for Gaussian blur (separable, two passes)
 - A `BlurPipeline` struct with two render passes (horizontal, vertical)
 - A scratch texture at half-resolution for the downsample
@@ -2166,6 +2178,7 @@ git commit -m "Add backdrop blur pipeline for panel transparency effect"
 ### Task 10: Preview Texture Stub
 
 **Files:**
+
 - Modify: `src/renderer/preview.rs`
 - Modify: `src/renderer/mod.rs`
 
@@ -2184,6 +2197,7 @@ pub struct PreviewRenderer {
 ```
 
 Methods:
+
 - `new(device, format, width, height)` — creates a texture and a fullscreen quad pipeline with a simple texture sampling shader
 - `upload_frame(queue, frame: &RgbaFrame)` — writes RGBA data to the texture via `queue.write_texture()`
 - `render(render_pass)` — draws the fullscreen quad with the texture
@@ -2193,6 +2207,7 @@ The preview renders behind all UI elements (first render pass after clear).
 - [ ] **Step 2: Integrate into Renderer**
 
 Update `src/renderer/mod.rs`:
+
 - Add `PreviewRenderer` as a field
 - In the render method, call `preview.render()` before widget and text passes
 - Upload a test frame (solid dark gray from `MockObsEngine::get_frame()`) on init
@@ -2214,6 +2229,7 @@ git commit -m "Add preview texture pipeline with fullscreen quad rendering"
 ### Task 11: Scene Editor Panel
 
 **Files:**
+
 - Modify: `src/ui/scene_editor.rs`
 - Modify: `src/ui/mod.rs`
 
@@ -2222,6 +2238,7 @@ git commit -m "Add preview texture pipeline with fullscreen quad rendering"
 Write `src/ui/scene_editor.rs`:
 
 Build the left-edge panel using egui layout:
+
 - Header: "Scenes" with add/remove buttons
 - Scene list: selectable items, clicking sets active scene
 - Divider
@@ -2236,6 +2253,7 @@ All interactions mutate `AppState` (passed as `&mut`).
 - [ ] **Step 2: Wire into UiRoot**
 
 Update `src/ui/mod.rs`:
+
 - Remove the test window
 - Call `scene_editor::draw(ctx, state)` in the `run` method
 
@@ -2256,6 +2274,7 @@ git commit -m "Add scene editor panel with scene/source list and transform contr
 ### Task 12: Audio Mixer Panel
 
 **Files:**
+
 - Modify: `src/ui/audio_mixer.rs`
 - Modify: `src/ui/mod.rs`
 
@@ -2264,6 +2283,7 @@ git commit -m "Add scene editor panel with scene/source list and transform contr
 Write `src/ui/audio_mixer.rs`:
 
 Build the bottom-bar panel using `egui::TopBottomPanel::bottom()`:
+
 - For each source with audio: vertical column containing:
   - Source name label (top)
   - Vertical slider (fader) for volume (0.0 to 1.0)
@@ -2276,6 +2296,7 @@ VU meter is a custom egui widget: a vertical rect filled proportionally to the d
 - [ ] **Step 2: Wire into UiRoot**
 
 Update `src/ui/mod.rs`:
+
 - Call `audio_mixer::draw(ctx, state)` in the `run` method
 
 - [ ] **Step 3: Verify it runs**
@@ -2295,6 +2316,7 @@ git commit -m "Add audio mixer panel with faders, VU meters, and mute toggles"
 ### Task 13: Stream Controls Panel
 
 **Files:**
+
 - Modify: `src/ui/stream_controls.rs`
 - Modify: `src/ui/mod.rs`
 
@@ -2303,6 +2325,7 @@ git commit -m "Add audio mixer panel with faders, VU meters, and mute toggles"
 Write `src/ui/stream_controls.rs`:
 
 Build the top-right floating panel using `egui::Window` positioned at top-right:
+
 - **Go Live / Stop button:** large, prominent. Text changes based on `StreamStatus`. Red when live.
 - **Destination selector:** dropdown/combo box for Twitch/YouTube/Custom RTMP
 - **Stream key input:** password-style text field
@@ -2316,6 +2339,7 @@ Button clicks call `MockObsEngine` methods through `AppState` (or directly — w
 - [ ] **Step 2: Wire into UiRoot**
 
 Update `src/ui/mod.rs`:
+
 - Call `stream_controls::draw(ctx, state)` in the `run` method
 
 - [ ] **Step 3: Verify it runs**
@@ -2335,6 +2359,7 @@ git commit -m "Add stream controls panel with go-live, destination, and stats di
 ### Task 14: Mock Data Driver
 
 **Files:**
+
 - Create: `src/mock_driver.rs`
 - Modify: `src/main.rs`
 
@@ -2484,6 +2509,7 @@ mod tests {
 - [ ] **Step 4: Wire into main.rs**
 
 Update `src/main.rs`:
+
 - Add `mod mock_driver;`
 - After renderer init, spawn a tokio runtime and start the mock driver
 - Pass the `Arc<Mutex<AppState>>` to the driver
@@ -2512,6 +2538,7 @@ git commit -m "Add mock data driver for animated VU meters and stream stats"
 ### Task 15: Panel Collapse & Polish
 
 **Files:**
+
 - Modify: `src/ui/scene_editor.rs`
 - Modify: `src/ui/audio_mixer.rs`
 - Modify: `src/ui/stream_controls.rs`
@@ -2520,6 +2547,7 @@ git commit -m "Add mock data driver for animated VU meters and stream stats"
 - [ ] **Step 1: Add collapse/expand toggle to each panel**
 
 Each panel checks `UiState` before rendering its full content:
+
 - Scene panel: if `!scene_panel_open`, render only a small icon strip at the left edge
 - Audio mixer: if `!mixer_panel_open`, render only a thin bar with VU meters (no faders)
 - Stream controls: if `!controls_panel_open`, render only the live indicator dot
@@ -2529,6 +2557,7 @@ Each collapsed state has a clickable icon/button to expand.
 - [ ] **Step 2: Add keyboard shortcuts**
 
 In `main.rs` window event handler, handle key events:
+
 - `F1` — toggle scene panel
 - `F2` — toggle mixer panel
 - `F3` — toggle controls panel
@@ -2541,6 +2570,7 @@ Update `AppState.ui_state` accordingly.
 In `src/ui/mod.rs`, add a small gear button in the top-left (or bottom-left of scene panel). Clicking it sets `ui_state.settings_modal_open = true`.
 
 When open, render a centered `egui::Window` modal with:
+
 - Stream key field
 - Destination selector
 - Resolution width/height
@@ -2566,12 +2596,14 @@ git commit -m "Add panel collapse/expand, keyboard shortcuts, and settings modal
 ### Task 16: Integration Wiring & Smoke Test
 
 **Files:**
+
 - Modify: `src/main.rs`
 - Modify: `src/ui/stream_controls.rs`
 
 - [ ] **Step 1: Wire MockObsEngine into the app**
 
 In `main.rs`:
+
 - Create a `MockObsEngine` at startup
 - Populate `AppState` from the engine's initial scenes/sources
 - When stream controls UI triggers "Go Live", call `engine.start_stream()`
@@ -2583,6 +2615,7 @@ The engine lives on the main thread for now (it's a mock). When `LiveObsEngine` 
 - [ ] **Step 2: Wire scene editor actions**
 
 When the scene editor UI triggers:
+
 - "Add Scene" → `engine.create_scene()`, refresh `AppState.scenes`
 - "Remove Scene" → `engine.remove_scene()`, refresh
 - "Add Source" → `engine.add_source()`, refresh
@@ -2591,6 +2624,7 @@ When the scene editor UI triggers:
 - [ ] **Step 3: Wire audio mixer actions**
 
 When the mixer UI triggers:
+
 - Volume fader change → `engine.set_volume()`
 - Mute toggle → `engine.set_muted()`
 
@@ -2599,6 +2633,7 @@ When the mixer UI triggers:
 Run: `cargo run`
 
 Verify manually:
+
 1. Window opens with dark preview background
 2. Scene panel shows "Scene 1" on the left
 3. Can add a new scene, switch between them
@@ -2622,6 +2657,7 @@ git commit -m "Wire MockObsEngine into UI for end-to-end streaming workflow"
 ### Task 17: Final Cleanup & Full Test Suite
 
 **Files:**
+
 - All `src/` files
 
 - [ ] **Step 1: Run full test suite**

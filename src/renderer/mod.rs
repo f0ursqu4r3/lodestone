@@ -9,6 +9,7 @@ use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureFormat};
 use winit::window::Window;
 
+use pipelines::{WidgetParams, WidgetPipeline};
 use text::{GlyphonRenderer, TextSection};
 
 pub struct Renderer {
@@ -19,6 +20,7 @@ pub struct Renderer {
     pub format: TextureFormat,
     egui_renderer: egui_wgpu::Renderer,
     text_renderer: GlyphonRenderer,
+    widget_pipeline: WidgetPipeline,
 }
 
 impl Renderer {
@@ -66,6 +68,7 @@ impl Renderer {
         );
 
         let text_renderer = GlyphonRenderer::new();
+        let widget_pipeline = WidgetPipeline::new(&device, format);
 
         Ok(Self {
             device,
@@ -75,6 +78,7 @@ impl Renderer {
             format,
             egui_renderer,
             text_renderer,
+            widget_pipeline,
         })
     }
 
@@ -182,22 +186,41 @@ impl Renderer {
             &screen_descriptor,
         );
 
-        // Clear + egui render pass
+        // Pass 1: Clear
         {
-            let render_pass = encoder
+            let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("clear_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.08,
+                            g: 0.08,
+                            b: 0.10,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+
+        // Pass 2: SDF widget rendering (behind egui)
+        {
+            let mut widget_pass = encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("egui_pass"),
+                    label: Some("widget_pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.08,
-                                g: 0.08,
-                                b: 0.10,
-                                a: 1.0,
-                            }),
+                            load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -206,7 +229,47 @@ impl Renderer {
                     occlusion_query_set: None,
                 })
                 .forget_lifetime();
-            let mut render_pass = render_pass;
+
+            // Test widget: a dark semi-transparent panel
+            let test_widget = WidgetParams {
+                rect: [20.0, 20.0, 220.0, 400.0],
+                color: [0.12, 0.12, 0.14, 0.85],
+                border_color: [0.3, 0.3, 0.35, 0.5],
+                corner_radius: 12.0,
+                border_width: 1.0,
+                shadow_offset: [4.0, 4.0],
+                shadow_blur: 16.0,
+                _pad0: [0.0; 3],
+                shadow_color: [0.0, 0.0, 0.0, 0.4],
+                viewport_size: [
+                    self.surface_config.width as f32,
+                    self.surface_config.height as f32,
+                ],
+                _pad1: [0.0, 0.0],
+            };
+            self.widget_pipeline
+                .draw_widget(&mut widget_pass, &self.device, &self.queue, &test_widget);
+        }
+
+        // Pass 3: egui overlay
+        {
+            let mut render_pass = encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("egui_pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                })
+                .forget_lifetime();
             self.egui_renderer
                 .render(&mut render_pass, paint_jobs, &screen_descriptor);
             // Text rendering on top of everything (currently a no-op stub)

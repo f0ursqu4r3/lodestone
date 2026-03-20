@@ -13,8 +13,8 @@ use renderer::SharedGpuState;
 use state::AppState;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use ui::layout::LayoutTree;
-use window::WindowState;
+use ui::layout::{LayoutTree, SplitDirection};
+use window::{DetachRequest, WindowState};
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalSize},
@@ -31,6 +31,7 @@ struct AppManager {
     runtime: tokio::runtime::Runtime,
     #[allow(dead_code)]
     engine: MockObsEngine,
+    pending_detaches: Vec<DetachRequest>,
 }
 
 impl AppManager {
@@ -54,6 +55,7 @@ impl AppManager {
             state: Arc::new(Mutex::new(initial_state)),
             runtime,
             engine,
+            pending_detaches: Vec::new(),
         }
     }
 }
@@ -108,7 +110,22 @@ impl ApplicationHandler for AppManager {
                 if Some(window_id) == self.main_window_id {
                     event_loop.exit();
                 } else {
-                    self.windows.remove(&window_id);
+                    // Reattach panels from the detached window back to the main window.
+                    if let Some(detached_win) = self.windows.remove(&window_id) {
+                        if let Some(main_id) = self.main_window_id {
+                            if let Some(main_win) = self.windows.get_mut(&main_id) {
+                                let leaves = detached_win.layout.collect_leaves();
+                                for (panel_id, panel_type, _node_id) in leaves {
+                                    main_win.layout.insert_at_root(
+                                        panel_type,
+                                        panel_id,
+                                        SplitDirection::Vertical,
+                                        0.5,
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
             }
             WindowEvent::Resized(PhysicalSize { width, height }) => {
@@ -122,8 +139,13 @@ impl ApplicationHandler for AppManager {
                 if let Some(gpu) = &self.gpu {
                     if let Some(win) = self.windows.get_mut(&window_id) {
                         let mut app_state = self.state.lock().unwrap();
-                        if let Err(e) = win.render(gpu, &mut app_state) {
-                            log::error!("Render error: {e}");
+                        match win.render(gpu, &mut app_state) {
+                            Ok(detach_requests) => {
+                                self.pending_detaches.extend(detach_requests);
+                            }
+                            Err(e) => {
+                                log::error!("Render error: {e}");
+                            }
                         }
                         drop(app_state);
                     }
@@ -133,6 +155,29 @@ impl ApplicationHandler for AppManager {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        // Create windows for any pending detach requests.
+        if let Some(gpu) = &self.gpu {
+            for detach in self.pending_detaches.drain(..) {
+                let attrs = WindowAttributes::default()
+                    .with_title(detach.panel_type.display_name())
+                    .with_inner_size(LogicalSize::new(400.0, 300.0));
+                let window = event_loop.create_window(attrs).expect("create detached window");
+                let window: &'static Window = Box::leak(Box::new(window));
+
+                let layout = LayoutTree::new_with_id(detach.panel_type, detach.panel_id);
+                let win_state =
+                    WindowState::new(window, gpu, layout, false).expect("init detached window");
+                self.windows.insert(window.id(), win_state);
+            }
+        }
+
+        // Request redraw for all windows so detached windows also animate.
+        for win in self.windows.values() {
+            win.window.request_redraw();
         }
     }
 }

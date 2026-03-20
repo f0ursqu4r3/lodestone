@@ -166,6 +166,18 @@ impl LayoutTree {
         }
     }
 
+    /// Create a single-leaf tree preserving an existing PanelId.
+    pub fn new_with_id(panel_type: PanelType, panel_id: PanelId) -> Self {
+        let root_id = NodeId(0);
+        let mut nodes = HashMap::new();
+        nodes.insert(root_id, LayoutNode::Leaf { panel_type, panel_id });
+        Self {
+            nodes,
+            root: root_id,
+            next_node_id: 1,
+        }
+    }
+
     fn alloc_node_id(&mut self) -> NodeId {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;

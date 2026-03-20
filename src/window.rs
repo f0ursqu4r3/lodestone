@@ -5,7 +5,12 @@ use winit::window::Window;
 
 use crate::renderer::SharedGpuState;
 use crate::state::AppState;
-use crate::ui::layout::LayoutTree;
+use crate::ui::layout::{LayoutTree, PanelId, PanelType};
+
+pub struct DetachRequest {
+    pub panel_type: PanelType,
+    pub panel_id: PanelId,
+}
 
 pub struct WindowState {
     pub window: &'static Window,
@@ -81,7 +86,7 @@ impl WindowState {
         }
     }
 
-    pub fn render(&mut self, gpu: &SharedGpuState, state: &mut AppState) -> Result<()> {
+    pub fn render(&mut self, gpu: &SharedGpuState, state: &mut AppState) -> Result<Vec<DetachRequest>> {
         let raw_input = self.egui_state.take_egui_input(self.window);
 
         let layout = &self.layout;
@@ -94,6 +99,7 @@ impl WindowState {
         });
 
         // Apply layout actions after the egui frame
+        let mut detach_requests = Vec::new();
         for action in pending_actions {
             use crate::ui::layout::render::LayoutAction;
             match action {
@@ -117,9 +123,10 @@ impl WindowState {
                 LayoutAction::Merge { node_id, keep } => {
                     self.layout.merge(node_id, keep);
                 }
-                LayoutAction::Detach { node_id: _ } => {
-                    // Detach is deferred to AppManager in Task 9.
-                    // For now, this is a no-op.
+                LayoutAction::Detach { node_id } => {
+                    if let Some((panel_type, panel_id)) = self.layout.remove_leaf(node_id) {
+                        detach_requests.push(DetachRequest { panel_type, panel_id });
+                    }
                 }
             }
         }
@@ -244,6 +251,6 @@ impl WindowState {
         self.egui_state
             .handle_platform_output(self.window, full_output.platform_output);
 
-        Ok(())
+        Ok(detach_requests)
     }
 }

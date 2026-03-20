@@ -25,8 +25,7 @@ impl WindowState {
         layout: LayoutTree,
         is_main: bool,
     ) -> Result<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let surface = instance.create_surface(window)?;
+        let surface = gpu.instance.create_surface(window)?;
 
         let size = window.inner_size();
         // Query capabilities using a temporary adapter — we reuse the same

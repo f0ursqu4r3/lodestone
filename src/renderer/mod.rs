@@ -21,6 +21,7 @@ use crate::obs::RgbaFrame;
 // ---------------------------------------------------------------------------
 
 pub struct SharedGpuState {
+    pub instance: wgpu::Instance,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
     pub format: TextureFormat,
@@ -87,6 +88,7 @@ impl SharedGpuState {
         preview_renderer.upload_frame(&queue, &test_frame);
 
         Ok(Self {
+            instance,
             device,
             queue,
             format,

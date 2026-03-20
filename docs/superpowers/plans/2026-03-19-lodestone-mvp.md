@@ -703,14 +703,50 @@ git commit -m "Implement MockObsEngine with scene/source CRUD and stream control
 
 ---
 
-### Task 5: AppState & State Types
-
-**Depends on:** Task 4 (settings types must exist for `AppState.settings` field)
+### Task 4: AppState & State Types
 
 **Files:**
 - Create: `src/state.rs`
+- Create: `src/settings.rs` (stub with just `AppSettings` struct and `Default` impl — full settings in Task 5)
 
-- [ ] **Step 1: Write tests for AppState**
+Note: `AppState` references `AppSettings`. Create a minimal `src/settings.rs` in this task with just the type definition and `Default` impl. Task 5 adds the full persistence logic.
+
+- [ ] **Step 1: Create minimal settings stub**
+
+Create `src/settings.rs` with just the type:
+
+```rust
+use serde::{Deserialize, Serialize};
+
+/// Global application settings. Persisted to TOML (full impl in Task 5).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppSettings {
+    pub active_profile: String,
+    pub ui: UiSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiSettings {
+    pub scene_panel_open: bool,
+    pub mixer_panel_open: bool,
+    pub controls_panel_open: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            active_profile: "Default".to_string(),
+            ui: UiSettings {
+                scene_panel_open: true,
+                mixer_panel_open: true,
+                controls_panel_open: true,
+            },
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Write tests for AppState**
 
 Tests at bottom of `src/state.rs`:
 
@@ -748,12 +784,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Run tests to verify they fail**
 
 Run: `cargo test --lib state`
 Expected: FAIL — module does not exist
 
-- [ ] **Step 3: Implement state types**
+- [ ] **Step 4: Implement state types**
 
 Write `src/state.rs`:
 
@@ -876,9 +912,9 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Add `mod state;` to `main.rs`**
+- [ ] **Step 5: Add `mod state;`, `mod settings;`, and `mod obs;` to `main.rs`**
 
-Update `src/main.rs` (should already have `mod obs;` and `mod settings;` from previous tasks):
+Update `src/main.rs`:
 
 ```rust
 mod obs;
@@ -894,24 +930,24 @@ fn main() -> Result<()> {
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [ ] **Step 6: Run tests**
 
 Run: `cargo test --lib`
 Expected: all obs and state tests pass
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/state.rs src/main.rs
-git commit -m "Add AppState with stream status, audio levels, and UI state tracking"
+git add src/state.rs src/settings.rs src/main.rs
+git commit -m "Add AppState, settings types, and state management"
 ```
 
 ---
 
-### Task 4: Settings Persistence
+### Task 5: Settings Persistence
 
 **Files:**
-- Create: `src/settings.rs`
+- Modify: `src/settings.rs` (expand stub from Task 4 with load/save, profiles, platform paths)
 
 - [ ] **Step 1: Write tests for settings serialization**
 
@@ -1527,6 +1563,7 @@ Add a new render method that replaces `render()`:
 ```rust
 pub fn render_with_egui(
     &mut self,
+    ctx: &egui::Context,
     full_output: egui::FullOutput,
     screen: egui_wgpu::ScreenDescriptor,
 ) -> Result<()> {
@@ -1538,7 +1575,7 @@ pub fn render_with_egui(
         self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
     }
 
-    let clipped_primitives = self.ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+    let clipped_primitives = ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
 
     let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("render_encoder"),
@@ -1586,7 +1623,7 @@ pub fn render_with_egui(
 }
 ```
 
-Note: The `self.ctx` reference above is the `egui::Context` — you may need to pass it as a parameter or store it in `Renderer`. The exact API may differ based on `egui-wgpu` version; consult the `egui-wgpu` examples if the method signatures don't match.
+Note: The exact API may differ based on `egui-wgpu` version; consult the `egui-wgpu` examples if the method signatures don't match.
 
 - [ ] **Step 4: Wire egui into the main event loop**
 
@@ -1641,7 +1678,7 @@ WindowEvent::RedrawRequested => {
 
         egui_state.handle_platform_output(window, full_output.platform_output.clone());
 
-        if let Err(e) = renderer.render_with_egui(full_output, screen) {
+        if let Err(e) = renderer.render_with_egui(&ui.ctx, full_output, screen) {
             log::error!("Render error: {e}");
         }
     }
@@ -1855,7 +1892,7 @@ struct VertexOutput {
 
 @group(0) @binding(0) var<uniform> params: WidgetParams;
 
-// Fullscreen triangle trick — 3 vertices, no vertex buffer needed
+// Quad from triangle strip — 4 vertices, no vertex buffer needed
 @vertex
 fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
     var out: VertexOutput;
@@ -2341,7 +2378,7 @@ Write `src/mock_driver.rs`:
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use rand::Rng;
+use rand::Rng; // Provides gen_range()
 use tokio::time;
 
 use crate::obs::SourceId;
@@ -2350,7 +2387,7 @@ use crate::state::{AppState, AudioLevel, StreamStatus};
 /// Random walk for audio level simulation. Stays within -60..0 dB range.
 pub fn random_walk_db(current: f32) -> f32 {
     let mut rng = rand::rng();
-    let delta: f32 = rng.random_range(-3.0..3.0);
+    let delta: f32 = rng.gen_range(-3.0..3.0);
     (current + delta).clamp(-60.0, 0.0)
 }
 
@@ -2390,11 +2427,11 @@ pub fn spawn_mock_driver(state: Arc<Mutex<AppState>>) -> tokio::task::JoinHandle
                         peaks[i] = decay_peak(peaks[i], dt).max(levels[i]);
                     }
 
-                    state.audio_levels.push(AudioLevel {
-                        source_id: source.id,
-                        current_db: levels[i],
-                        peak_db: peaks[i],
-                    });
+                    state.audio_levels.push(AudioLevel::new(
+                        source.id,
+                        levels[i],
+                        peaks[i],
+                    ));
                 }
             }
 
@@ -2409,10 +2446,10 @@ pub fn spawn_mock_driver(state: Arc<Mutex<AppState>>) -> tokio::task::JoinHandle
                 *uptime_secs = uptime;
 
                 let mut rng = rand::rng();
-                let jitter: f64 = rng.random_range(-100.0..100.0);
+                let jitter: f64 = rng.gen_range(-100.0..100.0);
                 *bitrate_kbps = (4500.0 + jitter).max(0.0);
 
-                if rng.random_range(0..300) == 0 {
+                if rng.gen_range(0..300) == 0 {
                     *dropped_frames += 1;
                 }
             } else {

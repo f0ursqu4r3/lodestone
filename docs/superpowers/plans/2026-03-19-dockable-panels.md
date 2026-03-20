@@ -6,7 +6,7 @@
 
 **Architecture:** A binary split tree (`LayoutTree`) manages panel placement within each window. Each OS window owns its own tree and `egui::Context`. All windows share one `wgpu::Device`/`Queue`, one `AppState`, and one set of GPU pipelines (`SharedGpuState`). Panel draw functions take `&mut egui::Ui` regions allocated by the tree traversal.
 
-**Tech Stack:** Rust, winit 0.30 (multi-window), wgpu 27 (via egui_wgpu), egui 0.33, serde + toml for layout persistence
+**Tech Stack:** Rust, winit 0.30 (multi-window), wgpu (via `egui_wgpu::wgpu` re-export — use this consistently, not the direct `wgpu` crate), egui 0.33, serde + toml for layout persistence
 
 **Spec:** `docs/superpowers/specs/2026-03-19-dockable-panels-design.md`
 
@@ -157,6 +157,42 @@ mod tests {
         assert!(types.contains(&PanelType::AudioMixer));
         assert!(types.contains(&PanelType::StreamControls));
         assert!(types.contains(&PanelType::Settings));
+    }
+
+    #[test]
+    fn remove_leaf_collapses_parent() {
+        let mut tree = LayoutTree::new(PanelType::Preview);
+        let root_id = tree.root_id();
+        tree.split(root_id, SplitDirection::Vertical, 0.5);
+        let leaves = tree.collect_leaves();
+        assert_eq!(leaves.len(), 2);
+
+        // Remove one leaf — tree should collapse back to a single leaf
+        let removed_node = leaves[1].2; // NodeId of second leaf
+        let removed = tree.remove_leaf(removed_node);
+        assert!(removed.is_some());
+        assert_eq!(tree.collect_leaves().len(), 1);
+    }
+
+    #[test]
+    fn remove_last_leaf_returns_none() {
+        let mut tree = LayoutTree::new(PanelType::Preview);
+        let root_id = tree.root_id();
+        // Cannot remove the last leaf
+        assert!(tree.remove_leaf(root_id).is_none());
+    }
+
+    #[test]
+    fn insert_at_root_splits_existing() {
+        let mut tree = LayoutTree::new(PanelType::Preview);
+        assert_eq!(tree.collect_leaves().len(), 1);
+
+        tree.insert_at_root(PanelType::AudioMixer, PanelId::next(), SplitDirection::Vertical, 0.5);
+        let leaves = tree.collect_leaves();
+        assert_eq!(leaves.len(), 2);
+        let types: Vec<PanelType> = leaves.iter().map(|(_, t, _)| *t).collect();
+        assert!(types.contains(&PanelType::Preview));
+        assert!(types.contains(&PanelType::AudioMixer));
     }
 }
 ```
@@ -503,12 +539,16 @@ Wire the layout tree into the render loop — traverse the tree, allocate egui r
 In `src/ui/layout/render.rs`:
 
 ```rust
+/// Render all panels in the layout tree. Returns a list of deferred actions
+/// (resize, swap type, close, detach, split, merge) to apply after drawing.
+/// This keeps the tree immutable during rendering, avoiding borrow conflicts.
 pub fn render_layout(
     ctx: &egui::Context,
     layout: &LayoutTree,
     state: &mut AppState,
     available_rect: egui::Rect,
-) {
+) -> Vec<LayoutAction> {
+    let mut actions = Vec::new();
     // Snapshot leaves with their rects
     let leaves = layout.collect_leaves_with_rects(available_rect);
 
@@ -535,6 +575,22 @@ pub fn render_layout(
 ```
 
 Add `display_name()` method to `PanelType` returning `&'static str`.
+
+Define `LayoutAction` enum in `render.rs`:
+
+```rust
+pub enum LayoutAction {
+    Resize { node_id: NodeId, new_ratio: f32 },
+    SwapType { node_id: NodeId, new_type: PanelType },
+    Close { node_id: NodeId },
+    Detach { node_id: NodeId },
+    Duplicate { node_id: NodeId },
+    Split { node_id: NodeId, direction: SplitDirection },
+    Merge { node_id: NodeId, keep: MergeSide },
+}
+```
+
+`render_layout` collects actions during rendering and returns them. The caller (`WindowState::render()`) applies them to the tree after the draw loop completes. This pattern is used consistently for all mutations — divider resize (Task 6), header actions (Task 7), and corner gestures (Task 8) all push to the same `actions` vec.
 
 - [ ] **Step 2: Wire into WindowState::render()**
 
@@ -605,7 +661,7 @@ In `render_layout`, after drawing panels:
 - Compute divider rects
 - For each divider, paint a thin line
 - Check for drag interaction (egui `Sense::drag()`)
-- If dragged, compute new ratio from mouse position and call `tree.resize(node_id, new_ratio)`
+- If dragged, compute new ratio from mouse position and push `LayoutAction::Resize { node_id, new_ratio }` to the actions vec
 
 The divider divides the split's rect. For a vertical split at ratio 0.3 with total width 1000px, the divider is at x=298 to x=302 (4px wide). Dragging changes the ratio.
 
@@ -768,33 +824,65 @@ git commit -m "Add multi-window support with panel detach and reattach"
 - Modify: `src/main.rs`
 - Modify: `src/window.rs`
 
-- [ ] **Step 1: Save layout on change**
+- [ ] **Step 1: Define multi-window serialization wrapper**
 
-After any layout action (split, merge, resize, swap, detach, reattach), serialize the main window's layout tree and save to `<config_dir>/lodestone/layout.toml`. Use a debounced tokio task (500ms delay).
-
-Detached windows saved as additional entries in the same file.
-
-- [ ] **Step 2: Load layout on startup**
-
-In `AppManager::new()`, try to load `layout.toml`. If it exists and parses, use the saved layout for the main window and recreate detached windows. If it doesn't exist or fails to parse, fall back to `LayoutTree::default_layout()`.
-
-- [ ] **Step 3: Add "Reset Layout" keyboard shortcut**
-
-`Ctrl+Shift+R` resets the main window's layout to default and closes all detached windows.
-
-- [ ] **Step 4: Write persistence test**
+Extend the serialization module (`src/ui/layout/serialize.rs`) with a top-level wrapper:
 
 ```rust
-#[test]
-fn layout_save_load_roundtrip() {
-    let tree = LayoutTree::default_layout();
-    let toml_str = serialize_layout(&tree).unwrap();
-    let restored = deserialize_layout(&toml_str).unwrap();
-    assert_eq!(tree.collect_leaves().len(), restored.collect_leaves().len());
+#[derive(Serialize, Deserialize)]
+struct SavedLayout {
+    layout: SerializedNode,
+    #[serde(default)]
+    detached: Vec<DetachedEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DetachedEntry {
+    panel: PanelType,
+    id: u64,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
 }
 ```
 
-- [ ] **Step 5: Commit**
+Add functions:
+- `pub fn serialize_full_layout(tree: &LayoutTree, detached: &[DetachedEntry]) -> Result<String>`
+- `pub fn deserialize_full_layout(toml_str: &str) -> Result<(LayoutTree, Vec<DetachedEntry>)>`
+
+- [ ] **Step 2: Save layout on change**
+
+After any layout action (split, merge, resize, swap, detach, reattach), serialize the main window's layout tree and all detached window entries, save to `<config_dir>/lodestone/layout.toml`. Use a debounced tokio task (500ms delay).
+
+- [ ] **Step 3: Load layout on startup**
+
+In `AppManager::new()`, try to load `layout.toml`. If it exists and parses, use the saved layout for the main window and recreate detached windows. If it doesn't exist or fails to parse, fall back to `LayoutTree::default_layout()`.
+
+- [ ] **Step 4: Add "Reset Layout" keyboard shortcut**
+
+`Ctrl+Shift+R` resets the main window's layout to default and closes all detached windows.
+
+- [ ] **Step 5: Write multi-window persistence test**
+
+```rust
+#[test]
+fn full_layout_save_load_roundtrip() {
+    let tree = LayoutTree::default_layout();
+    let detached = vec![DetachedEntry {
+        panel: PanelType::StreamControls,
+        id: 99,
+        x: 100, y: 100, width: 400, height: 300,
+    }];
+    let toml_str = serialize_full_layout(&tree, &detached).unwrap();
+    let (restored_tree, restored_detached) = deserialize_full_layout(&toml_str).unwrap();
+    assert_eq!(restored_tree.collect_leaves().len(), 5);
+    assert_eq!(restored_detached.len(), 1);
+    assert_eq!(restored_detached[0].panel, PanelType::StreamControls);
+}
+```
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/main.rs src/window.rs

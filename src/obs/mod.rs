@@ -11,6 +11,7 @@ pub use encoder::EncoderConfig;
 pub use output::{StreamConfig, StreamDestination};
 pub use scene::{Scene, SceneId, Source, SourceConfig, SourceId, SourceType, Transform};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ObsStats {
     pub bitrate_kbps: f64,
@@ -26,6 +27,7 @@ pub struct RgbaFrame {
     pub height: u32,
 }
 
+#[allow(dead_code)]
 pub trait ObsEngine {
     fn scenes(&self) -> Vec<Scene>;
     fn create_scene(&mut self, name: &str) -> Result<SceneId>;

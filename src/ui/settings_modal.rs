@@ -1,4 +1,4 @@
-use crate::settings::{settings_path, AppSettings};
+use crate::settings::{AppSettings, settings_path};
 use crate::state::AppState;
 
 const DESTINATIONS: &[&str] = &["Twitch", "YouTube", "Custom RTMP"];

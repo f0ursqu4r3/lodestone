@@ -5,6 +5,7 @@ use crate::settings::AppSettings;
 pub struct AudioLevel {
     pub source_id: SourceId,
     pub current_db: f32,
+    #[allow(dead_code)]
     pub peak_db: f32,
 }
 
@@ -12,8 +13,8 @@ impl AudioLevel {
     pub fn new(source_id: SourceId, current_db: f32, peak_db: f32) -> Self {
         Self {
             source_id,
-            current_db: current_db.max(-60.0).min(0.0),
-            peak_db: peak_db.max(-60.0).min(0.0),
+            current_db: current_db.clamp(-60.0, 0.0),
+            peak_db: peak_db.clamp(-60.0, 0.0),
         }
     }
 }
@@ -21,6 +22,7 @@ impl AudioLevel {
 #[derive(Debug, Clone)]
 pub enum StreamStatus {
     Offline,
+    #[allow(dead_code)]
     Connecting,
     Live {
         uptime_secs: f64,

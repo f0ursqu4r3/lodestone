@@ -29,6 +29,7 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    #[allow(dead_code)]
     pub fn load_from(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(contents) => toml::from_str(&contents).unwrap_or_default(),
@@ -46,6 +47,7 @@ impl AppSettings {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileSettings {
     pub name: String,
@@ -81,6 +83,7 @@ pub fn settings_path() -> PathBuf {
     config_dir().join("settings.toml")
 }
 
+#[allow(dead_code)]
 pub fn profile_path(name: &str) -> PathBuf {
     config_dir().join("profiles").join(format!("{name}.toml"))
 }

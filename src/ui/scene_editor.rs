@@ -17,13 +17,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) {
                 }
                 if ui.button("+").clicked() {
                     let new_id = crate::obs::SceneId(
-                        state
-                            .scenes
-                            .iter()
-                            .map(|s| s.id.0)
-                            .max()
-                            .unwrap_or(0)
-                            + 1,
+                        state.scenes.iter().map(|s| s.id.0).max().unwrap_or(0) + 1,
                     );
                     state.scenes.push(crate::obs::Scene {
                         id: new_id,
@@ -47,32 +41,23 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) {
             // ---- Sources section ----
             ui.horizontal(|ui| {
                 ui.heading("Sources");
-                if ui.button("+").clicked() {
-                    if let Some(active_id) = state.active_scene_id {
-                        let new_src_id = SourceId(
-                            state
-                                .sources
-                                .iter()
-                                .map(|s| s.id.0)
-                                .max()
-                                .unwrap_or(0)
-                                + 1,
-                        );
-                        let new_source = crate::obs::Source {
-                            id: new_src_id,
-                            name: format!("Source {}", state.sources.len() + 1),
-                            source_type: crate::obs::SourceType::Display,
-                            transform: crate::obs::Transform::new(0.0, 0.0, 1920.0, 1080.0),
-                            visible: true,
-                            muted: false,
-                            volume: 1.0,
-                        };
-                        state.sources.push(new_source);
-                        if let Some(scene) =
-                            state.scenes.iter_mut().find(|s| s.id == active_id)
-                        {
-                            scene.sources.push(new_src_id);
-                        }
+                if ui.button("+").clicked()
+                    && let Some(active_id) = state.active_scene_id
+                {
+                    let new_src_id =
+                        SourceId(state.sources.iter().map(|s| s.id.0).max().unwrap_or(0) + 1);
+                    let new_source = crate::obs::Source {
+                        id: new_src_id,
+                        name: format!("Source {}", state.sources.len() + 1),
+                        source_type: crate::obs::SourceType::Display,
+                        transform: crate::obs::Transform::new(0.0, 0.0, 1920.0, 1080.0),
+                        visible: true,
+                        muted: false,
+                        volume: 1.0,
+                    };
+                    state.sources.push(new_source);
+                    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+                        scene.sources.push(new_src_id);
                     }
                 }
             });
@@ -86,9 +71,8 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) {
 
             // Track selected source via a local egui memory key
             let selected_source_id: Option<SourceId> = {
-                let mem = ui.memory(|m| {
-                    m.data.get_temp::<u64>(egui::Id::new("selected_source_id"))
-                });
+                let mem =
+                    ui.memory(|m| m.data.get_temp::<u64>(egui::Id::new("selected_source_id")));
                 mem.map(SourceId)
             };
 
@@ -116,7 +100,8 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) {
             if new_selected != selected_source_id {
                 ui.memory_mut(|m| {
                     if let Some(sid) = new_selected {
-                        m.data.insert_temp(egui::Id::new("selected_source_id"), sid.0);
+                        m.data
+                            .insert_temp(egui::Id::new("selected_source_id"), sid.0);
                     } else {
                         m.data.remove::<u64>(egui::Id::new("selected_source_id"));
                     }
@@ -124,29 +109,28 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) {
             }
 
             // Transform controls for the selected source
-            if let Some(sel_id) = new_selected {
-                if scene_source_ids.contains(&sel_id) {
-                    if let Some(source) = state.sources.iter_mut().find(|s| s.id == sel_id) {
-                        ui.separator();
-                        ui.label("Transform");
-                        egui::Grid::new("transform_grid").num_columns(2).show(ui, |ui| {
-                            ui.label("X");
-                            ui.add(egui::DragValue::new(&mut source.transform.x).speed(1.0));
-                            ui.end_row();
-                            ui.label("Y");
-                            ui.add(egui::DragValue::new(&mut source.transform.y).speed(1.0));
-                            ui.end_row();
-                            ui.label("Width");
-                            ui.add(egui::DragValue::new(&mut source.transform.width).speed(1.0));
-                            ui.end_row();
-                            ui.label("Height");
-                            ui.add(
-                                egui::DragValue::new(&mut source.transform.height).speed(1.0),
-                            );
-                            ui.end_row();
-                        });
-                    }
-                }
+            if let Some(sel_id) = new_selected
+                && scene_source_ids.contains(&sel_id)
+                && let Some(source) = state.sources.iter_mut().find(|s| s.id == sel_id)
+            {
+                ui.separator();
+                ui.label("Transform");
+                egui::Grid::new("transform_grid")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("X");
+                        ui.add(egui::DragValue::new(&mut source.transform.x).speed(1.0));
+                        ui.end_row();
+                        ui.label("Y");
+                        ui.add(egui::DragValue::new(&mut source.transform.y).speed(1.0));
+                        ui.end_row();
+                        ui.label("Width");
+                        ui.add(egui::DragValue::new(&mut source.transform.width).speed(1.0));
+                        ui.end_row();
+                        ui.label("Height");
+                        ui.add(egui::DragValue::new(&mut source.transform.height).speed(1.0));
+                        ui.end_row();
+                    });
             }
         });
 }

@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamConfig {
     pub destination: StreamDestination,
     pub stream_key: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum StreamDestination {
     Twitch,
@@ -14,6 +16,7 @@ pub enum StreamDestination {
 }
 
 impl StreamDestination {
+    #[allow(dead_code)]
     pub fn rtmp_url(&self) -> &str {
         match self {
             Self::Twitch => "rtmp://live.twitch.tv/app",

@@ -6,18 +6,24 @@ use tokio::sync::mpsc::{self, Receiver};
 use super::{
     ObsEngine, ObsStats, RgbaFrame,
     encoder::EncoderConfig,
-    output::{StreamConfig, StreamDestination},
-    scene::{Scene, SceneId, Source, SourceConfig, SourceId, SourceType, Transform},
+    output::StreamConfig,
+    scene::{Scene, SceneId, Source, SourceConfig, SourceId, Transform},
 };
 
 pub struct MockObsEngine {
     scenes: HashMap<SceneId, Scene>,
+    #[allow(dead_code)]
     sources: HashMap<SourceId, Source>,
+    #[allow(dead_code)]
     next_scene_id: u64,
+    #[allow(dead_code)]
     next_source_id: u64,
     active_scene: Option<SceneId>,
+    #[allow(dead_code)]
     streaming: bool,
+    #[allow(dead_code)]
     recording: bool,
+    #[allow(dead_code)]
     encoder_config: EncoderConfig,
 }
 
@@ -46,14 +52,17 @@ impl MockObsEngine {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_source(&self, id: SourceId) -> Option<&Source> {
         self.sources.get(&id)
     }
 
+    #[allow(dead_code)]
     pub fn is_streaming(&self) -> bool {
         self.streaming
     }
 
+    #[allow(dead_code)]
     pub fn is_recording(&self) -> bool {
         self.recording
     }
@@ -231,6 +240,8 @@ impl ObsEngine for MockObsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::output::StreamDestination;
+    use super::super::scene::SourceType;
 
     #[test]
     fn init_creates_default_scene() {

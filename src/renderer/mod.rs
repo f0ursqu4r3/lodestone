@@ -20,6 +20,7 @@ pub struct Renderer {
     pub queue: Queue,
     pub surface: Surface<'static>,
     pub surface_config: SurfaceConfiguration,
+    #[allow(dead_code)]
     pub format: TextureFormat,
     egui_renderer: egui_wgpu::Renderer,
     text_renderer: GlyphonRenderer,
@@ -65,11 +66,8 @@ impl Renderer {
         };
         surface.configure(&device, &surface_config);
 
-        let egui_renderer = egui_wgpu::Renderer::new(
-            &device,
-            format,
-            egui_wgpu::RendererOptions::default(),
-        );
+        let egui_renderer =
+            egui_wgpu::Renderer::new(&device, format, egui_wgpu::RendererOptions::default());
 
         let text_renderer = GlyphonRenderer::new();
         let widget_pipeline = WidgetPipeline::new(&device, format);
@@ -291,8 +289,12 @@ impl Renderer {
                 ],
                 _pad1: [0.0, 0.0],
             };
-            self.widget_pipeline
-                .draw_widget(&mut widget_pass, &self.device, &self.queue, &test_widget);
+            self.widget_pipeline.draw_widget(
+                &mut widget_pass,
+                &self.device,
+                &self.queue,
+                &test_widget,
+            );
         }
 
         // Pass 4: egui overlay

@@ -271,7 +271,11 @@ mod tests {
         // Uniform buffers require 16-byte alignment.  Verify the struct
         // size is a multiple of 16.
         let size = std::mem::size_of::<WidgetParams>();
-        assert_eq!(size % 16, 0, "WidgetParams size ({size}) must be 16-byte aligned");
+        assert_eq!(
+            size % 16,
+            0,
+            "WidgetParams size ({size}) must be 16-byte aligned"
+        );
     }
 
     #[test]

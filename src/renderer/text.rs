@@ -14,9 +14,13 @@ use anyhow::Result;
 /// A text section to be rendered on screen.
 #[derive(Debug, Clone)]
 pub struct TextSection {
+    #[allow(dead_code)]
     pub text: String,
+    #[allow(dead_code)]
     pub position: [f32; 2],
+    #[allow(dead_code)]
     pub size: f32,
+    #[allow(dead_code)]
     pub color: [u8; 4], // RGBA
 }
 

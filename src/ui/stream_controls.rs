@@ -83,7 +83,10 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) {
                 let hours = total / 3600;
                 let minutes = (total % 3600) / 60;
                 let seconds = total % 60;
-                ui.label(format!("Uptime: {:02}:{:02}:{:02}", hours, minutes, seconds));
+                ui.label(format!(
+                    "Uptime: {:02}:{:02}:{:02}",
+                    hours, minutes, seconds
+                ));
                 ui.label(format!("Bitrate: {:.0} kbps", bitrate_kbps));
                 ui.label(format!("Dropped frames: {}", dropped_frames));
             }

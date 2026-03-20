@@ -53,7 +53,8 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) {
                             egui::Sense::hover(),
                         );
                         // Background
-                        ui.painter().rect_filled(rect, 0.0, egui::Color32::DARK_GRAY);
+                        ui.painter()
+                            .rect_filled(rect, 0.0, egui::Color32::DARK_GRAY);
                         // Fill from the bottom
                         let fill_rect = egui::Rect::from_min_max(
                             egui::pos2(rect.min.x, rect.max.y - filled_height),

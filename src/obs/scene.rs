@@ -42,6 +42,7 @@ pub struct Transform {
     pub height: f32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SourceConfig {
     pub name: String,

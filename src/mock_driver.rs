@@ -1,8 +1,8 @@
+use crate::state::{AppState, AudioLevel, StreamStatus};
+use rand::RngExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use rand::RngExt;
 use tokio::time;
-use crate::state::{AppState, AudioLevel, StreamStatus};
 
 pub fn random_walk_db(current: f32) -> f32 {
     let mut rng = rand::rng();
@@ -43,7 +43,9 @@ pub fn spawn_mock_driver(state: Arc<Mutex<AppState>>) -> tokio::task::JoinHandle
                     } else {
                         peaks[i] = decay_peak(peaks[i], dt).max(levels[i]);
                     }
-                    state.audio_levels.push(AudioLevel::new(*source_id, levels[i], peaks[i]));
+                    state
+                        .audio_levels
+                        .push(AudioLevel::new(*source_id, levels[i], peaks[i]));
                 }
             }
 

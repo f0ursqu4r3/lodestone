@@ -114,9 +114,16 @@ impl WindowState {
         let layout = &self.layout;
         let mut pending_actions = Vec::new();
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            let available_rect = ctx.available_rect();
-            let actions =
-                crate::ui::layout::render::render_layout(ctx, layout, state, available_rect);
+            // Render top menu bar first; it reserves space and returns the remaining rect.
+            let (menu_actions, available_rect) =
+                crate::ui::layout::render::render_menu_bar(ctx, layout);
+            let mut actions = menu_actions;
+            actions.extend(crate::ui::layout::render::render_layout(
+                ctx,
+                layout,
+                state,
+                available_rect,
+            ));
             pending_actions = actions;
         });
 
@@ -170,6 +177,22 @@ impl WindowState {
                             panel_id,
                         });
                     }
+                }
+                LayoutAction::SplitWithType {
+                    node_id,
+                    direction,
+                    new_type,
+                } => {
+                    self.layout.split(node_id, direction, 0.5);
+                    // After split, set the new (second) child to the requested type.
+                    if let Some(crate::ui::layout::LayoutNode::Split { second, .. }) =
+                        self.layout.node(node_id).cloned()
+                    {
+                        self.layout.swap_type(second, new_type);
+                    }
+                }
+                LayoutAction::ResetLayout => {
+                    self.layout = crate::ui::layout::LayoutTree::default_layout();
                 }
             }
         }

@@ -64,6 +64,7 @@ pub enum SplitDirection {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(dead_code)]
 pub enum MergeSide {
     First,
     Second,
@@ -461,6 +462,7 @@ impl LayoutTree {
     }
 
     /// Returns the parent split's NodeId and which side (First/Second) this node is on.
+    #[allow(dead_code)]
     pub fn find_parent_with_side(&self, target: NodeId) -> Option<(NodeId, MergeSide)> {
         for (id, node) in &self.nodes {
             if let LayoutNode::Split { first, second, .. } = node {

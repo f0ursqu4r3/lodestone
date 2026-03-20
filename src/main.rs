@@ -241,6 +241,13 @@ impl ApplicationHandler for AppManager {
                                 0.5,
                             );
                         }
+                        // Drop the leaked Window so the OS window actually closes.
+                        // SAFETY: the pointer was created via Box::leak(Box::new(window))
+                        // in `resumed` / `about_to_wait`, and we are the sole owner.
+                        let win_ptr = detached_win.window as *const Window as *mut Window;
+                        unsafe {
+                            drop(Box::from_raw(win_ptr));
+                        }
                     }
                     self.save_layout();
                 }

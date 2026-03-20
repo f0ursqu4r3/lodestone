@@ -1,6 +1,7 @@
 use super::interactions::collect_dividers;
-use super::{LayoutTree, MergeSide, NodeId, PanelType, SplitDirection};
+use super::{LayoutTree, NodeId, PanelType, SplitDirection};
 
+#[allow(dead_code)]
 pub enum LayoutAction {
     Resize {
         node_id: NodeId,
@@ -25,17 +26,58 @@ pub enum LayoutAction {
     },
     Merge {
         node_id: NodeId,
-        keep: MergeSide,
+        keep: super::MergeSide,
     },
+    SplitWithType {
+        node_id: NodeId,
+        direction: SplitDirection,
+        new_type: PanelType,
+    },
+    ResetLayout,
 }
 
 /// All dockable panel types for the type selector dropdown.
-const DOCKABLE_TYPES: &[PanelType] = &[
+pub const DOCKABLE_TYPES: &[PanelType] = &[
     PanelType::Preview,
     PanelType::SceneEditor,
     PanelType::AudioMixer,
     PanelType::StreamControls,
 ];
+
+/// Render the top menu bar. Returns layout actions and the remaining rect below the bar.
+pub fn render_menu_bar(
+    ctx: &egui::Context,
+    layout: &LayoutTree,
+) -> (Vec<LayoutAction>, egui::Rect) {
+    let mut actions = Vec::new();
+    let root_node_id = layout.root_id();
+
+    egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
+            ui.menu_button("View", |ui| {
+                ui.menu_button("Add Panel", |ui| {
+                    for &pt in DOCKABLE_TYPES {
+                        if ui.button(pt.display_name()).clicked() {
+                            actions.push(LayoutAction::SplitWithType {
+                                node_id: root_node_id,
+                                direction: SplitDirection::Vertical,
+                                new_type: pt,
+                            });
+                            ui.close();
+                        }
+                    }
+                });
+                if ui.button("Reset Layout").clicked() {
+                    actions.push(LayoutAction::ResetLayout);
+                    ui.close();
+                }
+            });
+        });
+    });
+
+    let available_rect = ctx.available_rect();
+    (actions, available_rect)
+}
 
 pub fn render_layout(
     ctx: &egui::Context,
@@ -57,7 +99,7 @@ pub fn render_layout(
         let rect = *rect;
 
         // Use Sense::hover() so the panel Area does not consume drag events that belong
-        // to corner handle Areas which are rendered at the same Order::Foreground layer.
+        // to divider Areas which are rendered at the same Order::Foreground layer.
         egui::Area::new(egui::Id::new(("panel", panel_id.0)))
             .fixed_pos(rect.min)
             .sense(egui::Sense::hover())
@@ -91,23 +133,38 @@ pub fn render_layout(
                         });
                     }
 
-                    // Spacer to push close button to the right
+                    // Spacer to push buttons to the right
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Close button — disabled if this is the only leaf
+                        // Close button -- disabled if this is the only leaf
                         let close_btn =
-                            ui.add_enabled(leaf_count > 1, egui::Button::new("×").small());
+                            ui.add_enabled(leaf_count > 1, egui::Button::new("\u{00d7}").small());
                         if close_btn.clicked() {
                             actions.push(LayoutAction::Close { node_id });
                         }
+
+                        // Move/drag glyph -- visual-only for now
+                        let _move_btn = ui.add_enabled(
+                            false,
+                            egui::Button::new("\u{2807}\u{2807}").small(),
+                        );
                     });
                 });
 
                 // Context menu on the header.
-                // The InnerResponse from ui.horizontal() carries a response with no Sense
-                // allocation, so right-click events pass through it. Calling .interact() adds
-                // Sense::click() to that rect so context_menu() can detect secondary clicks.
                 let header_interactive = header_response.response.interact(egui::Sense::click());
                 header_interactive.context_menu(|ui| {
+                    ui.menu_button("Add", |ui| {
+                        for &pt in DOCKABLE_TYPES {
+                            if ui.button(pt.display_name()).clicked() {
+                                actions.push(LayoutAction::SplitWithType {
+                                    node_id,
+                                    direction: SplitDirection::Vertical,
+                                    new_type: pt,
+                                });
+                                ui.close();
+                            }
+                        }
+                    });
                     if ui.button("Detach to Window").clicked() {
                         actions.push(LayoutAction::Detach { node_id });
                         ui.close();
@@ -206,296 +263,5 @@ pub fn render_layout(
         }
     }
 
-    // --- Corner handles for split & merge gestures ---
-    render_corner_handles(ctx, layout, &leaves, &mut actions);
-
     actions
-}
-
-/// Size of each corner handle in logical pixels.
-const HANDLE_SIZE: f32 = 12.0;
-/// Drag threshold in pixels before a split/merge gesture triggers.
-const DRAG_THRESHOLD: f32 = 10.0;
-
-fn render_corner_handles(
-    ctx: &egui::Context,
-    layout: &LayoutTree,
-    leaves: &[(super::PanelId, PanelType, egui::Rect, NodeId)],
-    actions: &mut Vec<LayoutAction>,
-) {
-    let handle_painter = ctx.layer_painter(egui::LayerId::new(
-        egui::Order::Foreground,
-        egui::Id::new("corner_handles"),
-    ));
-
-    let handle_color = egui::Color32::from_rgba_premultiplied(120, 120, 120, 160);
-    let handle_hover_color = egui::Color32::from_rgba_premultiplied(180, 180, 180, 200);
-
-    for (panel_id, _panel_type, rect, node_id) in leaves {
-        let node_id = *node_id;
-
-        // Top-right corner handle
-        let tr_rect = egui::Rect::from_min_size(
-            egui::pos2(rect.max.x - HANDLE_SIZE, rect.min.y),
-            egui::vec2(HANDLE_SIZE, HANDLE_SIZE),
-        );
-
-        // Bottom-left corner handle
-        let bl_rect = egui::Rect::from_min_size(
-            egui::pos2(rect.min.x, rect.max.y - HANDLE_SIZE),
-            egui::vec2(HANDLE_SIZE, HANDLE_SIZE),
-        );
-
-        // Render and interact with each handle
-        for (i, (handle_rect, is_top_right)) in
-            [(tr_rect, true), (bl_rect, false)].iter().enumerate()
-        {
-            let handle_id = egui::Id::new(("corner_handle", panel_id.0, i));
-            // Per-handle storage key for accumulated drag delta.
-            let drag_accum_id = egui::Id::new(("corner_drag_accum", panel_id.0, i));
-
-            // Corner handle Areas are rendered after panel Areas. Using Order::Tooltip
-            // places them above Order::Foreground, ensuring they receive pointer events
-            // before the panel Area when the two overlap.
-            let area_response = egui::Area::new(handle_id)
-                .fixed_pos(handle_rect.min)
-                .order(egui::Order::Tooltip)
-                .sense(egui::Sense::drag())
-                .show(ctx, |ui| {
-                    ui.allocate_rect(
-                        egui::Rect::from_min_size(handle_rect.min, handle_rect.size()),
-                        egui::Sense::drag(),
-                    )
-                });
-
-            let response = area_response.inner;
-
-            // Draw the triangle
-            let color = if response.hovered() || response.dragged() {
-                ctx.set_cursor_icon(egui::CursorIcon::Move);
-                handle_hover_color
-            } else {
-                handle_color
-            };
-
-            let triangle_points = if *is_top_right {
-                // Top-right triangle: points at top-right, top-left, bottom-right
-                vec![
-                    egui::pos2(handle_rect.max.x, handle_rect.min.y),
-                    egui::pos2(handle_rect.min.x, handle_rect.min.y),
-                    egui::pos2(handle_rect.max.x, handle_rect.max.y),
-                ]
-            } else {
-                // Bottom-left triangle: points at bottom-left, top-left, bottom-right
-                vec![
-                    egui::pos2(handle_rect.min.x, handle_rect.max.y),
-                    egui::pos2(handle_rect.min.x, handle_rect.min.y),
-                    egui::pos2(handle_rect.max.x, handle_rect.max.y),
-                ]
-            };
-
-            let triangle = egui::Shape::convex_polygon(triangle_points, color, egui::Stroke::NONE);
-            handle_painter.add(triangle);
-
-            // Accumulate drag delta every frame while the handle is being dragged.
-            // total_drag_delta() only returns Some while dragged() is true, so we
-            // must store the running total ourselves across frames and read it on
-            // drag_stopped().
-            if response.drag_started() {
-                // Reset accumulator at the start of a new drag.
-                ctx.memory_mut(|mem| {
-                    mem.data.insert_temp(drag_accum_id, egui::Vec2::ZERO);
-                });
-            }
-
-            if response.dragged() {
-                let delta = response.drag_delta();
-                ctx.memory_mut(|mem| {
-                    let accum: egui::Vec2 =
-                        mem.data.get_temp(drag_accum_id).unwrap_or(egui::Vec2::ZERO);
-                    mem.data.insert_temp(drag_accum_id, accum + delta);
-                });
-
-                // --- Visual overlay feedback while dragging ---
-                let accum: egui::Vec2 = ctx
-                    .memory(|mem| mem.data.get_temp(drag_accum_id))
-                    .unwrap_or(egui::Vec2::ZERO);
-                let abs_x = accum.x.abs();
-                let abs_y = accum.y.abs();
-
-                if abs_x > DRAG_THRESHOLD || abs_y > DRAG_THRESHOLD {
-                    let overlay_painter = ctx.layer_painter(egui::LayerId::new(
-                        egui::Order::Foreground,
-                        egui::Id::new("drag_overlay"),
-                    ));
-
-                    // Check if this would be a merge gesture
-                    let is_merge = if let Some((parent_id, my_side)) =
-                        layout.find_parent_with_side(node_id)
-                        && let Some(super::LayoutNode::Split {
-                            direction, first, second, ..
-                        }) = layout.node(parent_id)
-                    {
-                        let direction = *direction;
-                        let toward_sibling = match direction {
-                            SplitDirection::Vertical => {
-                                abs_x > abs_y
-                                    && match my_side {
-                                        MergeSide::First => accum.x > 0.0,
-                                        MergeSide::Second => accum.x < 0.0,
-                                    }
-                            }
-                            SplitDirection::Horizontal => {
-                                abs_y > abs_x
-                                    && match my_side {
-                                        MergeSide::First => accum.y > 0.0,
-                                        MergeSide::Second => accum.y < 0.0,
-                                    }
-                            }
-                        };
-                        if toward_sibling {
-                            // Find the sibling's node id
-                            let sibling_id = match my_side {
-                                MergeSide::First => *second,
-                                MergeSide::Second => *first,
-                            };
-                            // Find sibling rect from leaves list
-                            if let Some((_, _, sibling_rect, _)) =
-                                leaves.iter().find(|(_, _, _, nid)| *nid == sibling_id)
-                            {
-                                let merge_color =
-                                    egui::Color32::from_rgba_unmultiplied(255, 100, 100, 40);
-                                overlay_painter.rect_filled(*sibling_rect, 0.0, merge_color);
-                            }
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
-
-                    // Split overlay
-                    if !is_merge {
-                        let split_color =
-                            egui::Color32::from_rgba_unmultiplied(100, 150, 255, 40);
-                        let overlay_rect = if abs_x > abs_y {
-                            // Vertical split
-                            if accum.x > 0.0 {
-                                egui::Rect::from_min_max(
-                                    egui::pos2(rect.center().x, rect.min.y),
-                                    rect.max,
-                                )
-                            } else {
-                                egui::Rect::from_min_max(
-                                    rect.min,
-                                    egui::pos2(rect.center().x, rect.max.y),
-                                )
-                            }
-                        } else if accum.y > 0.0 {
-                            egui::Rect::from_min_max(
-                                egui::pos2(rect.min.x, rect.center().y),
-                                rect.max,
-                            )
-                        } else {
-                            egui::Rect::from_min_max(
-                                rect.min,
-                                egui::pos2(rect.max.x, rect.center().y),
-                            )
-                        };
-                        overlay_painter.rect_filled(overlay_rect, 0.0, split_color);
-                    }
-                }
-            }
-
-            if response.drag_stopped() {
-                let total_delta: egui::Vec2 = ctx
-                    .memory(|mem| mem.data.get_temp(drag_accum_id))
-                    .unwrap_or(egui::Vec2::ZERO);
-
-                // Clear the accumulator.
-                ctx.memory_mut(|mem| {
-                    mem.data.insert_temp(drag_accum_id, egui::Vec2::ZERO);
-                });
-
-                let abs_x = total_delta.x.abs();
-                let abs_y = total_delta.y.abs();
-
-                if abs_x > DRAG_THRESHOLD || abs_y > DRAG_THRESHOLD {
-                    // Check if this is a merge gesture (toward sibling) or split gesture (outward)
-                    if let Some(action) =
-                        determine_handle_action(layout, node_id, total_delta, *is_top_right)
-                    {
-                        actions.push(action);
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Determine whether a corner handle drag should produce a split or merge action.
-fn determine_handle_action(
-    layout: &LayoutTree,
-    node_id: NodeId,
-    drag_delta: egui::Vec2,
-    _is_top_right: bool,
-) -> Option<LayoutAction> {
-    let abs_x = drag_delta.x.abs();
-    let abs_y = drag_delta.y.abs();
-
-    // Check if we can do a merge gesture (drag toward sibling)
-    if let Some((parent_id, my_side)) = layout.find_parent_with_side(node_id)
-        && let Some(super::LayoutNode::Split { direction, .. }) = layout.node(parent_id)
-    {
-        let direction = *direction;
-        match direction {
-            SplitDirection::Vertical => {
-                // Horizontal drag along the split axis
-                if abs_x > abs_y && abs_x > DRAG_THRESHOLD {
-                    // Dragging toward sibling = merge
-                    let toward_sibling = match my_side {
-                        MergeSide::First => drag_delta.x > 0.0, // first panel, drag right toward second
-                        MergeSide::Second => drag_delta.x < 0.0, // second panel, drag left toward first
-                    };
-                    if toward_sibling {
-                        return Some(LayoutAction::Merge {
-                            node_id: parent_id,
-                            keep: my_side,
-                        });
-                    }
-                }
-            }
-            SplitDirection::Horizontal => {
-                // Vertical drag along the split axis
-                if abs_y > abs_x && abs_y > DRAG_THRESHOLD {
-                    let toward_sibling = match my_side {
-                        MergeSide::First => drag_delta.y > 0.0,
-                        MergeSide::Second => drag_delta.y < 0.0,
-                    };
-                    if toward_sibling {
-                        return Some(LayoutAction::Merge {
-                            node_id: parent_id,
-                            keep: my_side,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    // Otherwise, it's a split gesture
-    if abs_x > abs_y && abs_x > DRAG_THRESHOLD {
-        Some(LayoutAction::Split {
-            node_id,
-            direction: SplitDirection::Vertical,
-        })
-    } else if abs_y > DRAG_THRESHOLD {
-        Some(LayoutAction::Split {
-            node_id,
-            direction: SplitDirection::Horizontal,
-        })
-    } else {
-        None
-    }
 }

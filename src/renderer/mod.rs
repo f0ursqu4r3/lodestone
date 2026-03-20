@@ -10,7 +10,10 @@ use egui_wgpu::wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureForma
 use winit::window::Window;
 
 use pipelines::{WidgetParams, WidgetPipeline};
+use preview::PreviewRenderer;
 use text::{GlyphonRenderer, TextSection};
+
+use crate::obs::RgbaFrame;
 
 pub struct Renderer {
     pub device: Device,
@@ -21,6 +24,7 @@ pub struct Renderer {
     egui_renderer: egui_wgpu::Renderer,
     text_renderer: GlyphonRenderer,
     widget_pipeline: WidgetPipeline,
+    preview_renderer: PreviewRenderer,
 }
 
 impl Renderer {
@@ -70,6 +74,23 @@ impl Renderer {
         let text_renderer = GlyphonRenderer::new();
         let widget_pipeline = WidgetPipeline::new(&device, format);
 
+        // Default preview size: 1920x1080
+        let preview_width: u32 = 1920;
+        let preview_height: u32 = 1080;
+        let preview_renderer = PreviewRenderer::new(&device, format, preview_width, preview_height);
+
+        // Upload a solid dark gray test frame
+        let test_frame = RgbaFrame {
+            data: vec![30u8, 30, 30, 255]
+                .into_iter()
+                .cycle()
+                .take((preview_width * preview_height * 4) as usize)
+                .collect(),
+            width: preview_width,
+            height: preview_height,
+        };
+        preview_renderer.upload_frame(&queue, &test_frame);
+
         Ok(Self {
             device,
             queue,
@@ -79,6 +100,7 @@ impl Renderer {
             egui_renderer,
             text_renderer,
             widget_pipeline,
+            preview_renderer,
         })
     }
 
@@ -210,7 +232,29 @@ impl Renderer {
             });
         }
 
-        // Pass 2: SDF widget rendering (behind egui)
+        // Pass 2: Preview texture (fullscreen, behind everything)
+        {
+            let mut preview_pass = encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("preview_pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                })
+                .forget_lifetime();
+            self.preview_renderer.render(&mut preview_pass);
+        }
+
+        // Pass 3: SDF widget rendering (behind egui)
         {
             let mut widget_pass = encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -251,7 +295,7 @@ impl Renderer {
                 .draw_widget(&mut widget_pass, &self.device, &self.queue, &test_widget);
         }
 
-        // Pass 3: egui overlay
+        // Pass 4: egui overlay
         {
             let mut render_pass = encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {

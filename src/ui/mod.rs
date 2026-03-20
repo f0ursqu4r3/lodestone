@@ -1,4 +1,5 @@
 pub mod audio_mixer;
+pub mod layout;
 pub mod scene_editor;
 pub mod settings_modal;
 pub mod stream_controls;

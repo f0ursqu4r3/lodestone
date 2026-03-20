@@ -29,6 +29,24 @@ impl PanelId {
     pub fn next() -> Self {
         Self(PANEL_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
     }
+
+    pub fn set_counter(min_next: u64) {
+        let mut current = PANEL_ID_COUNTER.load(Ordering::Relaxed);
+        loop {
+            if current >= min_next {
+                break;
+            }
+            match PANEL_ID_COUNTER.compare_exchange(
+                current,
+                min_next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +132,11 @@ pub struct LayoutTree {
 }
 
 impl LayoutTree {
+    /// Construct a tree directly from its parts (used by deserialization).
+    pub fn from_parts(nodes: HashMap<NodeId, LayoutNode>, root: NodeId, next_node_id: u64) -> Self {
+        Self { nodes, root, next_node_id }
+    }
+
     pub fn new(panel_type: PanelType) -> Self {
         let root_id = NodeId(0);
         let mut nodes = HashMap::new();

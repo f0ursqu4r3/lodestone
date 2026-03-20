@@ -2,11 +2,13 @@ mod obs;
 mod renderer;
 mod settings;
 mod state;
+mod ui;
 
 use anyhow::Result;
 use renderer::Renderer;
 use state::AppState;
 use std::sync::{Arc, Mutex};
+use ui::UiRoot;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalSize},
@@ -19,6 +21,8 @@ struct App {
     window: Option<&'static Window>,
     renderer: Option<Renderer>,
     state: Arc<Mutex<AppState>>,
+    ui: Option<UiRoot>,
+    egui_state: Option<egui_winit::State>,
 }
 
 impl App {
@@ -27,6 +31,8 @@ impl App {
             window: None,
             renderer: None,
             state: Arc::new(Mutex::new(AppState::default())),
+            ui: None,
+            egui_state: None,
         }
     }
 }
@@ -45,6 +51,20 @@ impl ApplicationHandler for App {
         self.window = Some(window);
         let renderer = pollster::block_on(Renderer::new(window)).expect("initialize renderer");
         self.renderer = Some(renderer);
+
+        // Initialize egui
+        let ui = UiRoot::new();
+        let egui_state = egui_winit::State::new(
+            ui.ctx.clone(),
+            egui::ViewportId::ROOT,
+            window,
+            Some(window.scale_factor() as f32),
+            None,
+            Some(renderer_max_texture_side(&self.renderer)),
+        );
+        self.ui = Some(ui);
+        self.egui_state = Some(egui_state);
+
         log::info!("Window and renderer initialized");
     }
 
@@ -54,6 +74,13 @@ impl ApplicationHandler for App {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        // Feed events to egui first
+        if let Some(egui_state) = &mut self.egui_state {
+            if let Some(window) = self.window {
+                let _ = egui_state.on_window_event(window, &event);
+            }
+        }
+
         match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
@@ -64,7 +91,31 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let Some(renderer) = &mut self.renderer {
+                if let (Some(renderer), Some(ui), Some(egui_state), Some(window)) = (
+                    &mut self.renderer,
+                    &self.ui,
+                    &mut self.egui_state,
+                    self.window,
+                ) {
+                    let raw_input = egui_state.take_egui_input(window);
+                    let mut app_state = self.state.lock().unwrap();
+                    let full_output = ui.run(&mut app_state, raw_input);
+                    drop(app_state);
+
+                    let pixels_per_point = full_output.pixels_per_point;
+                    let paint_jobs =
+                        ui.ctx.tessellate(full_output.shapes, pixels_per_point);
+
+                    if let Err(e) = renderer.render_with_egui(
+                        &paint_jobs,
+                        &full_output.textures_delta,
+                        pixels_per_point,
+                    ) {
+                        log::error!("Render error: {e}");
+                    }
+
+                    egui_state.handle_platform_output(window, full_output.platform_output);
+                } else if let Some(renderer) = &mut self.renderer {
                     if let Err(e) = renderer.render() {
                         log::error!("Render error: {e}");
                     }
@@ -76,6 +127,13 @@ impl ApplicationHandler for App {
             _ => {}
         }
     }
+}
+
+fn renderer_max_texture_side(renderer: &Option<Renderer>) -> usize {
+    renderer
+        .as_ref()
+        .map(|r| r.device.limits().max_texture_dimension_2d as usize)
+        .unwrap_or(2048)
 }
 
 fn main() -> Result<()> {

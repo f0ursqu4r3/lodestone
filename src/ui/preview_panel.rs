@@ -7,6 +7,9 @@ use crate::state::AppState;
 use crate::ui::layout::PanelId;
 
 /// GPU resources for the preview callback, stored in `egui_renderer.callback_resources`.
+///
+/// Pipeline and bind group are `Arc`-cloned from [`crate::renderer::preview::PreviewRenderer`]
+/// and shared across all windows.
 pub struct PreviewResources {
     pub pipeline: Arc<wgpu::RenderPipeline>,
     pub bind_group: Arc<wgpu::BindGroup>,
@@ -26,7 +29,10 @@ impl CallbackTrait for PreviewCallback {
             return;
         };
 
-        // Set scissor rect — egui does NOT set this for callbacks.
+        // The viewport is already set by egui to the letterboxed preview rect
+        // (passed to new_paint_callback). The fullscreen quad shader fills this
+        // viewport exactly. The scissor rect clips further when floating panels
+        // or other UI elements overlap the preview area.
         let clip = info.clip_rect_in_pixels();
         if clip.width_px > 0 && clip.height_px > 0 {
             render_pass.set_scissor_rect(

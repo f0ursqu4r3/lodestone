@@ -318,7 +318,7 @@ impl ApplicationHandler for AppManager {
 
         // Set preview dimensions on AppState
         {
-            let mut app_state = self.state.lock().unwrap();
+            let mut app_state = self.state.lock().expect("lock AppState");
             app_state.preview_width = gpu.preview_renderer.width;
             app_state.preview_height = gpu.preview_renderer.height;
         }

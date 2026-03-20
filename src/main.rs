@@ -6,6 +6,8 @@ mod state;
 mod ui;
 
 use anyhow::Result;
+use obs::ObsEngine;
+use obs::mock::MockObsEngine;
 use renderer::Renderer;
 use state::AppState;
 use std::sync::{Arc, Mutex};
@@ -26,18 +28,32 @@ struct App {
     ui: Option<UiRoot>,
     egui_state: Option<egui_winit::State>,
     runtime: tokio::runtime::Runtime,
+    #[allow(dead_code)]
+    engine: MockObsEngine,
 }
 
 impl App {
     fn new() -> Self {
         let runtime = tokio::runtime::Runtime::new().expect("create tokio runtime");
+        let engine = MockObsEngine::new();
+
+        // Populate initial AppState from the engine's default scenes/sources.
+        let scenes = engine.scenes();
+        let active_scene_id = engine.active_scene_id();
+        let initial_state = AppState {
+            scenes,
+            active_scene_id,
+            ..AppState::default()
+        };
+
         Self {
             window: None,
             renderer: None,
-            state: Arc::new(Mutex::new(AppState::default())),
+            state: Arc::new(Mutex::new(initial_state)),
             ui: None,
             egui_state: None,
             runtime,
+            engine,
         }
     }
 }
@@ -71,7 +87,8 @@ impl ApplicationHandler for App {
         self.egui_state = Some(egui_state);
 
         // Spawn mock data driver
-        self.runtime.spawn(mock_driver::spawn_mock_driver(self.state.clone()));
+        self.runtime
+            .spawn(mock_driver::spawn_mock_driver(self.state.clone()));
 
         log::info!("Window and renderer initialized");
     }
@@ -83,43 +100,39 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         // Feed events to egui first
-        if let Some(egui_state) = &mut self.egui_state {
-            if let Some(window) = self.window {
-                let _ = egui_state.on_window_event(window, &event);
-            }
+        if let Some(egui_state) = &mut self.egui_state
+            && let Some(window) = self.window
+        {
+            let _ = egui_state.on_window_event(window, &event);
         }
 
-        match &event {
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        physical_key: PhysicalKey::Code(key_code),
-                        state: winit::event::ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } => {
-                let mut app_state = self.state.lock().unwrap();
-                match key_code {
-                    KeyCode::F1 => {
-                        app_state.ui_state.scene_panel_open =
-                            !app_state.ui_state.scene_panel_open;
-                    }
-                    KeyCode::F2 => {
-                        app_state.ui_state.mixer_panel_open =
-                            !app_state.ui_state.mixer_panel_open;
-                    }
-                    KeyCode::F3 => {
-                        app_state.ui_state.controls_panel_open =
-                            !app_state.ui_state.controls_panel_open;
-                    }
-                    KeyCode::Escape => {
-                        app_state.ui_state.settings_modal_open = false;
-                    }
-                    _ => {}
+        if let WindowEvent::KeyboardInput {
+            event:
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(key_code),
+                    state: winit::event::ElementState::Pressed,
+                    ..
+                },
+            ..
+        } = &event
+        {
+            let mut app_state = self.state.lock().unwrap();
+            match key_code {
+                KeyCode::F1 => {
+                    app_state.ui_state.scene_panel_open = !app_state.ui_state.scene_panel_open;
                 }
+                KeyCode::F2 => {
+                    app_state.ui_state.mixer_panel_open = !app_state.ui_state.mixer_panel_open;
+                }
+                KeyCode::F3 => {
+                    app_state.ui_state.controls_panel_open =
+                        !app_state.ui_state.controls_panel_open;
+                }
+                KeyCode::Escape => {
+                    app_state.ui_state.settings_modal_open = false;
+                }
+                _ => {}
             }
-            _ => {}
         }
 
         match event {
@@ -144,8 +157,7 @@ impl ApplicationHandler for App {
                     drop(app_state);
 
                     let pixels_per_point = full_output.pixels_per_point;
-                    let paint_jobs =
-                        ui.ctx.tessellate(full_output.shapes, pixels_per_point);
+                    let paint_jobs = ui.ctx.tessellate(full_output.shapes, pixels_per_point);
 
                     if let Err(e) = renderer.render_with_egui(
                         &paint_jobs,
@@ -156,10 +168,10 @@ impl ApplicationHandler for App {
                     }
 
                     egui_state.handle_platform_output(window, full_output.platform_output);
-                } else if let Some(renderer) = &mut self.renderer {
-                    if let Err(e) = renderer.render() {
-                        log::error!("Render error: {e}");
-                    }
+                } else if let Some(renderer) = &mut self.renderer
+                    && let Err(e) = renderer.render()
+                {
+                    log::error!("Render error: {e}");
                 }
                 if let Some(window) = self.window {
                     window.request_redraw();

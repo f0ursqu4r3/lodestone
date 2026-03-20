@@ -4,34 +4,36 @@ mod renderer;
 mod settings;
 mod state;
 mod ui;
+mod window;
 
 use anyhow::Result;
 use obs::ObsEngine;
 use obs::mock::MockObsEngine;
-use renderer::Renderer;
+use renderer::SharedGpuState;
 use state::AppState;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use ui::layout::PanelId;
+use ui::layout::LayoutTree;
+use window::WindowState;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalSize},
     event::WindowEvent,
     event_loop::EventLoop,
-    window::{Window, WindowAttributes},
+    window::{Window, WindowAttributes, WindowId},
 };
 
-struct App {
-    window: Option<&'static Window>,
-    renderer: Option<Renderer>,
+struct AppManager {
+    gpu: Option<SharedGpuState>,
+    windows: HashMap<WindowId, WindowState>,
+    main_window_id: Option<WindowId>,
     state: Arc<Mutex<AppState>>,
-    egui_ctx: Option<egui::Context>,
-    egui_state: Option<egui_winit::State>,
     runtime: tokio::runtime::Runtime,
     #[allow(dead_code)]
     engine: MockObsEngine,
 }
 
-impl App {
+impl AppManager {
     fn new() -> Self {
         let runtime = tokio::runtime::Runtime::new().expect("create tokio runtime");
         let engine = MockObsEngine::new();
@@ -46,44 +48,42 @@ impl App {
         };
 
         Self {
-            window: None,
-            renderer: None,
+            gpu: None,
+            windows: HashMap::new(),
+            main_window_id: None,
             state: Arc::new(Mutex::new(initial_state)),
-            egui_ctx: None,
-            egui_state: None,
             runtime,
             engine,
         }
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler for AppManager {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        if self.window.is_some() {
+        if self.main_window_id.is_some() {
             return;
         }
+
         let attrs = WindowAttributes::default()
             .with_title("Lodestone")
             .with_inner_size(LogicalSize::new(1280.0, 720.0))
             .with_min_inner_size(LogicalSize::new(960.0, 540.0));
         let window = event_loop.create_window(attrs).expect("create window");
         let window: &'static Window = Box::leak(Box::new(window));
-        self.window = Some(window);
-        let renderer = pollster::block_on(Renderer::new(window)).expect("initialize renderer");
-        self.renderer = Some(renderer);
+        let window_id = window.id();
 
-        // Initialize egui
-        let ctx = egui::Context::default();
-        let egui_state = egui_winit::State::new(
-            ctx.clone(),
-            egui::ViewportId::ROOT,
-            window,
-            Some(window.scale_factor() as f32),
-            None,
-            Some(renderer_max_texture_side(&self.renderer)),
-        );
-        self.egui_ctx = Some(ctx);
-        self.egui_state = Some(egui_state);
+        // Create shared GPU state from the main window
+        let gpu =
+            pollster::block_on(SharedGpuState::new(window)).expect("initialize shared GPU state");
+
+        // Create main WindowState with default layout
+        let layout = LayoutTree::default_layout();
+        let win_state =
+            WindowState::new(window, &gpu, layout, true).expect("create main window state");
+
+        self.gpu = Some(gpu);
+        self.main_window_id = Some(window_id);
+        self.windows.insert(window_id, win_state);
 
         // Spawn mock data driver on the tokio runtime
         self.runtime
@@ -95,66 +95,41 @@ impl ApplicationHandler for App {
     fn window_event(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
-        _window_id: winit::window::WindowId,
+        window_id: WindowId,
         event: WindowEvent,
     ) {
-        // Feed events to egui first
-        if let Some(egui_state) = &mut self.egui_state
-            && let Some(window) = self.window
-        {
-            let _ = egui_state.on_window_event(window, &event);
+        // Route event to the correct window
+        if let Some(win) = self.windows.get_mut(&window_id) {
+            let _ = win.egui_state.on_window_event(win.window, &event);
         }
 
         match event {
             WindowEvent::CloseRequested => {
-                event_loop.exit();
+                if Some(window_id) == self.main_window_id {
+                    event_loop.exit();
+                } else {
+                    self.windows.remove(&window_id);
+                }
             }
             WindowEvent::Resized(PhysicalSize { width, height }) => {
-                if let Some(renderer) = &mut self.renderer {
-                    renderer.resize(width, height);
+                if let (Some(gpu), Some(win)) =
+                    (&self.gpu, self.windows.get_mut(&window_id))
+                {
+                    win.resize(gpu, width, height);
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let (Some(renderer), Some(ctx), Some(egui_state), Some(window)) = (
-                    &mut self.renderer,
-                    &self.egui_ctx,
-                    &mut self.egui_state,
-                    self.window,
-                ) {
-                    let raw_input = egui_state.take_egui_input(window);
-                    let mut app_state = self.state.lock().unwrap();
-
-                    let full_output = ctx.run(raw_input, |ctx| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
-                            ui::draw_panel(
-                                ui::layout::PanelType::SceneEditor,
-                                ui,
-                                &mut app_state,
-                                PanelId(0),
-                            );
-                        });
-                    });
-                    drop(app_state);
-
-                    let pixels_per_point = full_output.pixels_per_point;
-                    let paint_jobs = ctx.tessellate(full_output.shapes, pixels_per_point);
-
-                    if let Err(e) = renderer.render_with_egui(
-                        &paint_jobs,
-                        &full_output.textures_delta,
-                        pixels_per_point,
-                    ) {
-                        log::error!("Render error: {e}");
+                if let Some(gpu) = &self.gpu {
+                    if let Some(win) = self.windows.get_mut(&window_id) {
+                        let mut app_state = self.state.lock().unwrap();
+                        if let Err(e) = win.render(gpu, &mut app_state) {
+                            log::error!("Render error: {e}");
+                        }
+                        drop(app_state);
                     }
-
-                    egui_state.handle_platform_output(window, full_output.platform_output);
-                } else if let Some(renderer) = &mut self.renderer
-                    && let Err(e) = renderer.render()
-                {
-                    log::error!("Render error: {e}");
                 }
-                if let Some(window) = self.window {
-                    window.request_redraw();
+                if let Some(win) = self.windows.get(&window_id) {
+                    win.window.request_redraw();
                 }
             }
             _ => {}
@@ -162,18 +137,11 @@ impl ApplicationHandler for App {
     }
 }
 
-fn renderer_max_texture_side(renderer: &Option<Renderer>) -> usize {
-    renderer
-        .as_ref()
-        .map(|r| r.device.limits().max_texture_dimension_2d as usize)
-        .unwrap_or(2048)
-}
-
 fn main() -> Result<()> {
     env_logger::init();
     log::info!("Lodestone starting");
     let event_loop = EventLoop::new()?;
-    let mut app = App::new();
+    let mut app = AppManager::new();
     event_loop.run_app(&mut app)?;
     Ok(())
 }

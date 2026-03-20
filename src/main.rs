@@ -497,7 +497,8 @@ impl ApplicationHandler for AppManager {
             for detach in self.pending_detaches.drain(..) {
                 let attrs = WindowAttributes::default()
                     .with_title(detach.panel_type.display_name())
-                    .with_inner_size(LogicalSize::new(400.0, 300.0));
+                    .with_inner_size(LogicalSize::new(400.0, 300.0))
+                    .with_min_inner_size(LogicalSize::new(200.0, 150.0));
                 let window = event_loop
                     .create_window(attrs)
                     .expect("create detached window");

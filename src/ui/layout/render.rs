@@ -157,18 +157,19 @@ pub fn render_layout(
                 ..Default::default()
             };
 
-            let win_response = egui::Window::new("")
+            let win_response = egui::Window::new("\u{2630}") // ☰ hamburger icon as title
                 .id(win_id)
-                .title_bar(false)
+                .title_bar(true)
                 .frame(dark_frame)
                 .default_pos(fg.pos)
                 .default_size(fg.size)
                 .min_size(egui::vec2(200.0, 100.0))
+                .resizable(true)
                 .order(egui::Order::Foreground)
+                .collapsible(false)
                 .show(ctx, |ui| {
                     let fgid = fg.group_id;
                     let tab_count = group.tabs.len();
-                    let collapse_btn_width = 24.0_f32;
 
                     // --- Inline tab bar ---
                     let (tab_bar_rect, _) = ui.allocate_exact_size(
@@ -180,40 +181,11 @@ pub fn render_layout(
                     // Tab bar background
                     painter.rect_filled(tab_bar_rect, 0.0, TAB_BAR_BG);
 
-                    // Collapse button (upper-left) — docks the floating group back to grid
-                    let collapse_rect = egui::Rect::from_min_size(
-                        tab_bar_rect.min,
-                        egui::vec2(collapse_btn_width, TAB_BAR_HEIGHT),
-                    );
-                    let collapse_resp = ui.interact(
-                        collapse_rect,
-                        egui::Id::new(("fcollapse", fgid.0)),
-                        egui::Sense::click(),
-                    );
-                    let collapse_color = if collapse_resp.hovered() {
-                        TEXT_BRIGHT
-                    } else {
-                        TEXT_DIM
-                    };
-                    if collapse_resp.hovered() {
-                        painter.rect_filled(collapse_rect, 0.0, TAB_HOVER_BG);
-                    }
-                    painter.text(
-                        collapse_rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "\u{25BE}", // ▾ small down triangle
-                        egui::FontId::proportional(14.0),
-                        collapse_color,
-                    );
-                    if collapse_resp.clicked() {
-                        actions.push(LayoutAction::DockFloatingToGrid { group_id: fgid });
-                    }
-                    collapse_resp.on_hover_text("Dock to grid");
+                    // Tabs start at the left edge (no collapse button)
+                    let tabs_start_x = tab_bar_rect.min.x;
 
-                    // Tabs start after the collapse button
-                    let tabs_start_x = tab_bar_rect.min.x + collapse_btn_width;
                     let available_for_tabs =
-                        tab_bar_rect.width() - collapse_btn_width - ADD_BUTTON_WIDTH;
+                        tab_bar_rect.width() - ADD_BUTTON_WIDTH;
                     let max_tab_width = 160.0_f32;
                     let tab_width = if tab_count > 0 {
                         (available_for_tabs / tab_count as f32).min(max_tab_width)
@@ -342,44 +314,64 @@ pub fn render_layout(
                         egui::pos2(plus_x, tab_bar_rect.min.y),
                         egui::vec2(ADD_BUTTON_WIDTH, TAB_BAR_HEIGHT),
                     );
-                    // "+" menu button — use child_ui for the menu, then repaint
-                    let (btn_rect, btn_hovered) = {
-                        let mut child_ui = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(plus_rect)
-                                .id_salt(("ftab_add", fgid.0)),
-                        );
-                        let menu = child_ui.menu_button(
-                            egui::RichText::new("+").size(14.0).color(TEXT_DIM),
-                            |ui| {
-                                for &pt in DOCKABLE_TYPES {
-                                    if ui.button(pt.display_name()).clicked() {
-                                        actions.push(LayoutAction::AddPanel {
-                                            target_group: fgid,
-                                            panel_type: pt,
-                                        });
-                                        ui.close();
-                                    }
-                                }
-                            },
-                        );
-                        (menu.response.rect, menu.response.hovered())
-                    };
-                    // Repaint custom styling over the default button chrome
-                    let painter = ui.painter();
-                    if btn_hovered {
-                        painter.rect_filled(btn_rect, 0.0, TAB_HOVER_BG);
-                    } else {
-                        painter.rect_filled(btn_rect, 0.0, TAB_BAR_BG);
+                    let plus_resp = ui.interact(
+                        plus_rect,
+                        egui::Id::new(("ftab_add", fgid.0)),
+                        egui::Sense::click(),
+                    );
+                    let pc = if plus_resp.hovered() { TEXT_BRIGHT } else { TEXT_DIM };
+                    if plus_resp.hovered() {
+                        painter.rect_filled(plus_rect, 0.0, TAB_HOVER_BG);
                     }
-                    let pc = if btn_hovered { TEXT_BRIGHT } else { TEXT_DIM };
                     painter.text(
-                        btn_rect.center(),
+                        plus_rect.center(),
                         egui::Align2::CENTER_CENTER,
                         "+",
                         egui::FontId::proportional(14.0),
                         pc,
                     );
+
+                    // Toggle popup on click
+                    let popup_state_id = egui::Id::new(("fadd_popup_open", fgid.0));
+                    let was_open: bool = ctx.data(|d| d.get_temp(popup_state_id).unwrap_or(false));
+                    let mut is_open = was_open;
+                    if plus_resp.clicked() {
+                        is_open = !is_open;
+                    }
+                    if is_open {
+                        let popup_pos = egui::pos2(plus_rect.min.x, plus_rect.max.y + 2.0);
+                        egui::Area::new(egui::Id::new(("fadd_panel_popup", fgid.0)))
+                            .fixed_pos(popup_pos)
+                            .order(egui::Order::Foreground)
+                            .show(ctx, |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    ui.set_min_width(120.0);
+                                    for &pt in DOCKABLE_TYPES {
+                                        if ui.selectable_label(false, pt.display_name()).clicked() {
+                                            actions.push(LayoutAction::AddPanel {
+                                                target_group: fgid,
+                                                panel_type: pt,
+                                            });
+                                            is_open = false;
+                                        }
+                                    }
+                                });
+                            });
+                        if was_open
+                            && !plus_resp.clicked()
+                            && ctx.input(|i| i.pointer.any_pressed())
+                            && let Some(pos) = ctx.pointer_interact_pos()
+                        {
+                            let popup_id = egui::Id::new(("fadd_panel_popup", fgid.0));
+                            let on_popup = ctx
+                                .layer_id_at(pos)
+                                .is_some_and(|layer| layer.id == popup_id);
+                            if !on_popup && !plus_rect.contains(pos) {
+                                is_open = false;
+                            }
+                        }
+                    }
+                    ctx.data_mut(|d| d.insert_temp(popup_state_id, is_open));
 
                     // --- Content area (frame fill is already CONTENT_BG) ---
                     let active = group.active_tab_entry();

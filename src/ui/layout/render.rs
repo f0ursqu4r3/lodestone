@@ -2,13 +2,31 @@ use super::interactions::collect_dividers;
 use super::{LayoutTree, MergeSide, NodeId, PanelType, SplitDirection};
 
 pub enum LayoutAction {
-    Resize { node_id: NodeId, new_ratio: f32 },
-    SwapType { node_id: NodeId, new_type: PanelType },
-    Close { node_id: NodeId },
-    Detach { node_id: NodeId },
-    Duplicate { node_id: NodeId },
-    Split { node_id: NodeId, direction: SplitDirection },
-    Merge { node_id: NodeId, keep: MergeSide },
+    Resize {
+        node_id: NodeId,
+        new_ratio: f32,
+    },
+    SwapType {
+        node_id: NodeId,
+        new_type: PanelType,
+    },
+    Close {
+        node_id: NodeId,
+    },
+    Detach {
+        node_id: NodeId,
+    },
+    Duplicate {
+        node_id: NodeId,
+    },
+    Split {
+        node_id: NodeId,
+        direction: SplitDirection,
+    },
+    Merge {
+        node_id: NodeId,
+        keep: MergeSide,
+    },
 }
 
 /// All dockable panel types for the type selector dropdown.
@@ -73,10 +91,8 @@ pub fn render_layout(
                     // Spacer to push close button to the right
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Close button — disabled if this is the only leaf
-                        let close_btn = ui.add_enabled(
-                            leaf_count > 1,
-                            egui::Button::new("×").small(),
-                        );
+                        let close_btn =
+                            ui.add_enabled(leaf_count > 1, egui::Button::new("×").small());
                         if close_btn.clicked() {
                             actions.push(LayoutAction::Close { node_id });
                         }
@@ -165,21 +181,21 @@ pub fn render_layout(
             }
         }
 
-        if response.dragged() {
-            if let Some(pointer_pos) = ctx.pointer_interact_pos() {
-                let new_ratio = match direction {
-                    SplitDirection::Vertical => {
-                        (pointer_pos.x - parent_rect.min.x) / parent_rect.width()
-                    }
-                    SplitDirection::Horizontal => {
-                        (pointer_pos.y - parent_rect.min.y) / parent_rect.height()
-                    }
-                };
-                actions.push(LayoutAction::Resize {
-                    node_id,
-                    new_ratio: new_ratio.clamp(0.1, 0.9),
-                });
-            }
+        if response.dragged()
+            && let Some(pointer_pos) = ctx.pointer_interact_pos()
+        {
+            let new_ratio = match direction {
+                SplitDirection::Vertical => {
+                    (pointer_pos.x - parent_rect.min.x) / parent_rect.width()
+                }
+                SplitDirection::Horizontal => {
+                    (pointer_pos.y - parent_rect.min.y) / parent_rect.height()
+                }
+            };
+            actions.push(LayoutAction::Resize {
+                node_id,
+                new_ratio: new_ratio.clamp(0.1, 0.9),
+            });
         }
     }
 
@@ -265,11 +281,7 @@ fn render_corner_handles(
                 ]
             };
 
-            let triangle = egui::Shape::convex_polygon(
-                triangle_points,
-                color,
-                egui::Stroke::NONE,
-            );
+            let triangle = egui::Shape::convex_polygon(triangle_points, color, egui::Stroke::NONE);
             handle_painter.add(triangle);
 
             // Handle drag gestures
@@ -278,11 +290,9 @@ fn render_corner_handles(
                 // Accumulate total drag from the drag start
                 let total_delta = ctx
                     .input(|i| {
-                        i.pointer
-                            .interact_pos()
-                            .and_then(|current| {
-                                i.pointer.press_origin().map(|origin| current - origin)
-                            })
+                        i.pointer.interact_pos().and_then(|current| {
+                            i.pointer.press_origin().map(|origin| current - origin)
+                        })
                     })
                     .unwrap_or(drag_delta);
 
@@ -313,39 +323,39 @@ fn determine_handle_action(
     let abs_y = drag_delta.y.abs();
 
     // Check if we can do a merge gesture (drag toward sibling)
-    if let Some((parent_id, my_side)) = layout.find_parent_with_side(node_id) {
-        if let Some(super::LayoutNode::Split { direction, .. }) = layout.node(parent_id) {
-            let direction = *direction;
-            match direction {
-                SplitDirection::Vertical => {
-                    // Horizontal drag along the split axis
-                    if abs_x > abs_y && abs_x > DRAG_THRESHOLD {
-                        // Dragging toward sibling = merge
-                        let toward_sibling = match my_side {
-                            MergeSide::First => drag_delta.x > 0.0,  // first panel, drag right toward second
-                            MergeSide::Second => drag_delta.x < 0.0, // second panel, drag left toward first
-                        };
-                        if toward_sibling {
-                            return Some(LayoutAction::Merge {
-                                node_id: parent_id,
-                                keep: my_side,
-                            });
-                        }
+    if let Some((parent_id, my_side)) = layout.find_parent_with_side(node_id)
+        && let Some(super::LayoutNode::Split { direction, .. }) = layout.node(parent_id)
+    {
+        let direction = *direction;
+        match direction {
+            SplitDirection::Vertical => {
+                // Horizontal drag along the split axis
+                if abs_x > abs_y && abs_x > DRAG_THRESHOLD {
+                    // Dragging toward sibling = merge
+                    let toward_sibling = match my_side {
+                        MergeSide::First => drag_delta.x > 0.0, // first panel, drag right toward second
+                        MergeSide::Second => drag_delta.x < 0.0, // second panel, drag left toward first
+                    };
+                    if toward_sibling {
+                        return Some(LayoutAction::Merge {
+                            node_id: parent_id,
+                            keep: my_side,
+                        });
                     }
                 }
-                SplitDirection::Horizontal => {
-                    // Vertical drag along the split axis
-                    if abs_y > abs_x && abs_y > DRAG_THRESHOLD {
-                        let toward_sibling = match my_side {
-                            MergeSide::First => drag_delta.y > 0.0,
-                            MergeSide::Second => drag_delta.y < 0.0,
-                        };
-                        if toward_sibling {
-                            return Some(LayoutAction::Merge {
-                                node_id: parent_id,
-                                keep: my_side,
-                            });
-                        }
+            }
+            SplitDirection::Horizontal => {
+                // Vertical drag along the split axis
+                if abs_y > abs_x && abs_y > DRAG_THRESHOLD {
+                    let toward_sibling = match my_side {
+                        MergeSide::First => drag_delta.y > 0.0,
+                        MergeSide::Second => drag_delta.y < 0.0,
+                    };
+                    if toward_sibling {
+                        return Some(LayoutAction::Merge {
+                            node_id: parent_id,
+                            keep: my_side,
+                        });
                     }
                 }
             }

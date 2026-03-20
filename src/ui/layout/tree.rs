@@ -107,6 +107,7 @@ impl PanelType {
 
     /// Whether this panel type can be placed in the tiling layout.
     /// Settings is rendered in a dedicated window, not as a docked panel.
+    #[allow(dead_code)]
     pub fn is_dockable(&self) -> bool {
         !matches!(self, Self::Settings)
     }
@@ -124,6 +125,7 @@ impl LayoutNode {
         matches!(self, LayoutNode::Leaf { .. })
     }
 
+    #[allow(dead_code)]
     pub fn panel_type(&self) -> Option<PanelType> {
         match self {
             LayoutNode::Leaf { panel_type, .. } => Some(*panel_type),
@@ -131,6 +133,7 @@ impl LayoutNode {
         }
     }
 
+    #[allow(dead_code)]
     pub fn ratio(&self) -> Option<f32> {
         match self {
             LayoutNode::Split { ratio, .. } => Some(*ratio),
@@ -152,9 +155,14 @@ pub struct LayoutTree {
 impl LayoutTree {
     /// Construct a tree directly from its parts (used by deserialization).
     pub fn from_parts(nodes: HashMap<NodeId, LayoutNode>, root: NodeId, next_node_id: u64) -> Self {
-        Self { nodes, root, next_node_id }
+        Self {
+            nodes,
+            root,
+            next_node_id,
+        }
     }
 
+    #[allow(dead_code)]
     pub fn new(panel_type: PanelType) -> Self {
         let root_id = NodeId(0);
         let mut nodes = HashMap::new();
@@ -170,7 +178,13 @@ impl LayoutTree {
     pub fn new_with_id(panel_type: PanelType, panel_id: PanelId) -> Self {
         let root_id = NodeId(0);
         let mut nodes = HashMap::new();
-        nodes.insert(root_id, LayoutNode::Leaf { panel_type, panel_id });
+        nodes.insert(
+            root_id,
+            LayoutNode::Leaf {
+                panel_type,
+                panel_id,
+            },
+        );
         Self {
             nodes,
             root: root_id,
@@ -194,7 +208,10 @@ impl LayoutTree {
 
     pub fn split(&mut self, node_id: NodeId, direction: SplitDirection, ratio: f32) {
         let existing = match self.nodes.get(&node_id) {
-            Some(LayoutNode::Leaf { panel_type, panel_id }) => (*panel_type, *panel_id),
+            Some(LayoutNode::Leaf {
+                panel_type,
+                panel_id,
+            }) => (*panel_type, *panel_id),
             _ => return,
         };
 
@@ -245,20 +262,14 @@ impl LayoutTree {
     }
 
     fn remove_subtree(&mut self, node_id: NodeId) {
-        if let Some(node) = self.nodes.remove(&node_id) {
-            if let LayoutNode::Split { first, second, .. } = node {
-                self.remove_subtree(first);
-                self.remove_subtree(second);
-            }
+        if let Some(LayoutNode::Split { first, second, .. }) = self.nodes.remove(&node_id) {
+            self.remove_subtree(first);
+            self.remove_subtree(second);
         }
     }
 
     pub fn resize(&mut self, node_id: NodeId, ratio: f32) {
-        if let Some(LayoutNode::Split {
-            ratio: r,
-            ..
-        }) = self.nodes.get_mut(&node_id)
-        {
+        if let Some(LayoutNode::Split { ratio: r, .. }) = self.nodes.get_mut(&node_id) {
             *r = ratio.clamp(0.1, 0.9);
         }
     }
@@ -400,10 +411,8 @@ impl LayoutTree {
 
     pub fn remove_leaf(&mut self, node_id: NodeId) -> Option<(PanelType, PanelId)> {
         // Can't remove the last leaf (root is a leaf).
-        if node_id == self.root {
-            if self.nodes.get(&node_id)?.is_leaf() {
-                return None;
-            }
+        if node_id == self.root && self.nodes.get(&node_id)?.is_leaf() {
+            return None;
         }
 
         let leaf = match self.nodes.get(&node_id) {
@@ -442,10 +451,10 @@ impl LayoutTree {
 
     pub fn find_parent(&self, target: NodeId) -> Option<NodeId> {
         for (id, node) in &self.nodes {
-            if let LayoutNode::Split { first, second, .. } = node {
-                if *first == target || *second == target {
-                    return Some(*id);
-                }
+            if let LayoutNode::Split { first, second, .. } = node
+                && (*first == target || *second == target)
+            {
+                return Some(*id);
             }
         }
         None
@@ -595,8 +604,7 @@ mod tests {
         let mut tree = LayoutTree::new(PanelType::Preview);
         let root_id = tree.root_id();
         tree.split(root_id, SplitDirection::Vertical, 0.3);
-        let total_rect =
-            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
+        let total_rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
         let leaves = tree.collect_leaves_with_rects(total_rect);
         assert_eq!(leaves.len(), 2);
         let (_, _, rect1, _) = &leaves[0];

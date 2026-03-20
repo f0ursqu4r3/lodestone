@@ -20,6 +20,7 @@ pub struct WindowState {
     pub egui_state: egui_winit::State,
     pub egui_ctx: egui::Context,
     pub layout: LayoutTree,
+    #[allow(dead_code)]
     pub is_main: bool,
 }
 
@@ -86,7 +87,11 @@ impl WindowState {
         }
     }
 
-    pub fn render(&mut self, gpu: &SharedGpuState, state: &mut AppState) -> Result<Vec<DetachRequest>> {
+    pub fn render(
+        &mut self,
+        gpu: &SharedGpuState,
+        state: &mut AppState,
+    ) -> Result<Vec<DetachRequest>> {
         let raw_input = self.egui_state.take_egui_input(self.window);
 
         let layout = &self.layout;
@@ -125,7 +130,10 @@ impl WindowState {
                 }
                 LayoutAction::Detach { node_id } => {
                     if let Some((panel_type, panel_id)) = self.layout.remove_leaf(node_id) {
-                        detach_requests.push(DetachRequest { panel_type, panel_id });
+                        detach_requests.push(DetachRequest {
+                            panel_type,
+                            panel_id,
+                        });
                     }
                 }
             }
@@ -142,11 +150,11 @@ impl WindowState {
             .get_current_texture()
             .map_err(|e| anyhow::anyhow!("Failed to get surface texture: {e}"))?;
         let view = output.texture.create_view(&Default::default());
-        let mut encoder =
-            gpu.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("window_render_encoder"),
-                });
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("window_render_encoder"),
+            });
 
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [self.surface_config.width, self.surface_config.height],

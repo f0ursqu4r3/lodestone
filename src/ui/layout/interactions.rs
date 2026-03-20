@@ -13,6 +13,7 @@ pub struct DividerRect {
 }
 
 impl DividerRect {
+    #[allow(dead_code)]
     pub fn contains(&self, pos: egui::Pos2) -> bool {
         self.rect.contains(pos)
     }
@@ -83,11 +84,7 @@ fn collect_dividers_recursive(
     // Leaf nodes have no dividers.
 }
 
-fn split_rect(
-    rect: egui::Rect,
-    direction: SplitDirection,
-    ratio: f32,
-) -> (egui::Rect, egui::Rect) {
+fn split_rect(rect: egui::Rect, direction: SplitDirection, ratio: f32) -> (egui::Rect, egui::Rect) {
     match direction {
         SplitDirection::Vertical => {
             let split_x = rect.min.x + rect.width() * ratio;

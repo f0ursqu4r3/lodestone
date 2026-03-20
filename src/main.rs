@@ -3,10 +3,10 @@ mod renderer;
 mod settings;
 mod state;
 
-use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use renderer::Renderer;
 use state::AppState;
+use std::sync::{Arc, Mutex};
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalSize},
@@ -23,13 +23,19 @@ struct App {
 
 impl App {
     fn new() -> Self {
-        Self { window: None, renderer: None, state: Arc::new(Mutex::new(AppState::default())) }
+        Self {
+            window: None,
+            renderer: None,
+            state: Arc::new(Mutex::new(AppState::default())),
+        }
     }
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        if self.window.is_some() { return; }
+        if self.window.is_some() {
+            return;
+        }
         let attrs = WindowAttributes::default()
             .with_title("Lodestone")
             .with_inner_size(LogicalSize::new(1280.0, 720.0))
@@ -42,17 +48,30 @@ impl ApplicationHandler for App {
         log::info!("Window and renderer initialized");
     }
 
-    fn window_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, _window_id: winit::window::WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
         match event {
-            WindowEvent::CloseRequested => { event_loop.exit(); }
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
+            }
             WindowEvent::Resized(PhysicalSize { width, height }) => {
-                if let Some(renderer) = &mut self.renderer { renderer.resize(width, height); }
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(width, height);
+                }
             }
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = &mut self.renderer {
-                    if let Err(e) = renderer.render() { log::error!("Render error: {e}"); }
+                    if let Err(e) = renderer.render() {
+                        log::error!("Render error: {e}");
+                    }
                 }
-                if let Some(window) = self.window { window.request_redraw(); }
+                if let Some(window) = self.window {
+                    window.request_redraw();
+                }
             }
             _ => {}
         }

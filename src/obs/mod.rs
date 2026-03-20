@@ -3,8 +3,8 @@ pub mod mock;
 pub mod output;
 pub mod scene;
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 use tokio::sync::mpsc::Receiver;
 
 pub use encoder::EncoderConfig;

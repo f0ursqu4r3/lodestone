@@ -1,13 +1,13 @@
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::path::Path;
-use anyhow::{anyhow, Result};
 use tokio::sync::mpsc::{self, Receiver};
 
 use super::{
+    ObsEngine, ObsStats, RgbaFrame,
     encoder::EncoderConfig,
     output::{StreamConfig, StreamDestination},
     scene::{Scene, SceneId, Source, SourceConfig, SourceId, SourceType, Transform},
-    ObsEngine, ObsStats, RgbaFrame,
 };
 
 pub struct MockObsEngine {
@@ -220,7 +220,11 @@ impl ObsEngine for MockObsEngine {
             chunk[2] = 40;
             chunk[3] = 255;
         }
-        Some(RgbaFrame { data, width, height })
+        Some(RgbaFrame {
+            data,
+            width,
+            height,
+        })
     }
 }
 

@@ -60,7 +60,13 @@ impl Renderer {
         };
         surface.configure(&device, &surface_config);
 
-        Ok(Self { device, queue, surface, surface_config, format })
+        Ok(Self {
+            device,
+            queue,
+            surface,
+            surface_config,
+            format,
+        })
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -94,9 +100,11 @@ impl Renderer {
         };
 
         let view = output.texture.create_view(&Default::default());
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("render_encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("render_encoder"),
+            });
         {
             let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("clear_pass"),

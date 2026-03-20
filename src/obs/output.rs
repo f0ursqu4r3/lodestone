@@ -29,12 +29,17 @@ mod tests {
 
     #[test]
     fn twitch_rtmp_url() {
-        assert_eq!(StreamDestination::Twitch.rtmp_url(), "rtmp://live.twitch.tv/app");
+        assert_eq!(
+            StreamDestination::Twitch.rtmp_url(),
+            "rtmp://live.twitch.tv/app"
+        );
     }
 
     #[test]
     fn custom_rtmp_url() {
-        let dest = StreamDestination::CustomRtmp { url: "rtmp://my.server/live".to_string() };
+        let dest = StreamDestination::CustomRtmp {
+            url: "rtmp://my.server/live".to_string(),
+        };
         assert_eq!(dest.rtmp_url(), "rtmp://my.server/live");
     }
 }

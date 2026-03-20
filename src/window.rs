@@ -4,6 +4,7 @@ use egui_wgpu::wgpu::{Surface, SurfaceConfiguration};
 use winit::window::Window;
 
 use crate::renderer::SharedGpuState;
+use crate::ui::preview_panel::PreviewResources;
 use crate::state::AppState;
 use crate::ui::layout::render::LayoutAction;
 use crate::ui::layout::tree::{
@@ -37,6 +38,7 @@ impl WindowState {
         gpu: &SharedGpuState,
         layout: DockLayout,
         is_main: bool,
+        preview_resources: Option<PreviewResources>,
     ) -> Result<Self> {
         let surface = gpu.instance.create_surface(window)?;
 
@@ -53,11 +55,15 @@ impl WindowState {
         };
         surface.configure(&gpu.device, &surface_config);
 
-        let egui_renderer = egui_wgpu::Renderer::new(
+        let mut egui_renderer = egui_wgpu::Renderer::new(
             &gpu.device,
             gpu.format,
             egui_wgpu::RendererOptions::default(),
         );
+
+        if let Some(resources) = preview_resources {
+            egui_renderer.callback_resources.insert(resources);
+        }
 
         let egui_ctx = egui::Context::default();
         egui_ctx.set_visuals(egui::Visuals::dark());
@@ -337,29 +343,7 @@ impl WindowState {
             });
         }
 
-        // Pass 2: Preview texture (fullscreen, behind everything)
-        {
-            let mut preview_pass = encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("preview_pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                })
-                .forget_lifetime();
-            gpu.preview_renderer.render(&mut preview_pass);
-        }
-
-        // Pass 3: egui overlay
+        // Pass 2: egui (includes preview via paint callbacks)
         {
             let mut render_pass = encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {

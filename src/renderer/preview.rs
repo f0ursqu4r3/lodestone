@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Device, Queue, TextureFormat};
 
@@ -35,11 +37,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 pub struct PreviewRenderer {
     texture: wgpu::Texture,
-    bind_group: wgpu::BindGroup,
-    pipeline: wgpu::RenderPipeline,
-    #[allow(dead_code)]
+    bind_group: Arc<wgpu::BindGroup>,
+    pipeline: Arc<wgpu::RenderPipeline>,
     pub width: u32,
-    #[allow(dead_code)]
     pub height: u32,
 }
 
@@ -155,8 +155,8 @@ impl PreviewRenderer {
 
         Self {
             texture,
-            bind_group,
-            pipeline,
+            bind_group: Arc::new(bind_group),
+            pipeline: Arc::new(pipeline),
             width,
             height,
         }
@@ -184,9 +184,13 @@ impl PreviewRenderer {
         );
     }
 
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-        render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_bind_group(0, &self.bind_group, &[]);
-        render_pass.draw(0..4, 0..1);
+    /// Arc-wrapped pipeline for sharing with egui paint callbacks.
+    pub fn pipeline(&self) -> Arc<wgpu::RenderPipeline> {
+        Arc::clone(&self.pipeline)
+    }
+
+    /// Arc-wrapped bind group for sharing with egui paint callbacks.
+    pub fn bind_group(&self) -> Arc<wgpu::BindGroup> {
+        Arc::clone(&self.bind_group)
     }
 }

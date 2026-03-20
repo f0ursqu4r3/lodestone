@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use ui::layout::{
     DockLayout, PanelType, SplitDirection, deserialize_full_layout, serialize_full_layout,
 };
+use ui::preview_panel::PreviewResources;
 use window::{DetachRequest, WindowState};
 use winit::{
     application::ApplicationHandler,
@@ -315,10 +316,22 @@ impl ApplicationHandler for AppManager {
         let gpu =
             pollster::block_on(SharedGpuState::new(window)).expect("initialize shared GPU state");
 
+        // Set preview dimensions on AppState
+        {
+            let mut app_state = self.state.lock().unwrap();
+            app_state.preview_width = gpu.preview_renderer.width;
+            app_state.preview_height = gpu.preview_renderer.height;
+        }
+
+        let preview_resources = PreviewResources {
+            pipeline: gpu.preview_renderer.pipeline(),
+            bind_group: gpu.preview_renderer.bind_group(),
+        };
+
         // Try to load saved layout; fall back to default.
         let layout = Self::load_layout();
-        let win_state =
-            WindowState::new(window, &gpu, layout, true).expect("create main window state");
+        let win_state = WindowState::new(window, &gpu, layout, true, Some(preview_resources))
+            .expect("create main window state");
 
         self.gpu = Some(gpu);
         self.main_window_id = Some(window_id);
@@ -492,8 +505,12 @@ impl ApplicationHandler for AppManager {
 
                 let layout =
                     DockLayout::new_with_ids(detach.group_id, detach.panel_id, detach.panel_type);
-                let win_state =
-                    WindowState::new(window, gpu, layout, false).expect("init detached window");
+                let preview_resources = PreviewResources {
+                    pipeline: gpu.preview_renderer.pipeline(),
+                    bind_group: gpu.preview_renderer.bind_group(),
+                };
+                let win_state = WindowState::new(window, gpu, layout, false, Some(preview_resources))
+                    .expect("init detached window");
                 self.windows.insert(window.id(), win_state);
             }
         }

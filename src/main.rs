@@ -13,8 +13,9 @@ use renderer::SharedGpuState;
 use state::AppState;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+#[allow(unused_imports)]
 use ui::layout::{
-    DetachedEntry, LayoutTree, SplitDirection, deserialize_full_layout, serialize_full_layout,
+    DockLayout, GroupId, PanelId, SplitDirection, deserialize_full_layout, serialize_full_layout,
 };
 use window::{DetachRequest, WindowState};
 use winit::{
@@ -65,22 +66,22 @@ impl AppManager {
     }
 
     /// Try to load a saved layout from disk. Falls back to default.
-    fn load_layout() -> LayoutTree {
+    fn load_layout() -> DockLayout {
         let path = settings::config_dir().join("layout.toml");
         if path.exists()
             && let Ok(contents) = std::fs::read_to_string(&path)
         {
             match deserialize_full_layout(&contents) {
-                Ok((tree, _detached)) => {
+                Ok((layout, _detached)) => {
                     log::info!("Loaded layout from {}", path.display());
-                    return tree;
+                    return layout;
                 }
                 Err(e) => {
                     log::warn!("Failed to parse layout.toml, using default: {e}");
                 }
             }
         }
-        LayoutTree::default_layout()
+        DockLayout::default_layout()
     }
 
     /// Save the current main window layout to disk.
@@ -92,27 +93,8 @@ impl AppManager {
             return;
         };
 
-        // Collect detached window positions and sizes.
-        let detached: Vec<DetachedEntry> = self
-            .windows
-            .iter()
-            .filter(|(id, _)| **id != main_id)
-            .flat_map(|(_, win)| {
-                let leaves = win.layout.collect_leaves();
-                let pos = win.window.outer_position().unwrap_or_default();
-                let size = win.window.inner_size();
-                leaves
-                    .into_iter()
-                    .map(move |(panel_id, panel_type, _node_id)| DetachedEntry {
-                        panel: panel_type,
-                        id: panel_id.0,
-                        x: pos.x,
-                        y: pos.y,
-                        width: size.width,
-                        height: size.height,
-                    })
-            })
-            .collect();
+        // Collect detached window info (stub — no detached windows in new model yet).
+        let detached = Vec::new();
 
         match serialize_full_layout(&main_win.layout, &detached) {
             Ok(toml_str) => {
@@ -146,7 +128,7 @@ impl AppManager {
 
             // Reset the main layout.
             if let Some(main_win) = self.windows.get_mut(&main_id) {
-                main_win.layout = LayoutTree::default_layout();
+                main_win.layout = DockLayout::default_layout();
             }
         }
         self.save_layout();
@@ -232,8 +214,8 @@ impl ApplicationHandler for AppManager {
                         && let Some(main_id) = self.main_window_id
                         && let Some(main_win) = self.windows.get_mut(&main_id)
                     {
-                        let leaves = detached_win.layout.collect_leaves();
-                        for (panel_id, panel_type, _node_id) in leaves {
+                        let panels = detached_win.layout.collect_all_panels();
+                        for (panel_id, panel_type) in panels {
                             main_win.layout.insert_at_root(
                                 panel_type,
                                 panel_id,
@@ -298,7 +280,8 @@ impl ApplicationHandler for AppManager {
                     .expect("create detached window");
                 let window: &'static Window = Box::leak(Box::new(window));
 
-                let layout = LayoutTree::new_with_id(detach.panel_type, detach.panel_id);
+                let layout =
+                    DockLayout::new_with_ids(GroupId::next(), detach.panel_id, detach.panel_type);
                 let win_state =
                     WindowState::new(window, gpu, layout, false).expect("init detached window");
                 self.windows.insert(window.id(), win_state);

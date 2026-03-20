@@ -7,8 +7,7 @@ const DESTINATIONS: &[&str] = &["Twitch", "YouTube", "Custom RTMP"];
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
     // Destination combo box (stored in egui memory)
     let dest_idx_id = egui::Id::new(("stream_dest_idx", panel_id.0));
-    let mut dest_idx: usize =
-        ui.memory(|m| m.data.get_temp::<usize>(dest_idx_id).unwrap_or(0));
+    let mut dest_idx: usize = ui.memory(|m| m.data.get_temp::<usize>(dest_idx_id).unwrap_or(0));
 
     egui::ComboBox::from_label("Destination")
         .selected_text(DESTINATIONS[dest_idx])

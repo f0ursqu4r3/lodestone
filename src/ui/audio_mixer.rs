@@ -44,10 +44,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
                     let fill_frac = ((current_db + 60.0) / 60.0).clamp(0.0, 1.0);
                     let filled_height = vu_height * fill_frac;
 
-                    let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(vu_width, vu_height),
-                        egui::Sense::hover(),
-                    );
+                    let (rect, _) = ui
+                        .allocate_exact_size(egui::vec2(vu_width, vu_height), egui::Sense::hover());
                     // Background
                     ui.painter()
                         .rect_filled(rect, 0.0, egui::Color32::DARK_GRAY);

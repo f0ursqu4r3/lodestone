@@ -5,7 +5,7 @@ use winit::window::Window;
 
 use crate::renderer::SharedGpuState;
 use crate::state::AppState;
-use crate::ui::layout::{LayoutTree, PanelId, PanelType};
+use crate::ui::layout::{DockLayout, PanelId, PanelType};
 
 pub struct DetachRequest {
     pub panel_type: PanelType,
@@ -19,7 +19,7 @@ pub struct WindowState {
     pub egui_renderer: egui_wgpu::Renderer,
     pub egui_state: egui_winit::State,
     pub egui_ctx: egui::Context,
-    pub layout: LayoutTree,
+    pub layout: DockLayout,
     #[allow(dead_code)]
     pub is_main: bool,
 }
@@ -28,16 +28,12 @@ impl WindowState {
     pub fn new(
         window: &'static Window,
         gpu: &SharedGpuState,
-        layout: LayoutTree,
+        layout: DockLayout,
         is_main: bool,
     ) -> Result<Self> {
         let surface = gpu.instance.create_surface(window)?;
 
         let size = window.inner_size();
-        // Query capabilities using a temporary adapter — we reuse the same
-        // device/queue from SharedGpuState but need surface capabilities for
-        // configuration. Since we already picked the format during GPU init,
-        // we can trust that format and just need alpha_mode.
         let surface_config = SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: gpu.format,
@@ -79,23 +75,6 @@ impl WindowState {
         })
     }
 
-    /// Pick a default panel type for a newly-split panel that differs from
-    /// the original. Prefers Preview; falls back to the first dockable type
-    /// that isn't the original.
-    fn pick_new_panel_type(original: PanelType) -> PanelType {
-        const DOCKABLE: &[PanelType] = &[
-            PanelType::Preview,
-            PanelType::SceneEditor,
-            PanelType::AudioMixer,
-            PanelType::StreamControls,
-        ];
-        DOCKABLE
-            .iter()
-            .copied()
-            .find(|&t| t != original)
-            .unwrap_or(PanelType::Preview)
-    }
-
     pub fn resize(&mut self, gpu: &SharedGpuState, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.surface_config.width = width;
@@ -114,7 +93,6 @@ impl WindowState {
         let layout = &self.layout;
         let mut pending_actions = Vec::new();
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            // Render top menu bar first; it reserves space and returns the remaining rect.
             let (menu_actions, available_rect) =
                 crate::ui::layout::render::render_menu_bar(ctx, layout);
             let mut actions = menu_actions;
@@ -128,71 +106,26 @@ impl WindowState {
         });
 
         // Apply layout actions after the egui frame
-        let mut detach_requests = Vec::new();
+        let detach_requests = Vec::new();
         for action in pending_actions {
             use crate::ui::layout::render::LayoutAction;
             match action {
                 LayoutAction::Resize { node_id, new_ratio } => {
                     self.layout.resize(node_id, new_ratio);
                 }
-                LayoutAction::SwapType { node_id, new_type } => {
-                    self.layout.swap_type(node_id, new_type);
-                }
-                LayoutAction::Close { node_id } => {
-                    // remove_leaf finds the parent, replaces parent with sibling
-                    self.layout.remove_leaf(node_id);
-                }
-                LayoutAction::Duplicate { node_id } => {
-                    self.layout
-                        .split(node_id, crate::ui::layout::SplitDirection::Vertical, 0.5);
-                }
-                LayoutAction::Split { node_id, direction } => {
-                    // Determine the original panel type before splitting.
-                    let original_type = self
-                        .layout
-                        .node(node_id)
-                        .and_then(|n| n.panel_type());
-
-                    self.layout.split(node_id, direction, 0.5);
-
-                    // After split, the node_id is now a Split node whose second
-                    // child is the new panel. Change it to a different type so
-                    // the user doesn't get a duplicate.
-                    if let Some(original) = original_type {
-                        if let Some(crate::ui::layout::LayoutNode::Split { second, .. }) =
-                            self.layout.node(node_id).cloned()
-                        {
-                            let new_type = Self::pick_new_panel_type(original);
-                            self.layout.swap_type(second, new_type);
-                        }
-                    }
-                }
-                LayoutAction::Merge { node_id, keep } => {
-                    self.layout.merge(node_id, keep);
-                }
-                LayoutAction::Detach { node_id } => {
-                    if let Some((panel_type, panel_id)) = self.layout.remove_leaf(node_id) {
-                        detach_requests.push(DetachRequest {
-                            panel_type,
-                            panel_id,
-                        });
-                    }
+                LayoutAction::Close { group_id } => {
+                    self.layout.remove_group_from_grid(group_id);
                 }
                 LayoutAction::SplitWithType {
-                    node_id,
+                    group_id,
                     direction,
                     new_type,
                 } => {
-                    self.layout.split(node_id, direction, 0.5);
-                    // After split, set the new (second) child to the requested type.
-                    if let Some(crate::ui::layout::LayoutNode::Split { second, .. }) =
-                        self.layout.node(node_id).cloned()
-                    {
-                        self.layout.swap_type(second, new_type);
-                    }
+                    self.layout
+                        .split_group(group_id, direction, new_type, false);
                 }
                 LayoutAction::ResetLayout => {
-                    self.layout = crate::ui::layout::LayoutTree::default_layout();
+                    self.layout = DockLayout::default_layout();
                 }
             }
         }

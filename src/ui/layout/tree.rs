@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
-// PanelType
+// PanelType (unchanged)
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -16,8 +16,26 @@ pub enum PanelType {
     Settings,
 }
 
+impl PanelType {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Preview => "Preview",
+            Self::SceneEditor => "Scene Editor",
+            Self::AudioMixer => "Audio Mixer",
+            Self::StreamControls => "Stream Controls",
+            Self::Settings => "Settings",
+        }
+    }
+
+    /// Whether this panel type can be placed in the tiling layout.
+    #[allow(dead_code)]
+    pub fn is_dockable(&self) -> bool {
+        !matches!(self, Self::Settings)
+    }
+}
+
 // ---------------------------------------------------------------------------
-// PanelId
+// PanelId (unchanged)
 // ---------------------------------------------------------------------------
 
 static PANEL_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -30,6 +48,7 @@ impl PanelId {
         Self(PANEL_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
+    #[allow(dead_code)]
     pub fn set_counter(min_next: u64) {
         let mut current = PANEL_ID_COUNTER.load(Ordering::Relaxed);
         loop {
@@ -50,7 +69,7 @@ impl PanelId {
 }
 
 // ---------------------------------------------------------------------------
-// SplitDirection
+// SplitDirection (unchanged)
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -60,32 +79,146 @@ pub enum SplitDirection {
 }
 
 // ---------------------------------------------------------------------------
-// MergeSide
+// GroupId
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[allow(dead_code)]
-pub enum MergeSide {
-    First,
-    Second,
+static GROUP_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// Unique identifier for a tab group.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct GroupId(pub u64);
+
+impl GroupId {
+    pub fn next() -> Self {
+        Self(GROUP_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
+
+    #[allow(dead_code)]
+    pub fn set_counter(min_next: u64) {
+        let mut current = GROUP_ID_COUNTER.load(Ordering::Relaxed);
+        loop {
+            if current >= min_next {
+                break;
+            }
+            match GROUP_ID_COUNTER.compare_exchange(
+                current,
+                min_next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
-// NodeId
+// TabEntry
 // ---------------------------------------------------------------------------
 
+/// A single tab within a group, referencing a panel by ID and type.
+#[derive(Clone, Debug)]
+pub struct TabEntry {
+    pub panel_id: PanelId,
+    pub panel_type: PanelType,
+}
+
+// ---------------------------------------------------------------------------
+// Group
+// ---------------------------------------------------------------------------
+
+/// A container holding one or more panels as tabs.
+#[derive(Clone, Debug)]
+pub struct Group {
+    pub id: GroupId,
+    pub tabs: Vec<TabEntry>,
+    pub active_tab: usize,
+}
+
+impl Group {
+    /// Create a new group with a single tab.
+    pub fn new(panel_type: PanelType) -> Self {
+        Self {
+            id: GroupId::next(),
+            tabs: vec![TabEntry {
+                panel_id: PanelId::next(),
+                panel_type,
+            }],
+            active_tab: 0,
+        }
+    }
+
+    /// Create a new group with a single tab, preserving existing IDs.
+    pub fn new_with_ids(group_id: GroupId, panel_id: PanelId, panel_type: PanelType) -> Self {
+        Self {
+            id: group_id,
+            tabs: vec![TabEntry {
+                panel_id,
+                panel_type,
+            }],
+            active_tab: 0,
+        }
+    }
+
+    /// Add a tab and make it active. Returns the new tab's PanelId.
+    pub fn add_tab(&mut self, panel_type: PanelType) -> PanelId {
+        let panel_id = PanelId::next();
+        self.tabs.push(TabEntry {
+            panel_id,
+            panel_type,
+        });
+        self.active_tab = self.tabs.len() - 1;
+        panel_id
+    }
+
+    /// Add a tab with a specific PanelId (for moves between groups).
+    #[allow(dead_code)]
+    pub fn add_tab_entry(&mut self, entry: TabEntry) {
+        self.tabs.push(entry);
+        self.active_tab = self.tabs.len() - 1;
+    }
+
+    /// Insert a tab at a specific index.
+    #[allow(dead_code)]
+    pub fn insert_tab(&mut self, index: usize, entry: TabEntry) {
+        let index = index.min(self.tabs.len());
+        self.tabs.insert(index, entry);
+        self.active_tab = index;
+    }
+
+    /// Remove a tab by index. Returns None if it's the last tab.
+    #[allow(dead_code)]
+    pub fn remove_tab(&mut self, index: usize) -> Option<TabEntry> {
+        if self.tabs.len() <= 1 || index >= self.tabs.len() {
+            return None;
+        }
+        let entry = self.tabs.remove(index);
+        if self.active_tab >= self.tabs.len() {
+            self.active_tab = self.tabs.len() - 1;
+        }
+        Some(entry)
+    }
+
+    /// Get the active tab entry. Falls back to first tab if index is out of bounds.
+    pub fn active_tab_entry(&self) -> &TabEntry {
+        self.tabs.get(self.active_tab).unwrap_or(&self.tabs[0])
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SplitNode — binary split tree with GroupId leaves
+// ---------------------------------------------------------------------------
+
+/// Unique identifier for a node in the split tree.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(pub u64);
 
-// ---------------------------------------------------------------------------
-// LayoutNode
-// ---------------------------------------------------------------------------
-
+/// A node in the binary split tree. Leaves reference a GroupId; splits divide space.
 #[derive(Clone, Debug)]
-pub enum LayoutNode {
+pub enum SplitNode {
     Leaf {
-        panel_type: PanelType,
-        panel_id: PanelId,
+        group_id: GroupId,
     },
     Split {
         direction: SplitDirection,
@@ -95,104 +228,70 @@ pub enum LayoutNode {
     },
 }
 
-impl PanelType {
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::Preview => "Preview",
-            Self::SceneEditor => "Scene Editor",
-            Self::AudioMixer => "Audio Mixer",
-            Self::StreamControls => "Stream Controls",
-            Self::Settings => "Settings",
-        }
-    }
+// ---------------------------------------------------------------------------
+// FloatingGroup
+// ---------------------------------------------------------------------------
 
-    /// Whether this panel type can be placed in the tiling layout.
-    /// Settings is rendered in a dedicated window, not as a docked panel.
-    #[allow(dead_code)]
-    pub fn is_dockable(&self) -> bool {
-        !matches!(self, Self::Settings)
-    }
-}
-
-impl LayoutNode {
-    pub fn leaf(panel_type: PanelType) -> Self {
-        LayoutNode::Leaf {
-            panel_type,
-            panel_id: PanelId::next(),
-        }
-    }
-
-    pub fn is_leaf(&self) -> bool {
-        matches!(self, LayoutNode::Leaf { .. })
-    }
-
-    #[allow(dead_code)]
-    pub fn panel_type(&self) -> Option<PanelType> {
-        match self {
-            LayoutNode::Leaf { panel_type, .. } => Some(*panel_type),
-            _ => None,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn ratio(&self) -> Option<f32> {
-        match self {
-            LayoutNode::Split { ratio, .. } => Some(*ratio),
-            _ => None,
-        }
-    }
+/// A group rendered as a floating window above the grid layout.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct FloatingGroup {
+    pub group_id: GroupId,
+    pub pos: egui::Pos2,
+    pub size: egui::Vec2,
 }
 
 // ---------------------------------------------------------------------------
-// LayoutTree
+// DropZone
 // ---------------------------------------------------------------------------
 
-pub struct LayoutTree {
-    nodes: HashMap<NodeId, LayoutNode>,
+/// Where a dragged tab can be dropped relative to a target group.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(dead_code)]
+pub enum DropZone {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Center,
+    TabBar { index: usize },
+}
+
+// ---------------------------------------------------------------------------
+// DragState
+// ---------------------------------------------------------------------------
+
+/// Active drag-and-drop state tracking the tab being dragged.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct DragState {
+    pub panel_id: PanelId,
+    pub panel_type: PanelType,
+    pub source_group: GroupId,
+    pub tab_index: usize,
+}
+
+// ---------------------------------------------------------------------------
+// DockLayout
+// ---------------------------------------------------------------------------
+
+/// Top-level layout state per window. Contains the split tree, groups, floating groups, and drag state.
+#[allow(dead_code)]
+pub struct DockLayout {
+    // Split tree
+    nodes: HashMap<NodeId, SplitNode>,
     root: NodeId,
     next_node_id: u64,
+    // Groups
+    pub groups: HashMap<GroupId, Group>,
+    // Floating groups (above the grid)
+    pub floating: Vec<FloatingGroup>,
+    // Drag-and-drop state
+    pub drag: Option<DragState>,
 }
 
-impl LayoutTree {
-    /// Construct a tree directly from its parts (used by deserialization).
-    pub fn from_parts(nodes: HashMap<NodeId, LayoutNode>, root: NodeId, next_node_id: u64) -> Self {
-        Self {
-            nodes,
-            root,
-            next_node_id,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn new(panel_type: PanelType) -> Self {
-        let root_id = NodeId(0);
-        let mut nodes = HashMap::new();
-        nodes.insert(root_id, LayoutNode::leaf(panel_type));
-        Self {
-            nodes,
-            root: root_id,
-            next_node_id: 1,
-        }
-    }
-
-    /// Create a single-leaf tree preserving an existing PanelId.
-    pub fn new_with_id(panel_type: PanelType, panel_id: PanelId) -> Self {
-        let root_id = NodeId(0);
-        let mut nodes = HashMap::new();
-        nodes.insert(
-            root_id,
-            LayoutNode::Leaf {
-                panel_type,
-                panel_id,
-            },
-        );
-        Self {
-            nodes,
-            root: root_id,
-            next_node_id: 1,
-        }
-    }
-
+#[allow(dead_code)]
+impl DockLayout {
     fn alloc_node_id(&mut self) -> NodeId {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
@@ -203,256 +302,159 @@ impl LayoutTree {
         self.root
     }
 
-    pub fn node(&self, id: NodeId) -> Option<&LayoutNode> {
+    pub fn node(&self, id: NodeId) -> Option<&SplitNode> {
         self.nodes.get(&id)
     }
 
-    pub fn split(&mut self, node_id: NodeId, direction: SplitDirection, ratio: f32) {
-        let existing = match self.nodes.get(&node_id) {
-            Some(LayoutNode::Leaf {
-                panel_type,
-                panel_id,
-            }) => (*panel_type, *panel_id),
-            _ => return,
-        };
-
-        let first_id = self.alloc_node_id();
-        let second_id = self.alloc_node_id();
-
-        // Original leaf keeps its PanelId, new leaf gets a fresh one.
-        self.nodes.insert(
-            first_id,
-            LayoutNode::Leaf {
-                panel_type: existing.0,
-                panel_id: existing.1,
-            },
-        );
-        self.nodes.insert(second_id, LayoutNode::leaf(existing.0));
-
-        self.nodes.insert(
-            node_id,
-            LayoutNode::Split {
-                direction,
-                ratio,
-                first: first_id,
-                second: second_id,
-            },
-        );
+    pub fn nodes(&self) -> &HashMap<NodeId, SplitNode> {
+        &self.nodes
     }
 
-    pub fn merge(&mut self, node_id: NodeId, side: MergeSide) {
-        let (keep_id, remove_id) = match self.nodes.get(&node_id) {
-            Some(LayoutNode::Split { first, second, .. }) => match side {
-                MergeSide::First => (*first, *second),
-                MergeSide::Second => (*second, *first),
-            },
-            _ => return,
-        };
-
-        // Remove the discarded subtree.
-        self.remove_subtree(remove_id);
-
-        // Replace the split node with the kept child's content.
-        if let Some(kept_node) = self.nodes.remove(&keep_id) {
-            self.nodes.insert(node_id, kept_node);
-
-            // Update children that pointed to keep_id — they now live under node_id.
-            // We need to fix nothing because children reference their own children by NodeId,
-            // and those NodeIds haven't changed. The kept subtree is intact.
+    /// Build from deserialized parts.
+    pub fn from_parts(
+        nodes: HashMap<NodeId, SplitNode>,
+        root: NodeId,
+        next_node_id: u64,
+        groups: HashMap<GroupId, Group>,
+        floating: Vec<FloatingGroup>,
+    ) -> Self {
+        Self {
+            nodes,
+            root,
+            next_node_id,
+            groups,
+            floating,
+            drag: None,
         }
     }
 
-    fn remove_subtree(&mut self, node_id: NodeId) {
-        if let Some(LayoutNode::Split { first, second, .. }) = self.nodes.remove(&node_id) {
-            self.remove_subtree(first);
-            self.remove_subtree(second);
+    /// Create a layout with a single group containing one panel.
+    pub fn new_single(panel_type: PanelType) -> Self {
+        let group = Group::new(panel_type);
+        let group_id = group.id;
+        let mut groups = HashMap::new();
+        groups.insert(group_id, group);
+
+        let root_id = NodeId(0);
+        let mut nodes = HashMap::new();
+        nodes.insert(root_id, SplitNode::Leaf { group_id });
+
+        Self {
+            nodes,
+            root: root_id,
+            next_node_id: 1,
+            groups,
+            floating: Vec::new(),
+            drag: None,
         }
     }
 
+    /// Create a layout with a single group containing one panel, preserving IDs.
+    pub fn new_with_ids(group_id: GroupId, panel_id: PanelId, panel_type: PanelType) -> Self {
+        let group = Group::new_with_ids(group_id, panel_id, panel_type);
+        let mut groups = HashMap::new();
+        groups.insert(group_id, group);
+
+        let root_id = NodeId(0);
+        let mut nodes = HashMap::new();
+        nodes.insert(root_id, SplitNode::Leaf { group_id });
+
+        Self {
+            nodes,
+            root: root_id,
+            next_node_id: 1,
+            groups,
+            floating: Vec::new(),
+            drag: None,
+        }
+    }
+
+    /// The default 4-panel layout per the spec.
+    pub fn default_layout() -> Self {
+        let mut layout = Self {
+            nodes: HashMap::new(),
+            root: NodeId(0),
+            next_node_id: 0,
+            groups: HashMap::new(),
+            floating: Vec::new(),
+            drag: None,
+        };
+
+        let scene_group = Group::new(PanelType::SceneEditor);
+        let scene_gid = scene_group.id;
+        layout.groups.insert(scene_gid, scene_group);
+
+        let preview_group = Group::new(PanelType::Preview);
+        let preview_gid = preview_group.id;
+        layout.groups.insert(preview_gid, preview_group);
+
+        let mut right_group = Group::new(PanelType::AudioMixer);
+        let right_gid = right_group.id;
+        right_group.add_tab(PanelType::StreamControls);
+        right_group.active_tab = 0;
+        layout.groups.insert(right_gid, right_group);
+
+        let scene_node = layout.alloc_node_id();
+        layout.nodes.insert(
+            scene_node,
+            SplitNode::Leaf {
+                group_id: scene_gid,
+            },
+        );
+
+        let preview_node = layout.alloc_node_id();
+        layout.nodes.insert(
+            preview_node,
+            SplitNode::Leaf {
+                group_id: preview_gid,
+            },
+        );
+
+        let right_node = layout.alloc_node_id();
+        layout.nodes.insert(
+            right_node,
+            SplitNode::Leaf {
+                group_id: right_gid,
+            },
+        );
+
+        let right_split = layout.alloc_node_id();
+        layout.nodes.insert(
+            right_split,
+            SplitNode::Split {
+                direction: SplitDirection::Horizontal,
+                ratio: 0.75,
+                first: preview_node,
+                second: right_node,
+            },
+        );
+
+        let root = layout.alloc_node_id();
+        layout.nodes.insert(
+            root,
+            SplitNode::Split {
+                direction: SplitDirection::Vertical,
+                ratio: 0.2,
+                first: scene_node,
+                second: right_split,
+            },
+        );
+        layout.root = root;
+
+        layout
+    }
+
+    /// Resize a split node's ratio (clamped to 0.1..0.9).
     pub fn resize(&mut self, node_id: NodeId, ratio: f32) {
-        if let Some(LayoutNode::Split { ratio: r, .. }) = self.nodes.get_mut(&node_id) {
+        if let Some(SplitNode::Split { ratio: r, .. }) = self.nodes.get_mut(&node_id) {
             *r = ratio.clamp(0.1, 0.9);
         }
     }
 
-    pub fn swap_type(&mut self, node_id: NodeId, new_type: PanelType) {
-        if let Some(LayoutNode::Leaf { panel_type, .. }) = self.nodes.get_mut(&node_id) {
-            *panel_type = new_type;
-        }
-    }
-
-    pub fn collect_leaves(&self) -> Vec<(PanelId, PanelType, NodeId)> {
-        let mut result = Vec::new();
-        self.collect_leaves_recursive(self.root, &mut result);
-        result
-    }
-
-    fn collect_leaves_recursive(
-        &self,
-        node_id: NodeId,
-        result: &mut Vec<(PanelId, PanelType, NodeId)>,
-    ) {
-        match self.nodes.get(&node_id) {
-            Some(LayoutNode::Leaf {
-                panel_type,
-                panel_id,
-            }) => {
-                result.push((*panel_id, *panel_type, node_id));
-            }
-            Some(LayoutNode::Split { first, second, .. }) => {
-                self.collect_leaves_recursive(*first, result);
-                self.collect_leaves_recursive(*second, result);
-            }
-            None => {}
-        }
-    }
-
-    pub fn collect_leaves_with_rects(
-        &self,
-        rect: egui::Rect,
-    ) -> Vec<(PanelId, PanelType, egui::Rect, NodeId)> {
-        let mut result = Vec::new();
-        self.collect_rects_recursive(self.root, rect, &mut result);
-        result
-    }
-
-    fn collect_rects_recursive(
-        &self,
-        node_id: NodeId,
-        rect: egui::Rect,
-        result: &mut Vec<(PanelId, PanelType, egui::Rect, NodeId)>,
-    ) {
-        match self.nodes.get(&node_id) {
-            Some(LayoutNode::Leaf {
-                panel_type,
-                panel_id,
-            }) => {
-                result.push((*panel_id, *panel_type, rect, node_id));
-            }
-            Some(LayoutNode::Split {
-                direction,
-                ratio,
-                first,
-                second,
-            }) => {
-                let (first_rect, second_rect) = split_rect(rect, *direction, *ratio);
-                self.collect_rects_recursive(*first, first_rect, result);
-                self.collect_rects_recursive(*second, second_rect, result);
-            }
-            None => {}
-        }
-    }
-
-    pub fn default_layout() -> Self {
-        let mut tree = Self {
-            nodes: HashMap::new(),
-            root: NodeId(0),
-            next_node_id: 0,
-        };
-
-        // Build bottom-up:
-        // Leaves
-        let scene_editor_id = tree.alloc_node_id();
-        tree.nodes
-            .insert(scene_editor_id, LayoutNode::leaf(PanelType::SceneEditor));
-
-        let preview_id = tree.alloc_node_id();
-        tree.nodes
-            .insert(preview_id, LayoutNode::leaf(PanelType::Preview));
-
-        let audio_mixer_id = tree.alloc_node_id();
-        tree.nodes
-            .insert(audio_mixer_id, LayoutNode::leaf(PanelType::AudioMixer));
-
-        let stream_controls_id = tree.alloc_node_id();
-        tree.nodes.insert(
-            stream_controls_id,
-            LayoutNode::leaf(PanelType::StreamControls),
-        );
-
-        // Split(Vertical, 0.5) -> AudioMixer, StreamControls
-        let bottom_right_split_id = tree.alloc_node_id();
-        tree.nodes.insert(
-            bottom_right_split_id,
-            LayoutNode::Split {
-                direction: SplitDirection::Vertical,
-                ratio: 0.5,
-                first: audio_mixer_id,
-                second: stream_controls_id,
-            },
-        );
-
-        // Split(Horizontal, 0.75) -> Preview, bottom_right_split
-        let right_split_id = tree.alloc_node_id();
-        tree.nodes.insert(
-            right_split_id,
-            LayoutNode::Split {
-                direction: SplitDirection::Horizontal,
-                ratio: 0.75,
-                first: preview_id,
-                second: bottom_right_split_id,
-            },
-        );
-
-        // Root: Split(Vertical, 0.2) -> SceneEditor, right_split
-        let root_id = tree.alloc_node_id();
-        tree.nodes.insert(
-            root_id,
-            LayoutNode::Split {
-                direction: SplitDirection::Vertical,
-                ratio: 0.2,
-                first: scene_editor_id,
-                second: right_split_id,
-            },
-        );
-
-        tree.root = root_id;
-        tree
-    }
-
-    pub fn remove_leaf(&mut self, node_id: NodeId) -> Option<(PanelType, PanelId)> {
-        // Can't remove the last leaf (root is a leaf).
-        if node_id == self.root && self.nodes.get(&node_id)?.is_leaf() {
-            return None;
-        }
-
-        let leaf = match self.nodes.get(&node_id) {
-            Some(LayoutNode::Leaf {
-                panel_type,
-                panel_id,
-            }) => (*panel_type, *panel_id),
-            _ => return None,
-        };
-
-        // Find the parent of this node.
-        let parent_id = self.find_parent(node_id)?;
-
-        // Get the sibling.
-        let sibling_id = match self.nodes.get(&parent_id) {
-            Some(LayoutNode::Split { first, second, .. }) => {
-                if *first == node_id {
-                    *second
-                } else {
-                    *first
-                }
-            }
-            _ => return None,
-        };
-
-        // Remove the leaf node.
-        self.nodes.remove(&node_id);
-
-        // Replace parent with sibling's content.
-        if let Some(sibling_node) = self.nodes.remove(&sibling_id) {
-            self.nodes.insert(parent_id, sibling_node);
-        }
-
-        Some(leaf)
-    }
-
+    /// Find the parent of a node in the split tree.
     pub fn find_parent(&self, target: NodeId) -> Option<NodeId> {
         for (id, node) in &self.nodes {
-            if let LayoutNode::Split { first, second, .. } = node
+            if let SplitNode::Split { first, second, .. } = node
                 && (*first == target || *second == target)
             {
                 return Some(*id);
@@ -461,22 +463,148 @@ impl LayoutTree {
         None
     }
 
-    /// Returns the parent split's NodeId and which side (First/Second) this node is on.
-    #[allow(dead_code)]
-    pub fn find_parent_with_side(&self, target: NodeId) -> Option<(NodeId, MergeSide)> {
+    /// Find the node (leaf) that contains a given GroupId.
+    pub fn find_node_for_group(&self, group_id: GroupId) -> Option<NodeId> {
         for (id, node) in &self.nodes {
-            if let LayoutNode::Split { first, second, .. } = node {
-                if *first == target {
-                    return Some((*id, MergeSide::First));
-                }
-                if *second == target {
-                    return Some((*id, MergeSide::Second));
-                }
+            if let SplitNode::Leaf { group_id: gid } = node
+                && *gid == group_id
+            {
+                return Some(*id);
             }
         }
         None
     }
 
+    /// Split a group's node in the grid, creating a new group on one side.
+    pub fn split_group(
+        &mut self,
+        target_group: GroupId,
+        direction: SplitDirection,
+        new_panel_type: PanelType,
+        new_first: bool,
+    ) -> Option<GroupId> {
+        let node_id = self.find_node_for_group(target_group)?;
+
+        let new_group = Group::new(new_panel_type);
+        let new_gid = new_group.id;
+        self.groups.insert(new_gid, new_group);
+
+        let existing_child = self.alloc_node_id();
+        let new_child = self.alloc_node_id();
+
+        self.nodes.insert(
+            existing_child,
+            SplitNode::Leaf {
+                group_id: target_group,
+            },
+        );
+        self.nodes
+            .insert(new_child, SplitNode::Leaf { group_id: new_gid });
+
+        let (first, second) = if new_first {
+            (new_child, existing_child)
+        } else {
+            (existing_child, new_child)
+        };
+
+        self.nodes.insert(
+            node_id,
+            SplitNode::Split {
+                direction,
+                ratio: 0.5,
+                first,
+                second,
+            },
+        );
+
+        Some(new_gid)
+    }
+
+    /// Split a group's node by placing a specific TabEntry in the new group.
+    pub fn split_group_with_tab(
+        &mut self,
+        target_group: GroupId,
+        direction: SplitDirection,
+        tab_entry: TabEntry,
+        new_first: bool,
+    ) -> Option<GroupId> {
+        let node_id = self.find_node_for_group(target_group)?;
+
+        let new_group =
+            Group::new_with_ids(GroupId::next(), tab_entry.panel_id, tab_entry.panel_type);
+        let new_gid = new_group.id;
+        self.groups.insert(new_gid, new_group);
+
+        let existing_child = self.alloc_node_id();
+        let new_child = self.alloc_node_id();
+
+        self.nodes.insert(
+            existing_child,
+            SplitNode::Leaf {
+                group_id: target_group,
+            },
+        );
+        self.nodes
+            .insert(new_child, SplitNode::Leaf { group_id: new_gid });
+
+        let (first, second) = if new_first {
+            (new_child, existing_child)
+        } else {
+            (existing_child, new_child)
+        };
+
+        self.nodes.insert(
+            node_id,
+            SplitNode::Split {
+                direction,
+                ratio: 0.5,
+                first,
+                second,
+            },
+        );
+
+        Some(new_gid)
+    }
+
+    /// Remove a group from the grid. Collapses the parent split, promoting the sibling.
+    pub fn remove_group_from_grid(&mut self, group_id: GroupId) -> bool {
+        let node_id = match self.find_node_for_group(group_id) {
+            Some(id) => id,
+            None => return false,
+        };
+
+        if node_id == self.root {
+            return false;
+        }
+
+        let parent_id = match self.find_parent(node_id) {
+            Some(id) => id,
+            None => return false,
+        };
+
+        let sibling_id = match self.nodes.get(&parent_id) {
+            Some(SplitNode::Split { first, second, .. }) => {
+                if *first == node_id {
+                    *second
+                } else {
+                    *first
+                }
+            }
+            _ => return false,
+        };
+
+        self.nodes.remove(&node_id);
+
+        if let Some(sibling_node) = self.nodes.remove(&sibling_id) {
+            self.nodes.insert(parent_id, sibling_node);
+        }
+
+        self.groups.remove(&group_id);
+
+        true
+    }
+
+    /// Add a panel to the root by splitting at the root level.
     pub fn insert_at_root(
         &mut self,
         panel_type: PanelType,
@@ -484,44 +612,120 @@ impl LayoutTree {
         direction: SplitDirection,
         ratio: f32,
     ) {
-        let old_root = self.root;
+        let group = Group::new_with_ids(GroupId::next(), panel_id, panel_type);
+        let new_gid = group.id;
+        self.groups.insert(new_gid, group);
 
-        // Move old root content to a new node.
+        let old_root = self.root;
         let old_root_new_id = self.alloc_node_id();
         if let Some(old_root_node) = self.nodes.remove(&old_root) {
             self.nodes.insert(old_root_new_id, old_root_node);
-
-            // Fix: if old root was a split, its children still reference their own NodeIds,
-            // which is fine. But we need to make sure the tree is consistent.
-            // Actually, children of the old root still exist with their own NodeIds,
-            // and the moved node still references them correctly. No fixup needed.
         }
 
-        // Create the new leaf node.
         let new_leaf_id = self.alloc_node_id();
-        self.nodes.insert(
-            new_leaf_id,
-            LayoutNode::Leaf {
-                panel_type,
-                panel_id,
-            },
-        );
+        self.nodes
+            .insert(new_leaf_id, SplitNode::Leaf { group_id: new_gid });
 
-        // Create the new root split at the old root's NodeId.
         self.nodes.insert(
             old_root,
-            LayoutNode::Split {
+            SplitNode::Split {
                 direction,
                 ratio,
                 first: old_root_new_id,
                 second: new_leaf_id,
             },
         );
-        // root NodeId stays the same.
+    }
+
+    /// Collect all grid groups with their computed screen rects.
+    pub fn collect_groups_with_rects(&self, rect: egui::Rect) -> Vec<(GroupId, egui::Rect)> {
+        let mut result = Vec::new();
+        self.collect_groups_recursive(self.root, rect, &mut result);
+        result
+    }
+
+    fn collect_groups_recursive(
+        &self,
+        node_id: NodeId,
+        rect: egui::Rect,
+        result: &mut Vec<(GroupId, egui::Rect)>,
+    ) {
+        match self.nodes.get(&node_id) {
+            Some(SplitNode::Leaf { group_id }) => {
+                result.push((*group_id, rect));
+            }
+            Some(SplitNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            }) => {
+                let (first_rect, second_rect) = split_rect(rect, *direction, *ratio);
+                self.collect_groups_recursive(*first, first_rect, result);
+                self.collect_groups_recursive(*second, second_rect, result);
+            }
+            None => {}
+        }
+    }
+
+    /// Collect all panels across all groups (grid + floating).
+    pub fn collect_all_panels(&self) -> Vec<(PanelId, PanelType)> {
+        let mut result = Vec::new();
+        for group in self.groups.values() {
+            for tab in &group.tabs {
+                result.push((tab.panel_id, tab.panel_type));
+            }
+        }
+        result
+    }
+
+    /// Create a floating group from a tab entry.
+    pub fn add_floating_group(&mut self, entry: TabEntry, pos: egui::Pos2) -> GroupId {
+        let group = Group::new_with_ids(GroupId::next(), entry.panel_id, entry.panel_type);
+        let gid = group.id;
+        self.groups.insert(gid, group);
+        self.floating.push(FloatingGroup {
+            group_id: gid,
+            pos,
+            size: egui::vec2(400.0, 300.0),
+        });
+        gid
+    }
+
+    /// Remove a floating group entry (does NOT remove from self.groups).
+    pub fn remove_floating(&mut self, group_id: GroupId) {
+        self.floating.retain(|f| f.group_id != group_id);
+    }
+
+    /// Check if a group is floating.
+    pub fn is_floating(&self, group_id: GroupId) -> bool {
+        self.floating.iter().any(|f| f.group_id == group_id)
+    }
+
+    /// Remove a tab from its source group, cleaning up empty groups.
+    pub fn take_tab(&mut self, group_id: GroupId, tab_index: usize) -> Option<TabEntry> {
+        let group = self.groups.get_mut(&group_id)?;
+        if group.tabs.len() <= 1 {
+            let entry = group.tabs[0].clone();
+            if self.is_floating(group_id) {
+                self.remove_floating(group_id);
+                self.groups.remove(&group_id);
+            } else {
+                self.remove_group_from_grid(group_id);
+            }
+            Some(entry)
+        } else {
+            group.remove_tab(tab_index)
+        }
     }
 }
 
-fn split_rect(rect: egui::Rect, direction: SplitDirection, ratio: f32) -> (egui::Rect, egui::Rect) {
+/// Split a rectangle according to direction and ratio.
+pub fn split_rect(
+    rect: egui::Rect,
+    direction: SplitDirection,
+    ratio: f32,
+) -> (egui::Rect, egui::Rect) {
     match direction {
         SplitDirection::Vertical => {
             let split_x = rect.min.x + rect.width() * ratio;
@@ -538,98 +742,61 @@ fn split_rect(rect: egui::Rect, direction: SplitDirection, ratio: f32) -> (egui:
     }
 }
 
+// Tests at the bottom
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn new_leaf() {
-        let node = LayoutNode::leaf(PanelType::Preview);
-        assert!(node.is_leaf());
-        assert_eq!(node.panel_type(), Some(PanelType::Preview));
+    fn group_id_increments() {
+        let a = GroupId::next();
+        let b = GroupId::next();
+        assert_ne!(a, b);
+        assert!(b.0 > a.0);
     }
 
     #[test]
-    fn split_leaf_vertical() {
-        let mut tree = LayoutTree::new(PanelType::Preview);
-        let root_id = tree.root_id();
-        tree.split(root_id, SplitDirection::Vertical, 0.5);
-        assert!(!tree.node(root_id).unwrap().is_leaf());
-        let leaves = tree.collect_leaves();
-        assert_eq!(leaves.len(), 2);
+    fn group_active_tab_default() {
+        let group = Group::new(PanelType::Preview);
+        assert_eq!(group.tabs.len(), 1);
+        assert_eq!(group.active_tab, 0);
+        assert_eq!(group.tabs[0].panel_type, PanelType::Preview);
     }
 
     #[test]
-    fn split_leaf_horizontal() {
-        let mut tree = LayoutTree::new(PanelType::SceneEditor);
-        let root_id = tree.root_id();
-        tree.split(root_id, SplitDirection::Horizontal, 0.3);
-        let leaves = tree.collect_leaves();
-        assert_eq!(leaves.len(), 2);
-        for (_, panel_type, _) in &leaves {
-            assert_eq!(*panel_type, PanelType::SceneEditor);
-        }
+    fn group_add_tab() {
+        let mut group = Group::new(PanelType::Preview);
+        group.add_tab(PanelType::AudioMixer);
+        assert_eq!(group.tabs.len(), 2);
+        assert_eq!(group.active_tab, 1);
     }
 
     #[test]
-    fn merge_collapses_split() {
-        let mut tree = LayoutTree::new(PanelType::Preview);
-        let root_id = tree.root_id();
-        tree.split(root_id, SplitDirection::Vertical, 0.5);
-        tree.merge(root_id, MergeSide::First);
-        assert!(tree.node(tree.root_id()).unwrap().is_leaf());
+    fn group_remove_tab() {
+        let mut group = Group::new(PanelType::Preview);
+        group.add_tab(PanelType::AudioMixer);
+        group.add_tab(PanelType::StreamControls);
+        group.active_tab = 1;
+        let removed = group.remove_tab(1);
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().panel_type, PanelType::AudioMixer);
+        assert_eq!(group.tabs.len(), 2);
+        assert!(group.active_tab <= group.tabs.len().saturating_sub(1));
     }
 
     #[test]
-    fn resize_clamps_ratio() {
-        let mut tree = LayoutTree::new(PanelType::Preview);
-        let root_id = tree.root_id();
-        tree.split(root_id, SplitDirection::Vertical, 0.5);
-        tree.resize(root_id, 0.95);
-        let node = tree.node(root_id).unwrap();
-        assert!(node.ratio().unwrap() <= 0.9);
+    fn group_remove_last_tab_returns_none() {
+        let mut group = Group::new(PanelType::Preview);
+        assert!(group.remove_tab(0).is_none());
     }
 
     #[test]
-    fn swap_panel_type() {
-        let mut tree = LayoutTree::new(PanelType::Preview);
-        let root_id = tree.root_id();
-        tree.swap_type(root_id, PanelType::AudioMixer);
-        assert_eq!(
-            tree.node(root_id).unwrap().panel_type(),
-            Some(PanelType::AudioMixer)
-        );
-    }
-
-    #[test]
-    fn collect_leaves_with_rects() {
-        let mut tree = LayoutTree::new(PanelType::Preview);
-        let root_id = tree.root_id();
-        tree.split(root_id, SplitDirection::Vertical, 0.3);
-        let total_rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
-        let leaves = tree.collect_leaves_with_rects(total_rect);
-        assert_eq!(leaves.len(), 2);
-        let (_, _, rect1, _) = &leaves[0];
-        let (_, _, rect2, _) = &leaves[1];
-        assert!((rect1.width() - 300.0).abs() < 1.0);
-        assert!((rect2.width() - 700.0).abs() < 1.0);
-    }
-
-    #[test]
-    fn panel_id_auto_increments() {
-        let tree = LayoutTree::new(PanelType::Preview);
-        let first_id = tree.collect_leaves()[0].0;
-        let tree2 = LayoutTree::new(PanelType::SceneEditor);
-        let second_id = tree2.collect_leaves()[0].0;
-        assert_ne!(first_id, second_id);
-    }
-
-    #[test]
-    fn default_layout() {
-        let tree = LayoutTree::default_layout();
-        let leaves = tree.collect_leaves();
-        assert_eq!(leaves.len(), 4);
-        let types: Vec<PanelType> = leaves.iter().map(|(_, t, _)| *t).collect();
+    fn default_layout_has_3_groups_4_panels() {
+        let layout = DockLayout::default_layout();
+        assert_eq!(layout.groups.len(), 3);
+        let all_panels = layout.collect_all_panels();
+        assert_eq!(all_panels.len(), 4);
+        let types: Vec<PanelType> = all_panels.iter().map(|(_, t)| *t).collect();
         assert!(types.contains(&PanelType::SceneEditor));
         assert!(types.contains(&PanelType::Preview));
         assert!(types.contains(&PanelType::AudioMixer));
@@ -637,39 +804,132 @@ mod tests {
     }
 
     #[test]
-    fn remove_leaf_collapses_parent() {
-        let mut tree = LayoutTree::new(PanelType::Preview);
-        let root_id = tree.root_id();
-        tree.split(root_id, SplitDirection::Vertical, 0.5);
-        let leaves = tree.collect_leaves();
-        assert_eq!(leaves.len(), 2);
-        let removed_node = leaves[1].2;
-        let removed = tree.remove_leaf(removed_node);
-        assert!(removed.is_some());
-        assert_eq!(tree.collect_leaves().len(), 1);
+    fn default_layout_group_rects() {
+        let layout = DockLayout::default_layout();
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
+        let groups = layout.collect_groups_with_rects(rect);
+        assert_eq!(groups.len(), 3);
     }
 
     #[test]
-    fn remove_last_leaf_returns_none() {
-        let mut tree = LayoutTree::new(PanelType::Preview);
-        let root_id = tree.root_id();
-        assert!(tree.remove_leaf(root_id).is_none());
+    fn split_group_creates_new_group() {
+        let mut layout = DockLayout::new_single(PanelType::Preview);
+        let gid = layout.groups.keys().next().copied().unwrap();
+        let new_gid =
+            layout.split_group(gid, SplitDirection::Vertical, PanelType::AudioMixer, false);
+        assert!(new_gid.is_some());
+        assert_eq!(layout.groups.len(), 2);
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
+        assert_eq!(layout.collect_groups_with_rects(rect).len(), 2);
     }
 
     #[test]
-    fn insert_at_root_splits_existing() {
-        let mut tree = LayoutTree::new(PanelType::Preview);
-        assert_eq!(tree.collect_leaves().len(), 1);
-        tree.insert_at_root(
+    fn remove_group_collapses_parent() {
+        let mut layout = DockLayout::new_single(PanelType::Preview);
+        let original_gid = layout.groups.keys().next().copied().unwrap();
+        let new_gid = layout
+            .split_group(
+                original_gid,
+                SplitDirection::Vertical,
+                PanelType::AudioMixer,
+                false,
+            )
+            .unwrap();
+        assert!(layout.remove_group_from_grid(new_gid));
+        assert_eq!(layout.groups.len(), 1);
+        assert!(matches!(
+            layout.node(layout.root_id()),
+            Some(SplitNode::Leaf { .. })
+        ));
+    }
+
+    #[test]
+    fn cannot_remove_root_leaf_group() {
+        let mut layout = DockLayout::new_single(PanelType::Preview);
+        let gid = layout.groups.keys().next().copied().unwrap();
+        assert!(!layout.remove_group_from_grid(gid));
+    }
+
+    #[test]
+    fn floating_group_lifecycle() {
+        let mut layout = DockLayout::new_single(PanelType::Preview);
+        let entry = TabEntry {
+            panel_id: PanelId::next(),
+            panel_type: PanelType::AudioMixer,
+        };
+        let fgid = layout.add_floating_group(entry, egui::pos2(100.0, 100.0));
+        assert!(layout.is_floating(fgid));
+        assert_eq!(layout.floating.len(), 1);
+        layout.remove_floating(fgid);
+        assert!(!layout.is_floating(fgid));
+        assert_eq!(layout.floating.len(), 0);
+    }
+
+    #[test]
+    fn take_tab_from_multi_tab_group() {
+        let mut layout = DockLayout::new_single(PanelType::Preview);
+        let gid = layout.groups.keys().next().copied().unwrap();
+        layout
+            .groups
+            .get_mut(&gid)
+            .unwrap()
+            .add_tab(PanelType::AudioMixer);
+        assert_eq!(layout.groups[&gid].tabs.len(), 2);
+        let taken = layout.take_tab(gid, 1);
+        assert!(taken.is_some());
+        assert_eq!(taken.unwrap().panel_type, PanelType::AudioMixer);
+        assert_eq!(layout.groups[&gid].tabs.len(), 1);
+    }
+
+    #[test]
+    fn take_last_tab_removes_floating_group() {
+        let mut layout = DockLayout::new_single(PanelType::Preview);
+        let entry = TabEntry {
+            panel_id: PanelId::next(),
+            panel_type: PanelType::AudioMixer,
+        };
+        let fgid = layout.add_floating_group(entry, egui::pos2(100.0, 100.0));
+        assert_eq!(layout.groups.len(), 2);
+        let taken = layout.take_tab(fgid, 0);
+        assert!(taken.is_some());
+        assert_eq!(layout.groups.len(), 1);
+        assert_eq!(layout.floating.len(), 0);
+    }
+
+    #[test]
+    fn take_last_tab_removes_grid_group() {
+        let mut layout = DockLayout::new_single(PanelType::Preview);
+        let original_gid = layout.groups.keys().next().copied().unwrap();
+        let new_gid = layout
+            .split_group(
+                original_gid,
+                SplitDirection::Vertical,
+                PanelType::AudioMixer,
+                false,
+            )
+            .unwrap();
+        assert_eq!(layout.groups.len(), 2);
+        let taken = layout.take_tab(new_gid, 0);
+        assert!(taken.is_some());
+        assert_eq!(layout.groups.len(), 1);
+        assert!(matches!(
+            layout.node(layout.root_id()),
+            Some(SplitNode::Leaf { .. })
+        ));
+    }
+
+    #[test]
+    fn insert_at_root_adds_group() {
+        let mut layout = DockLayout::new_single(PanelType::Preview);
+        assert_eq!(layout.groups.len(), 1);
+        layout.insert_at_root(
             PanelType::AudioMixer,
             PanelId::next(),
             SplitDirection::Vertical,
             0.5,
         );
-        let leaves = tree.collect_leaves();
-        assert_eq!(leaves.len(), 2);
-        let types: Vec<PanelType> = leaves.iter().map(|(_, t, _)| *t).collect();
-        assert!(types.contains(&PanelType::Preview));
-        assert!(types.contains(&PanelType::AudioMixer));
+        assert_eq!(layout.groups.len(), 2);
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
+        assert_eq!(layout.collect_groups_with_rects(rect).len(), 2);
     }
 }

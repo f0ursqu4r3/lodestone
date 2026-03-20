@@ -7,9 +7,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
     ui.horizontal(|ui| {
         ui.heading("Scenes");
         if ui.button("+").clicked() {
-            let new_id = crate::obs::SceneId(
-                state.scenes.iter().map(|s| s.id.0).max().unwrap_or(0) + 1,
-            );
+            let new_id =
+                crate::obs::SceneId(state.scenes.iter().map(|s| s.id.0).max().unwrap_or(0) + 1);
             state.scenes.push(crate::obs::Scene {
                 id: new_id,
                 name: format!("Scene {}", state.scenes.len() + 1),
@@ -35,8 +34,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
         if ui.button("+").clicked()
             && let Some(active_id) = state.active_scene_id
         {
-            let new_src_id =
-                SourceId(state.sources.iter().map(|s| s.id.0).max().unwrap_or(0) + 1);
+            let new_src_id = SourceId(state.sources.iter().map(|s| s.id.0).max().unwrap_or(0) + 1);
             let new_source = crate::obs::Source {
                 id: new_src_id,
                 name: format!("Source {}", state.sources.len() + 1),
@@ -93,10 +91,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
     if new_selected != selected_source_id {
         ui.memory_mut(|m| {
             if let Some(sid) = new_selected {
-                m.data.insert_temp(
-                    egui::Id::new(("selected_source_id", panel_id.0)),
-                    sid.0,
-                );
+                m.data
+                    .insert_temp(egui::Id::new(("selected_source_id", panel_id.0)), sid.0);
             } else {
                 m.data
                     .remove::<u64>(egui::Id::new(("selected_source_id", panel_id.0)));

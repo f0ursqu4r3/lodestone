@@ -53,6 +53,7 @@ Allocated from a monotonically increasing `AtomicU64` counter global. On deseria
 ### Splitting
 
 Each panel has small drag handles in two corners (top-right and bottom-left, like Blender's triangles):
+
 - Dragging horizontally from a corner splits vertically (left/right pair)
 - Dragging vertically from a corner splits horizontally (top/bottom pair)
 - The new panel starts as the same type as the original
@@ -68,6 +69,7 @@ Each split node renders a thin divider bar (3-4px) between its children. Draggin
 ### Detaching
 
 Right-click a panel header → "Detach to Window". This:
+
 1. Removes the leaf from the tree (collapsing the parent split)
 2. Creates a new OS window via `winit`
 3. Renders that panel in the new window with its own `wgpu::Surface`
@@ -79,6 +81,7 @@ Close a detached window to return its panel to the main window. The returning pa
 ### Panel Header
 
 Every panel has a thin header bar containing:
+
 - Panel type selector (dropdown/combo) — switch any panel to any type
 - Panel title (derived from type)
 - Close button (merges with adjacent panel; disabled if the panel is the last leaf)

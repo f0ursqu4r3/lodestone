@@ -9,6 +9,8 @@ use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureFormat};
 use winit::window::Window;
 
+use text::{GlyphonRenderer, TextSection};
+
 pub struct Renderer {
     pub device: Device,
     pub queue: Queue,
@@ -16,6 +18,7 @@ pub struct Renderer {
     pub surface_config: SurfaceConfiguration,
     pub format: TextureFormat,
     egui_renderer: egui_wgpu::Renderer,
+    text_renderer: GlyphonRenderer,
 }
 
 impl Renderer {
@@ -62,6 +65,8 @@ impl Renderer {
             egui_wgpu::RendererOptions::default(),
         );
 
+        let text_renderer = GlyphonRenderer::new();
+
         Ok(Self {
             device,
             queue,
@@ -69,6 +74,7 @@ impl Renderer {
             surface_config,
             format,
             egui_renderer,
+            text_renderer,
         })
     }
 
@@ -81,6 +87,15 @@ impl Renderer {
     }
 
     pub fn render(&mut self) -> Result<()> {
+        // Prepare test label for text rendering
+        let test_label = TextSection {
+            text: "Lodestone".to_string(),
+            position: [20.0, 20.0],
+            size: 24.0,
+            color: [255, 255, 255, 255],
+        };
+        self.text_renderer.prepare(&[test_label])?;
+
         let output = self
             .surface
             .get_current_texture()
@@ -112,6 +127,8 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+            // Text rendering (currently a no-op stub)
+            self.text_renderer.render()?;
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -125,6 +142,15 @@ impl Renderer {
         textures_delta: &egui::TexturesDelta,
         pixels_per_point: f32,
     ) -> Result<()> {
+        // Prepare test label for text rendering
+        let test_label = TextSection {
+            text: "Lodestone".to_string(),
+            position: [20.0, 20.0],
+            size: 24.0,
+            color: [255, 255, 255, 255],
+        };
+        self.text_renderer.prepare(&[test_label])?;
+
         let output = self
             .surface
             .get_current_texture()
@@ -183,6 +209,8 @@ impl Renderer {
             let mut render_pass = render_pass;
             self.egui_renderer
                 .render(&mut render_pass, paint_jobs, &screen_descriptor);
+            // Text rendering on top of everything (currently a no-op stub)
+            self.text_renderer.render()?;
         }
 
         // Free released textures

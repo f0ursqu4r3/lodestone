@@ -160,7 +160,7 @@ mod tests {
         let tree = LayoutTree::default_layout();
         let toml_str = serialize_layout(&tree).unwrap();
         let restored = deserialize_layout(&toml_str).unwrap();
-        assert_eq!(restored.collect_leaves().len(), 5);
+        assert_eq!(restored.collect_leaves().len(), 4);
     }
 
     #[test]

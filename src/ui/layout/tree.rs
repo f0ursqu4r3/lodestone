@@ -104,6 +104,12 @@ impl PanelType {
             Self::Settings => "Settings",
         }
     }
+
+    /// Whether this panel type can be placed in the tiling layout.
+    /// Settings is rendered in a dedicated window, not as a docked panel.
+    pub fn is_dockable(&self) -> bool {
+        !matches!(self, Self::Settings)
+    }
 }
 
 impl LayoutNode {
@@ -326,10 +332,6 @@ impl LayoutTree {
         tree.nodes
             .insert(scene_editor_id, LayoutNode::leaf(PanelType::SceneEditor));
 
-        let settings_id = tree.alloc_node_id();
-        tree.nodes
-            .insert(settings_id, LayoutNode::leaf(PanelType::Settings));
-
         let preview_id = tree.alloc_node_id();
         tree.nodes
             .insert(preview_id, LayoutNode::leaf(PanelType::Preview));
@@ -368,26 +370,14 @@ impl LayoutTree {
             },
         );
 
-        // Split(Horizontal, 0.6) -> SceneEditor, Settings
-        let left_split_id = tree.alloc_node_id();
-        tree.nodes.insert(
-            left_split_id,
-            LayoutNode::Split {
-                direction: SplitDirection::Horizontal,
-                ratio: 0.6,
-                first: scene_editor_id,
-                second: settings_id,
-            },
-        );
-
-        // Root: Split(Vertical, 0.2) -> left_split, right_split
+        // Root: Split(Vertical, 0.2) -> SceneEditor, right_split
         let root_id = tree.alloc_node_id();
         tree.nodes.insert(
             root_id,
             LayoutNode::Split {
                 direction: SplitDirection::Vertical,
                 ratio: 0.2,
-                first: left_split_id,
+                first: scene_editor_id,
                 second: right_split_id,
             },
         );
@@ -601,13 +591,12 @@ mod tests {
     fn default_layout() {
         let tree = LayoutTree::default_layout();
         let leaves = tree.collect_leaves();
-        assert_eq!(leaves.len(), 5);
+        assert_eq!(leaves.len(), 4);
         let types: Vec<PanelType> = leaves.iter().map(|(_, t, _)| *t).collect();
         assert!(types.contains(&PanelType::SceneEditor));
         assert!(types.contains(&PanelType::Preview));
         assert!(types.contains(&PanelType::AudioMixer));
         assert!(types.contains(&PanelType::StreamControls));
-        assert!(types.contains(&PanelType::Settings));
     }
 
     #[test]

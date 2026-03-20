@@ -56,8 +56,11 @@ pub fn render_layout(
         let node_id = *node_id;
         let rect = *rect;
 
+        // Use Sense::hover() so the panel Area does not consume drag events that belong
+        // to corner handle Areas which are rendered at the same Order::Foreground layer.
         egui::Area::new(egui::Id::new(("panel", panel_id.0)))
             .fixed_pos(rect.min)
+            .sense(egui::Sense::hover())
             .show(ctx, |ui| {
                 ui.set_min_size(rect.size());
                 ui.set_max_size(rect.size());
@@ -99,8 +102,12 @@ pub fn render_layout(
                     });
                 });
 
-                // Context menu on the header
-                header_response.response.context_menu(|ui| {
+                // Context menu on the header.
+                // The InnerResponse from ui.horizontal() carries a response with no Sense
+                // allocation, so right-click events pass through it. Calling .interact() adds
+                // Sense::click() to that rect so context_menu() can detect secondary clicks.
+                let header_interactive = header_response.response.interact(egui::Sense::click());
+                header_interactive.context_menu(|ui| {
                     if ui.button("Detach to Window").clicked() {
                         actions.push(LayoutAction::Detach { node_id });
                         ui.close();
@@ -244,10 +251,16 @@ fn render_corner_handles(
             [(tr_rect, true), (bl_rect, false)].iter().enumerate()
         {
             let handle_id = egui::Id::new(("corner_handle", panel_id.0, i));
+            // Per-handle storage key for accumulated drag delta.
+            let drag_accum_id = egui::Id::new(("corner_drag_accum", panel_id.0, i));
 
+            // Corner handle Areas are rendered after panel Areas. Using Order::Tooltip
+            // places them above Order::Foreground, ensuring they receive pointer events
+            // before the panel Area when the two overlap.
             let area_response = egui::Area::new(handle_id)
                 .fixed_pos(handle_rect.min)
-                .order(egui::Order::Foreground)
+                .order(egui::Order::Tooltip)
+                .sense(egui::Sense::drag())
                 .show(ctx, |ui| {
                     ui.allocate_rect(
                         egui::Rect::from_min_size(handle_rect.min, handle_rect.size()),
@@ -284,17 +297,35 @@ fn render_corner_handles(
             let triangle = egui::Shape::convex_polygon(triangle_points, color, egui::Stroke::NONE);
             handle_painter.add(triangle);
 
-            // Handle drag gestures
+            // Accumulate drag delta every frame while the handle is being dragged.
+            // total_drag_delta() only returns Some while dragged() is true, so we
+            // must store the running total ourselves across frames and read it on
+            // drag_stopped().
+            if response.drag_started() {
+                // Reset accumulator at the start of a new drag.
+                ctx.memory_mut(|mem| {
+                    mem.data.insert_temp(drag_accum_id, egui::Vec2::ZERO);
+                });
+            }
+
+            if response.dragged() {
+                let delta = response.drag_delta();
+                ctx.memory_mut(|mem| {
+                    let accum: egui::Vec2 =
+                        mem.data.get_temp(drag_accum_id).unwrap_or(egui::Vec2::ZERO);
+                    mem.data.insert_temp(drag_accum_id, accum + delta);
+                });
+            }
+
             if response.drag_stopped() {
-                let drag_delta = response.drag_delta();
-                // Accumulate total drag from the drag start
-                let total_delta = ctx
-                    .input(|i| {
-                        i.pointer.interact_pos().and_then(|current| {
-                            i.pointer.press_origin().map(|origin| current - origin)
-                        })
-                    })
-                    .unwrap_or(drag_delta);
+                let total_delta: egui::Vec2 = ctx
+                    .memory(|mem| mem.data.get_temp(drag_accum_id))
+                    .unwrap_or(egui::Vec2::ZERO);
+
+                // Clear the accumulator.
+                ctx.memory_mut(|mem| {
+                    mem.data.insert_temp(drag_accum_id, egui::Vec2::ZERO);
+                });
 
                 let abs_x = total_delta.x.abs();
                 let abs_y = total_delta.y.abs();

@@ -11,13 +11,12 @@ use obs::mock::MockObsEngine;
 use renderer::Renderer;
 use state::AppState;
 use std::sync::{Arc, Mutex};
-use ui::UiRoot;
+use ui::layout::PanelId;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalSize},
-    event::{KeyEvent, WindowEvent},
+    event::WindowEvent,
     event_loop::EventLoop,
-    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes},
 };
 
@@ -25,7 +24,7 @@ struct App {
     window: Option<&'static Window>,
     renderer: Option<Renderer>,
     state: Arc<Mutex<AppState>>,
-    ui: Option<UiRoot>,
+    egui_ctx: Option<egui::Context>,
     egui_state: Option<egui_winit::State>,
     runtime: tokio::runtime::Runtime,
     #[allow(dead_code)]
@@ -50,7 +49,7 @@ impl App {
             window: None,
             renderer: None,
             state: Arc::new(Mutex::new(initial_state)),
-            ui: None,
+            egui_ctx: None,
             egui_state: None,
             runtime,
             engine,
@@ -74,16 +73,16 @@ impl ApplicationHandler for App {
         self.renderer = Some(renderer);
 
         // Initialize egui
-        let ui = UiRoot::new();
+        let ctx = egui::Context::default();
         let egui_state = egui_winit::State::new(
-            ui.ctx.clone(),
+            ctx.clone(),
             egui::ViewportId::ROOT,
             window,
             Some(window.scale_factor() as f32),
             None,
             Some(renderer_max_texture_side(&self.renderer)),
         );
-        self.ui = Some(ui);
+        self.egui_ctx = Some(ctx);
         self.egui_state = Some(egui_state);
 
         // Spawn mock data driver on the tokio runtime
@@ -106,35 +105,6 @@ impl ApplicationHandler for App {
             let _ = egui_state.on_window_event(window, &event);
         }
 
-        if let WindowEvent::KeyboardInput {
-            event:
-                KeyEvent {
-                    physical_key: PhysicalKey::Code(key_code),
-                    state: winit::event::ElementState::Pressed,
-                    ..
-                },
-            ..
-        } = &event
-        {
-            let mut app_state = self.state.lock().unwrap();
-            match key_code {
-                KeyCode::F1 => {
-                    app_state.ui_state.scene_panel_open = !app_state.ui_state.scene_panel_open;
-                }
-                KeyCode::F2 => {
-                    app_state.ui_state.mixer_panel_open = !app_state.ui_state.mixer_panel_open;
-                }
-                KeyCode::F3 => {
-                    app_state.ui_state.controls_panel_open =
-                        !app_state.ui_state.controls_panel_open;
-                }
-                KeyCode::Escape => {
-                    app_state.ui_state.settings_modal_open = false;
-                }
-                _ => {}
-            }
-        }
-
         match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
@@ -145,19 +115,29 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let (Some(renderer), Some(ui), Some(egui_state), Some(window)) = (
+                if let (Some(renderer), Some(ctx), Some(egui_state), Some(window)) = (
                     &mut self.renderer,
-                    &self.ui,
+                    &self.egui_ctx,
                     &mut self.egui_state,
                     self.window,
                 ) {
                     let raw_input = egui_state.take_egui_input(window);
                     let mut app_state = self.state.lock().unwrap();
-                    let full_output = ui.run(&mut app_state, raw_input);
+
+                    let full_output = ctx.run(raw_input, |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ui::draw_panel(
+                                ui::layout::PanelType::SceneEditor,
+                                ui,
+                                &mut app_state,
+                                PanelId(0),
+                            );
+                        });
+                    });
                     drop(app_state);
 
                     let pixels_per_point = full_output.pixels_per_point;
-                    let paint_jobs = ui.ctx.tessellate(full_output.shapes, pixels_per_point);
+                    let paint_jobs = ctx.tessellate(full_output.shapes, pixels_per_point);
 
                     if let Err(e) = renderer.render_with_egui(
                         &paint_jobs,

@@ -38,25 +38,6 @@ impl StreamStatus {
 }
 
 #[derive(Debug, Clone)]
-pub struct UiState {
-    pub scene_panel_open: bool,
-    pub mixer_panel_open: bool,
-    pub controls_panel_open: bool,
-    pub settings_modal_open: bool,
-}
-
-impl Default for UiState {
-    fn default() -> Self {
-        Self {
-            scene_panel_open: true,
-            mixer_panel_open: true,
-            controls_panel_open: true,
-            settings_modal_open: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct AppState {
     pub scenes: Vec<Scene>,
     pub sources: Vec<Source>,
@@ -64,7 +45,6 @@ pub struct AppState {
     pub audio_levels: Vec<AudioLevel>,
     pub stream_status: StreamStatus,
     pub settings: AppSettings,
-    pub ui_state: UiState,
 }
 
 impl Default for AppState {
@@ -76,7 +56,6 @@ impl Default for AppState {
             audio_levels: Vec::new(),
             stream_status: StreamStatus::Offline,
             settings: AppSettings::default(),
-            ui_state: UiState::default(),
         }
     }
 }
@@ -89,7 +68,7 @@ mod tests {
     fn default_app_state() {
         let state = AppState::default();
         assert!(matches!(state.stream_status, StreamStatus::Offline));
-        assert!(state.ui_state.scene_panel_open);
+        assert!(state.scenes.is_empty());
     }
 
     #[test]

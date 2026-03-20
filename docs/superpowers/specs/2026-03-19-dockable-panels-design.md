@@ -4,6 +4,8 @@
 
 A Blender-style tiling window manager for Lodestone. Every panel area can become any panel type. Panels can be split, merged, resized, and detached to real OS windows. Layout is persisted and restored across sessions.
 
+**Note:** This spec supersedes the MVP spec's "Layout" and "Panel Behaviors" sections. The MVP described floating HUD panels over a fullscreen preview. This spec replaces that with a tiling WM where every element — including the preview — is a panel.
+
 ## Layout Tree Data Model
 
 The core data structure is a binary split tree. Every node is either:
@@ -37,6 +39,8 @@ New types added here automatically appear in the panel type dropdown. Each varia
 
 A `u64` unique identifier per panel instance. Allows multiple instances of the same `PanelType` to maintain independent UI state (scroll position, selections) via egui's ID system.
 
+Allocated from a monotonically increasing `AtomicU64` counter global. On deserialization, saved IDs are restored and the counter is set to `max(all_saved_ids) + 1` to prevent collisions with newly created panels.
+
 ### Tree Operations
 
 - **Split** — replace a leaf with a split node containing two children (the original panel + a new panel of the same type)
@@ -55,7 +59,7 @@ Each panel has small drag handles in two corners (top-right and bottom-left, lik
 
 ### Merging
 
-Drag a corner handle *into* an adjacent panel. The adjacent panel is absorbed and the split node collapses to the remaining leaf. A directional arrow overlay indicates which panel will be consumed.
+Merging is restricted to **siblings** (children of the same split node). Drag a corner handle in the direction of the sibling panel. The sibling is absorbed and the parent split node collapses to the remaining leaf. A directional arrow overlay indicates which panel will be consumed. Corner handles for merge are only active/visible when a merge with the sibling is geometrically possible (i.e., the drag direction matches the parent split's orientation).
 
 ### Resizing
 
@@ -70,7 +74,7 @@ Right-click a panel header → "Detach to Window". This:
 
 ### Reattaching
 
-Close a detached window to return its panel to a default position in the main window's tree.
+Close a detached window to return its panel to the main window. The returning panel splits the main window's root node, creating a new vertical split with a 50/50 ratio — the existing layout on the left, the returning panel on the right. If the main window has only one leaf, that leaf becomes the left child of the new split.
 
 ### Panel Header
 
@@ -84,28 +88,45 @@ Every panel has a thin header bar containing:
 
 ### WindowState
 
-One per OS window:
+One per OS window. Contains only window-specific resources:
 
 ```rust
 struct WindowState {
-    window: &'static Window,
+    window: Arc<Window>,
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     egui_renderer: egui_wgpu::Renderer,
     egui_state: egui_winit::State,
+    egui_ctx: egui::Context,
     layout: LayoutTree,
-    preview_renderer: PreviewRenderer,
-    widget_pipeline: WidgetPipeline,
     id: WindowId,
 }
 ```
 
-### Shared Resources
+Note: windows use `Arc<Window>` instead of `&'static Window`. The main window can still use `Box::leak` for the `'static` lifetime, but detached windows have dynamic lifetimes and should use `Arc<Window>`. This avoids memory leaks from leaked detached windows.
 
-All windows share:
-- `wgpu::Device` and `wgpu::Queue` — one GPU context for the app
-- `egui::Context` — shared for consistent styling across windows
+### SharedGpuState
+
+GPU resources shared across all windows:
+
+```rust
+struct SharedGpuState {
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    preview_renderer: PreviewRenderer,
+    widget_pipeline: WidgetPipeline,
+}
+```
+
+Render pipelines are `Device`-scoped and stateless — they don't need to be duplicated per window. The preview texture (the OBS frame) is one logical resource — all Preview panels in all windows show the same frame from the same texture.
+
+### Shared App Resources
+
+- `SharedGpuState` — one set of GPU pipelines and preview texture for the app
 - `Arc<Mutex<AppState>>` — all panels read/write the same state
+- `egui::Style` — shared style configuration applied to each window's `egui::Context` for visual consistency
+
+Each window gets its own `egui::Context` because `Context` tracks per-frame state (input, focus, animations, memory). Sharing a single `Context` across windows with independent event streams would cause state corruption. Visual consistency is maintained by applying a shared `Style` to each context.
 
 ### Event Routing
 
@@ -128,6 +149,10 @@ fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId)
 ```
 
 Panels receive a `&mut egui::Ui` (a region allocated by the layout tree), not `&egui::Context`. Panels don't control their own placement — the tiling WM does.
+
+### Layout Traversal & Borrow Safety
+
+`LayoutTree` lives in `WindowState`, separate from `AppState`. To avoid borrow conflicts during drawing (need to read the tree for structure while passing `&mut AppState` to draw functions), the traversal first collects a snapshot of all leaves as `Vec<(PanelId, PanelType, egui::Rect)>`. This snapshot is a small, cheap clone. Then the draw loop iterates the snapshot and allocates `egui::Ui` regions, passing `&mut AppState` to each panel's draw function without holding a borrow on the tree.
 
 ### Panel Registry
 
@@ -180,7 +205,7 @@ panel = "AudioMixer"
 id = 3
 ```
 
-Saved to `<config_dir>/lodestone/layout.toml`. Loaded at startup, saved on layout change (debounced).
+Saved to `<config_dir>/lodestone/layout.toml`. Loaded at startup, saved on layout change (debounced at 500ms via a tokio task, reusing the same pattern as `AppSettings::save_to()`).
 
 ### Detached Windows
 
@@ -226,13 +251,13 @@ A "Reset Layout" option restores this default.
 - `src/ui/layout/corner.rs` — corner handle rendering, split/merge gesture detection
 - `src/ui/layout/header.rs` — panel header bar with type selector, close, context menu
 - `src/ui/layout/serialize.rs` — TOML serialization/deserialization
-- `src/window.rs` — `WindowState`, multi-window management, window lifecycle
+- `src/window.rs` — `WindowState`, `SharedGpuState`, multi-window management, window lifecycle
 - `src/ui/preview_panel.rs` — preview as a panel (wraps PreviewRenderer)
 
 ### Refactored Files
 
 - `src/main.rs` — single-window `App` → multi-window `AppManager` with event routing by window ID
-- `src/renderer/mod.rs` — `Renderer` becomes per-window; `Device`/`Queue` shared via `Arc`
+- `src/renderer/mod.rs` — `Renderer` split into `SharedGpuState` (device, queue, pipelines) and per-window rendering; `Device`/`Queue` shared via `Arc`
 - `src/ui/mod.rs` — `UiRoot::run()` replaced with layout tree traversal that allocates rects and calls panel draw functions
 - `src/ui/scene_editor.rs` — `draw(ctx, state)` → `draw(ui, state, panel_id)`, remove `SidePanel` wrapper
 - `src/ui/audio_mixer.rs` — `draw(ctx, state)` → `draw(ui, state, panel_id)`, remove `TopBottomPanel` wrapper

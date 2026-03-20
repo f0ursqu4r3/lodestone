@@ -45,6 +45,8 @@ pub struct AppState {
     pub audio_levels: Vec<AudioLevel>,
     pub stream_status: StreamStatus,
     pub settings: AppSettings,
+    pub preview_width: u32,
+    pub preview_height: u32,
 }
 
 impl Default for AppState {
@@ -56,6 +58,8 @@ impl Default for AppState {
             audio_levels: Vec::new(),
             stream_status: StreamStatus::Offline,
             settings: AppSettings::default(),
+            preview_width: 0,
+            preview_height: 0,
         }
     }
 }

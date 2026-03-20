@@ -79,6 +79,23 @@ impl WindowState {
         })
     }
 
+    /// Pick a default panel type for a newly-split panel that differs from
+    /// the original. Prefers Preview; falls back to the first dockable type
+    /// that isn't the original.
+    fn pick_new_panel_type(original: PanelType) -> PanelType {
+        const DOCKABLE: &[PanelType] = &[
+            PanelType::Preview,
+            PanelType::SceneEditor,
+            PanelType::AudioMixer,
+            PanelType::StreamControls,
+        ];
+        DOCKABLE
+            .iter()
+            .copied()
+            .find(|&t| t != original)
+            .unwrap_or(PanelType::Preview)
+    }
+
     pub fn resize(&mut self, gpu: &SharedGpuState, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.surface_config.width = width;
@@ -123,7 +140,25 @@ impl WindowState {
                         .split(node_id, crate::ui::layout::SplitDirection::Vertical, 0.5);
                 }
                 LayoutAction::Split { node_id, direction } => {
+                    // Determine the original panel type before splitting.
+                    let original_type = self
+                        .layout
+                        .node(node_id)
+                        .and_then(|n| n.panel_type());
+
                     self.layout.split(node_id, direction, 0.5);
+
+                    // After split, the node_id is now a Split node whose second
+                    // child is the new panel. Change it to a different type so
+                    // the user doesn't get a duplicate.
+                    if let Some(original) = original_type {
+                        if let Some(crate::ui::layout::LayoutNode::Split { second, .. }) =
+                            self.layout.node(node_id).cloned()
+                        {
+                            let new_type = Self::pick_new_panel_type(original);
+                            self.layout.swap_type(second, new_type);
+                        }
+                    }
                 }
                 LayoutAction::Merge { node_id, keep } => {
                     self.layout.merge(node_id, keep);

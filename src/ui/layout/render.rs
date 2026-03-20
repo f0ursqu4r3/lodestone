@@ -315,6 +315,97 @@ fn render_corner_handles(
                         mem.data.get_temp(drag_accum_id).unwrap_or(egui::Vec2::ZERO);
                     mem.data.insert_temp(drag_accum_id, accum + delta);
                 });
+
+                // --- Visual overlay feedback while dragging ---
+                let accum: egui::Vec2 = ctx
+                    .memory(|mem| mem.data.get_temp(drag_accum_id))
+                    .unwrap_or(egui::Vec2::ZERO);
+                let abs_x = accum.x.abs();
+                let abs_y = accum.y.abs();
+
+                if abs_x > DRAG_THRESHOLD || abs_y > DRAG_THRESHOLD {
+                    let overlay_painter = ctx.layer_painter(egui::LayerId::new(
+                        egui::Order::Foreground,
+                        egui::Id::new("drag_overlay"),
+                    ));
+
+                    // Check if this would be a merge gesture
+                    let is_merge = if let Some((parent_id, my_side)) =
+                        layout.find_parent_with_side(node_id)
+                        && let Some(super::LayoutNode::Split {
+                            direction, first, second, ..
+                        }) = layout.node(parent_id)
+                    {
+                        let direction = *direction;
+                        let toward_sibling = match direction {
+                            SplitDirection::Vertical => {
+                                abs_x > abs_y
+                                    && match my_side {
+                                        MergeSide::First => accum.x > 0.0,
+                                        MergeSide::Second => accum.x < 0.0,
+                                    }
+                            }
+                            SplitDirection::Horizontal => {
+                                abs_y > abs_x
+                                    && match my_side {
+                                        MergeSide::First => accum.y > 0.0,
+                                        MergeSide::Second => accum.y < 0.0,
+                                    }
+                            }
+                        };
+                        if toward_sibling {
+                            // Find the sibling's node id
+                            let sibling_id = match my_side {
+                                MergeSide::First => *second,
+                                MergeSide::Second => *first,
+                            };
+                            // Find sibling rect from leaves list
+                            if let Some((_, _, sibling_rect, _)) =
+                                leaves.iter().find(|(_, _, _, nid)| *nid == sibling_id)
+                            {
+                                let merge_color =
+                                    egui::Color32::from_rgba_unmultiplied(255, 100, 100, 40);
+                                overlay_painter.rect_filled(*sibling_rect, 0.0, merge_color);
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    // Split overlay
+                    if !is_merge {
+                        let split_color =
+                            egui::Color32::from_rgba_unmultiplied(100, 150, 255, 40);
+                        let overlay_rect = if abs_x > abs_y {
+                            // Vertical split
+                            if accum.x > 0.0 {
+                                egui::Rect::from_min_max(
+                                    egui::pos2(rect.center().x, rect.min.y),
+                                    rect.max,
+                                )
+                            } else {
+                                egui::Rect::from_min_max(
+                                    rect.min,
+                                    egui::pos2(rect.center().x, rect.max.y),
+                                )
+                            }
+                        } else if accum.y > 0.0 {
+                            egui::Rect::from_min_max(
+                                egui::pos2(rect.min.x, rect.center().y),
+                                rect.max,
+                            )
+                        } else {
+                            egui::Rect::from_min_max(
+                                rect.min,
+                                egui::pos2(rect.max.x, rect.center().y),
+                            )
+                        };
+                        overlay_painter.rect_filled(overlay_rect, 0.0, split_color);
+                    }
+                }
             }
 
             if response.drag_stopped() {

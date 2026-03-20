@@ -183,5 +183,187 @@ pub fn render_layout(
         }
     }
 
+    // --- Corner handles for split & merge gestures ---
+    render_corner_handles(ctx, layout, &leaves, &mut actions);
+
     actions
+}
+
+/// Size of each corner handle in logical pixels.
+const HANDLE_SIZE: f32 = 12.0;
+/// Drag threshold in pixels before a split/merge gesture triggers.
+const DRAG_THRESHOLD: f32 = 10.0;
+
+fn render_corner_handles(
+    ctx: &egui::Context,
+    layout: &LayoutTree,
+    leaves: &[(super::PanelId, PanelType, egui::Rect, NodeId)],
+    actions: &mut Vec<LayoutAction>,
+) {
+    let handle_painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("corner_handles"),
+    ));
+
+    let handle_color = egui::Color32::from_rgba_premultiplied(120, 120, 120, 160);
+    let handle_hover_color = egui::Color32::from_rgba_premultiplied(180, 180, 180, 200);
+
+    for (panel_id, _panel_type, rect, node_id) in leaves {
+        let node_id = *node_id;
+
+        // Top-right corner handle
+        let tr_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.max.x - HANDLE_SIZE, rect.min.y),
+            egui::vec2(HANDLE_SIZE, HANDLE_SIZE),
+        );
+
+        // Bottom-left corner handle
+        let bl_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.min.x, rect.max.y - HANDLE_SIZE),
+            egui::vec2(HANDLE_SIZE, HANDLE_SIZE),
+        );
+
+        // Render and interact with each handle
+        for (i, (handle_rect, is_top_right)) in
+            [(tr_rect, true), (bl_rect, false)].iter().enumerate()
+        {
+            let handle_id = egui::Id::new(("corner_handle", panel_id.0, i));
+
+            let area_response = egui::Area::new(handle_id)
+                .fixed_pos(handle_rect.min)
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    ui.allocate_rect(
+                        egui::Rect::from_min_size(handle_rect.min, handle_rect.size()),
+                        egui::Sense::drag(),
+                    )
+                });
+
+            let response = area_response.inner;
+
+            // Draw the triangle
+            let color = if response.hovered() || response.dragged() {
+                ctx.set_cursor_icon(egui::CursorIcon::Move);
+                handle_hover_color
+            } else {
+                handle_color
+            };
+
+            let triangle_points = if *is_top_right {
+                // Top-right triangle: points at top-right, top-left, bottom-right
+                vec![
+                    egui::pos2(handle_rect.max.x, handle_rect.min.y),
+                    egui::pos2(handle_rect.min.x, handle_rect.min.y),
+                    egui::pos2(handle_rect.max.x, handle_rect.max.y),
+                ]
+            } else {
+                // Bottom-left triangle: points at bottom-left, top-left, bottom-right
+                vec![
+                    egui::pos2(handle_rect.min.x, handle_rect.max.y),
+                    egui::pos2(handle_rect.min.x, handle_rect.min.y),
+                    egui::pos2(handle_rect.max.x, handle_rect.max.y),
+                ]
+            };
+
+            let triangle = egui::Shape::convex_polygon(
+                triangle_points,
+                color,
+                egui::Stroke::NONE,
+            );
+            handle_painter.add(triangle);
+
+            // Handle drag gestures
+            if response.drag_stopped() {
+                let drag_delta = response.drag_delta();
+                // Accumulate total drag from the drag start
+                let total_delta = ctx
+                    .input(|i| {
+                        i.pointer
+                            .interact_pos()
+                            .and_then(|current| {
+                                i.pointer.press_origin().map(|origin| current - origin)
+                            })
+                    })
+                    .unwrap_or(drag_delta);
+
+                let abs_x = total_delta.x.abs();
+                let abs_y = total_delta.y.abs();
+
+                if abs_x > DRAG_THRESHOLD || abs_y > DRAG_THRESHOLD {
+                    // Check if this is a merge gesture (toward sibling) or split gesture (outward)
+                    if let Some(action) =
+                        determine_handle_action(layout, node_id, total_delta, *is_top_right)
+                    {
+                        actions.push(action);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Determine whether a corner handle drag should produce a split or merge action.
+fn determine_handle_action(
+    layout: &LayoutTree,
+    node_id: NodeId,
+    drag_delta: egui::Vec2,
+    _is_top_right: bool,
+) -> Option<LayoutAction> {
+    let abs_x = drag_delta.x.abs();
+    let abs_y = drag_delta.y.abs();
+
+    // Check if we can do a merge gesture (drag toward sibling)
+    if let Some((parent_id, my_side)) = layout.find_parent_with_side(node_id) {
+        if let Some(super::LayoutNode::Split { direction, .. }) = layout.node(parent_id) {
+            let direction = *direction;
+            match direction {
+                SplitDirection::Vertical => {
+                    // Horizontal drag along the split axis
+                    if abs_x > abs_y && abs_x > DRAG_THRESHOLD {
+                        // Dragging toward sibling = merge
+                        let toward_sibling = match my_side {
+                            MergeSide::First => drag_delta.x > 0.0,  // first panel, drag right toward second
+                            MergeSide::Second => drag_delta.x < 0.0, // second panel, drag left toward first
+                        };
+                        if toward_sibling {
+                            return Some(LayoutAction::Merge {
+                                node_id: parent_id,
+                                keep: my_side,
+                            });
+                        }
+                    }
+                }
+                SplitDirection::Horizontal => {
+                    // Vertical drag along the split axis
+                    if abs_y > abs_x && abs_y > DRAG_THRESHOLD {
+                        let toward_sibling = match my_side {
+                            MergeSide::First => drag_delta.y > 0.0,
+                            MergeSide::Second => drag_delta.y < 0.0,
+                        };
+                        if toward_sibling {
+                            return Some(LayoutAction::Merge {
+                                node_id: parent_id,
+                                keep: my_side,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Otherwise, it's a split gesture
+    if abs_x > abs_y && abs_x > DRAG_THRESHOLD {
+        Some(LayoutAction::Split {
+            node_id,
+            direction: SplitDirection::Vertical,
+        })
+    } else if abs_y > DRAG_THRESHOLD {
+        Some(LayoutAction::Split {
+            node_id,
+            direction: SplitDirection::Horizontal,
+        })
+    } else {
+        None
+    }
 }

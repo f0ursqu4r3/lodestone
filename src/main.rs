@@ -1,3 +1,4 @@
+mod mock_driver;
 mod obs;
 mod renderer;
 mod settings;
@@ -12,8 +13,9 @@ use ui::UiRoot;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalSize},
-    event::WindowEvent,
+    event::{KeyEvent, WindowEvent},
     event_loop::EventLoop,
+    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes},
 };
 
@@ -23,16 +25,19 @@ struct App {
     state: Arc<Mutex<AppState>>,
     ui: Option<UiRoot>,
     egui_state: Option<egui_winit::State>,
+    runtime: tokio::runtime::Runtime,
 }
 
 impl App {
     fn new() -> Self {
+        let runtime = tokio::runtime::Runtime::new().expect("create tokio runtime");
         Self {
             window: None,
             renderer: None,
             state: Arc::new(Mutex::new(AppState::default())),
             ui: None,
             egui_state: None,
+            runtime,
         }
     }
 }
@@ -65,6 +70,9 @@ impl ApplicationHandler for App {
         self.ui = Some(ui);
         self.egui_state = Some(egui_state);
 
+        // Spawn mock data driver
+        self.runtime.spawn(mock_driver::spawn_mock_driver(self.state.clone()));
+
         log::info!("Window and renderer initialized");
     }
 
@@ -79,6 +87,39 @@ impl ApplicationHandler for App {
             if let Some(window) = self.window {
                 let _ = egui_state.on_window_event(window, &event);
             }
+        }
+
+        match &event {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(key_code),
+                        state: winit::event::ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => {
+                let mut app_state = self.state.lock().unwrap();
+                match key_code {
+                    KeyCode::F1 => {
+                        app_state.ui_state.scene_panel_open =
+                            !app_state.ui_state.scene_panel_open;
+                    }
+                    KeyCode::F2 => {
+                        app_state.ui_state.mixer_panel_open =
+                            !app_state.ui_state.mixer_panel_open;
+                    }
+                    KeyCode::F3 => {
+                        app_state.ui_state.controls_panel_open =
+                            !app_state.ui_state.controls_panel_open;
+                    }
+                    KeyCode::Escape => {
+                        app_state.ui_state.settings_modal_open = false;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
         }
 
         match event {

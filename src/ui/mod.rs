@@ -1,5 +1,6 @@
 pub mod audio_mixer;
 pub mod scene_editor;
+pub mod settings_modal;
 pub mod stream_controls;
 
 use crate::state::AppState;
@@ -21,6 +22,7 @@ impl UiRoot {
             scene_editor::draw(ctx, state);
             audio_mixer::draw(ctx, state);
             stream_controls::draw(ctx, state);
+            settings_modal::draw(ctx, state);
         })
     }
 }

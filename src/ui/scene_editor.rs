@@ -12,6 +12,9 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) {
             // ---- Scenes section ----
             ui.horizontal(|ui| {
                 ui.heading("Scenes");
+                if ui.button("⚙").on_hover_text("Open Settings").clicked() {
+                    state.ui_state.settings_modal_open = true;
+                }
                 if ui.button("+").clicked() {
                     let new_id = crate::obs::SceneId(
                         state

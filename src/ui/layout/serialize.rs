@@ -6,12 +6,33 @@ use serde::{Deserialize, Serialize};
 use super::tree::{LayoutNode, LayoutTree, NodeId, PanelId, PanelType, SplitDirection};
 
 // ---------------------------------------------------------------------------
+// SavedLayout — full multi-window layout wrapper
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize)]
+pub struct SavedLayout {
+    pub(crate) layout: SerializedNode,
+    #[serde(default)]
+    pub detached: Vec<DetachedEntry>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DetachedEntry {
+    pub panel: PanelType,
+    pub id: u64,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+// ---------------------------------------------------------------------------
 // SerializedNode — recursive serde representation
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
-enum SerializedNode {
+pub(crate) enum SerializedNode {
     #[serde(rename = "leaf")]
     Leaf { panel: PanelType, id: u64 },
     #[serde(rename = "split")]
@@ -24,6 +45,7 @@ enum SerializedNode {
 }
 
 #[derive(Serialize, Deserialize)]
+#[allow(dead_code)]
 struct SerializedTree {
     root: SerializedNode,
 }
@@ -34,11 +56,19 @@ struct SerializedTree {
 
 fn build_serialized_node(tree: &LayoutTree, node_id: NodeId) -> SerializedNode {
     match tree.node(node_id).expect("node missing from tree") {
-        LayoutNode::Leaf { panel_type, panel_id } => SerializedNode::Leaf {
+        LayoutNode::Leaf {
+            panel_type,
+            panel_id,
+        } => SerializedNode::Leaf {
             panel: *panel_type,
             id: panel_id.0,
         },
-        LayoutNode::Split { direction, ratio, first, second } => SerializedNode::Split {
+        LayoutNode::Split {
+            direction,
+            ratio,
+            first,
+            second,
+        } => SerializedNode::Split {
             direction: *direction,
             ratio: *ratio,
             first: Box::new(build_serialized_node(tree, *first)),
@@ -47,6 +77,7 @@ fn build_serialized_node(tree: &LayoutTree, node_id: NodeId) -> SerializedNode {
     }
 }
 
+#[allow(dead_code)]
 pub fn serialize_layout(tree: &LayoutTree) -> Result<String> {
     let root = build_serialized_node(tree, tree.root_id());
     let toml_str = toml::to_string_pretty(&SerializedTree { root })?;
@@ -94,7 +125,12 @@ impl RebuildState {
                 );
                 node_id
             }
-            SerializedNode::Split { direction, ratio, first, second } => {
+            SerializedNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
                 let first_id = self.insert_serialized(*first);
                 let second_id = self.insert_serialized(*second);
                 let node_id = self.alloc_node_id();
@@ -113,6 +149,7 @@ impl RebuildState {
     }
 }
 
+#[allow(dead_code)]
 pub fn deserialize_layout(toml_str: &str) -> Result<LayoutTree> {
     let serialized: SerializedTree = toml::from_str(toml_str)?;
 
@@ -124,6 +161,32 @@ pub fn deserialize_layout(toml_str: &str) -> Result<LayoutTree> {
 
     let tree = LayoutTree::from_parts(state.nodes, root_id, state.next_node_id);
     Ok(tree)
+}
+
+// ---------------------------------------------------------------------------
+// Full layout (main tree + detached windows)
+// ---------------------------------------------------------------------------
+
+pub fn serialize_full_layout(tree: &LayoutTree, detached: &[DetachedEntry]) -> Result<String> {
+    let layout = build_serialized_node(tree, tree.root_id());
+    let saved = SavedLayout {
+        layout,
+        detached: detached.to_vec(),
+    };
+    let toml_str = toml::to_string_pretty(&saved)?;
+    Ok(toml_str)
+}
+
+pub fn deserialize_full_layout(toml_str: &str) -> Result<(LayoutTree, Vec<DetachedEntry>)> {
+    let saved: SavedLayout = toml::from_str(toml_str)?;
+
+    let mut state = RebuildState::new();
+    let root_id = state.insert_serialized(saved.layout);
+
+    PanelId::set_counter(state.max_panel_id + 1);
+
+    let tree = LayoutTree::from_parts(state.nodes, root_id, state.next_node_id);
+    Ok((tree, saved.detached))
 }
 
 // ---------------------------------------------------------------------------
@@ -176,5 +239,22 @@ mod tests {
     #[test]
     fn invalid_toml_returns_error() {
         assert!(deserialize_layout("not valid toml {{{}}}").is_err());
+    }
+
+    #[test]
+    fn full_layout_save_load_roundtrip() {
+        let tree = LayoutTree::default_layout();
+        let detached = vec![DetachedEntry {
+            panel: PanelType::StreamControls,
+            id: 99,
+            x: 100,
+            y: 100,
+            width: 400,
+            height: 300,
+        }];
+        let toml_str = serialize_full_layout(&tree, &detached).unwrap();
+        let (restored_tree, restored_detached) = deserialize_full_layout(&toml_str).unwrap();
+        assert_eq!(restored_tree.collect_leaves().len(), 4);
+        assert_eq!(restored_detached.len(), 1);
     }
 }

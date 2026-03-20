@@ -39,15 +39,15 @@ UI-first, OBS later. Steps 1-4 of the build order (shell, egui, glyphon, widgets
 
 ## Tech Stack
 
-| Layer | Crate | Role |
-|---|---|---|
-| Window + input | `winit` | OS window, input events, event loop |
-| GPU abstraction | `wgpu` | DX12 / Metal / Vulkan / WebGPU |
-| UI layout + input | `egui` + `egui-wgpu` | Immediate-mode layout, hit testing, widget logic |
-| Text rendering | `glyphon` + `cosmic-text` | Subpixel-quality GPU text |
-| OBS engine | `libobs-rs` | libobs C API (deferred to later build phase) |
-| Custom UI renderer | (in-repo) | wgpu pipelines for panels, animations, blur, glows |
-| Async runtime | `tokio` | Settings I/O, mock data driver, background tasks |
+| Layer              | Crate                     | Role                                               |
+| ------------------ | ------------------------- | -------------------------------------------------- |
+| Window + input     | `winit`                   | OS window, input events, event loop                |
+| GPU abstraction    | `wgpu`                    | DX12 / Metal / Vulkan / WebGPU                     |
+| UI layout + input  | `egui` + `egui-wgpu`      | Immediate-mode layout, hit testing, widget logic   |
+| Text rendering     | `glyphon` + `cosmic-text` | Subpixel-quality GPU text                          |
+| OBS engine         | `libobs-rs`               | libobs C API (deferred to later build phase)       |
+| Custom UI renderer | (in-repo)                 | wgpu pipelines for panels, animations, blur, glows |
+| Async runtime      | `tokio`                   | Settings I/O, mock data driver, background tasks   |
 
 ## egui Integration & Custom Rendering
 
@@ -127,6 +127,7 @@ Access: `Arc<Mutex<AppState>>` shared between main loop and (eventually) OBS thr
 ### Mock Data Driver
 
 A tokio task updates mock data at ~30Hz:
+
 - Audio levels: random walk between -60dB and 0dB per source, peak hold decays over ~1s
 - Stream stats: bitrate hovers around configured value with slight jitter, dropped frames increment occasionally, uptime ticks up
 

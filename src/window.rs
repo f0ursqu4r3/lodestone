@@ -5,8 +5,7 @@ use winit::window::Window;
 
 use crate::renderer::SharedGpuState;
 use crate::state::AppState;
-use crate::ui;
-use crate::ui::layout::{LayoutTree, PanelId, PanelType};
+use crate::ui::layout::LayoutTree;
 
 pub struct WindowState {
     pub window: &'static Window,
@@ -86,15 +85,12 @@ impl WindowState {
     pub fn render(&mut self, gpu: &SharedGpuState, state: &mut AppState) -> Result<()> {
         let raw_input = self.egui_state.take_egui_input(self.window);
 
+        let layout = &self.layout;
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui_handle| {
-                ui::draw_panel(
-                    PanelType::SceneEditor,
-                    ui_handle,
-                    state,
-                    PanelId(0),
-                );
-            });
+            let available_rect = ctx.available_rect();
+            let _actions =
+                crate::ui::layout::render::render_layout(ctx, layout, state, available_rect);
+            // Actions will be processed in future tasks (e.g., Task 7/8)
         });
 
         let pixels_per_point = full_output.pixels_per_point;

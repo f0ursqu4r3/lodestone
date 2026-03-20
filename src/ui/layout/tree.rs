@@ -94,6 +94,18 @@ pub enum LayoutNode {
     },
 }
 
+impl PanelType {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Preview => "Preview",
+            Self::SceneEditor => "Scene Editor",
+            Self::AudioMixer => "Audio Mixer",
+            Self::StreamControls => "Stream Controls",
+            Self::Settings => "Settings",
+        }
+    }
+}
+
 impl LayoutNode {
     pub fn leaf(panel_type: PanelType) -> Self {
         LayoutNode::Leaf {

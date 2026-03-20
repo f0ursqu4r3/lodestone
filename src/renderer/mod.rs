@@ -281,7 +281,7 @@ impl Renderer {
                 border_width: 1.0,
                 shadow_offset: [4.0, 4.0],
                 shadow_blur: 16.0,
-                _pad0: [0.0; 3],
+                _pad0: [0.0; 7],
                 shadow_color: [0.0, 0.0, 0.0, 0.4],
                 viewport_size: [
                     self.surface_config.width as f32,

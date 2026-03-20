@@ -118,24 +118,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 /// Uniform data for a single SDF widget draw call.
 ///
-/// Layout matches the WGSL `WidgetParams` struct under std140/std430 rules.
-/// Fields are ordered to satisfy vec4 alignment requirements without implicit
-/// padding:
+/// Layout matches the WGSL `WidgetParams` struct under WGSL uniform address
+/// space rules (equivalent to std140).  `vec3<f32>` in WGSL has alignment 16
+/// and size 12, which means `_pad0` in the WGSL struct starts at offset 80
+/// (not 68).  The bytes from offset 68 through 79 are implicit WGSL padding,
+/// and bytes 92–95 are implicit padding before `shadow_color`.  Both gaps are
+/// collapsed here into a single `_pad0: [f32; 7]` field (28 bytes) that
+/// bridges from `shadow_blur` (ends at 68) to `shadow_color` (starts at 96).
 ///
-/// | Offset | Field            | Size |
-/// |--------|-----------------|------|
-/// |   0    | rect            |  16  |
-/// |  16    | color           |  16  |
-/// |  32    | border_color    |  16  |
-/// |  48    | corner_radius   |   4  |
-/// |  52    | border_width    |   4  |
-/// |  56    | shadow_offset   |   8  |
-/// |  64    | shadow_blur     |   4  |
-/// |  68    | _pad0           |  12  | (align shadow_color to 16)
-/// |  80    | shadow_color    |  16  |
-/// |  96    | viewport_size   |   8  |
-/// | 104    | _pad1           |   8  | (align total to 16)
-/// | 112    | (total)         |      |
+/// | Offset | Field            | Size | Notes                          |
+/// |--------|-----------------|------|--------------------------------|
+/// |   0    | rect            |  16  | vec4, align 16                 |
+/// |  16    | color           |  16  | vec4, align 16                 |
+/// |  32    | border_color    |  16  | vec4, align 16                 |
+/// |  48    | corner_radius   |   4  | f32,  align 4                  |
+/// |  52    | border_width    |   4  | f32,  align 4                  |
+/// |  56    | shadow_offset   |   8  | vec2, align 8                  |
+/// |  64    | shadow_blur     |   4  | f32,  align 4                  |
+/// |  68    | _pad0           |  28  | WGSL vec3 align-16 + tail pad  |
+/// |  96    | shadow_color    |  16  | vec4, align 16                 |
+/// | 112    | viewport_size   |   8  | vec2, align 8                  |
+/// | 120    | _pad1           |   8  | pad struct to multiple of 16   |
+/// | 128    | (total)         |      |                                |
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct WidgetParams {
@@ -146,7 +150,7 @@ pub struct WidgetParams {
     pub border_width: f32,
     pub shadow_offset: [f32; 2],
     pub shadow_blur: f32,
-    pub _pad0: [f32; 3],
+    pub _pad0: [f32; 7],
     pub shadow_color: [f32; 4],
     pub viewport_size: [f32; 2],
     pub _pad1: [f32; 2],
@@ -268,13 +272,14 @@ mod tests {
 
     #[test]
     fn widget_params_size_alignment() {
-        // Uniform buffers require 16-byte alignment.  Verify the struct
-        // size is a multiple of 16.
+        // The struct must be exactly 128 bytes to match the WGSL uniform struct.
+        // wgpu validates this at runtime: buffer size must equal the shader's
+        // expected uniform size.
         let size = std::mem::size_of::<WidgetParams>();
         assert_eq!(
-            size % 16,
-            0,
-            "WidgetParams size ({size}) must be 16-byte aligned"
+            size,
+            128,
+            "WidgetParams size ({size}) must be exactly 128 bytes to match the WGSL struct"
         );
     }
 
@@ -288,7 +293,7 @@ mod tests {
             border_width: 1.0,
             shadow_offset: [4.0, 4.0],
             shadow_blur: 16.0,
-            _pad0: [0.0; 3],
+            _pad0: [0.0; 7],
             shadow_color: [0.0, 0.0, 0.0, 0.4],
             viewport_size: [1280.0, 720.0],
             _pad1: [0.0, 0.0],
@@ -309,7 +314,7 @@ mod tests {
             border_width: 2.0,
             shadow_offset: [2.0, 2.0],
             shadow_blur: 8.0,
-            _pad0: [0.0; 3],
+            _pad0: [0.0; 7],
             shadow_color: [0.0, 0.0, 0.0, 0.5],
             viewport_size: [1920.0, 1080.0],
             _pad1: [0.0, 0.0],

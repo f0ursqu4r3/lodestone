@@ -86,9 +86,9 @@ impl ApplicationHandler for App {
         self.ui = Some(ui);
         self.egui_state = Some(egui_state);
 
-        // Spawn mock data driver
+        // Spawn mock data driver on the tokio runtime
         self.runtime
-            .spawn(mock_driver::spawn_mock_driver(self.state.clone()));
+            .spawn(mock_driver::run_mock_driver(self.state.clone()));
 
         log::info!("Window and renderer initialized");
     }

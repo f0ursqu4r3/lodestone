@@ -125,7 +125,7 @@ lodestone/
 │   │   ├── mod.rs            ← libobs-rs thread, channel definitions
 │   │   ├── scene.rs
 │   │   ├── output.rs
-│   │   └── settings.rs
+│   │   └── encoder.rs
 │   └── state.rs              ← shared app state (Arc<Mutex<AppState>>)
 └── assets/
     └── fonts/                ← bundled typeface

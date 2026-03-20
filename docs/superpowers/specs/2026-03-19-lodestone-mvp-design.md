@@ -27,10 +27,11 @@ Each frame executes in order:
 3. **Build UI** — egui layout pass produces draw commands (no painting)
 4. **Render frame** — wgpu render passes:
    - Clear pass (background)
-   - Custom widget pass (panels, shadows, glows)
-   - egui geometry pass (hit testing regions, not visuals)
+   - Preview texture pass (OBS frame composite, stubbed — renders behind everything)
+   - Custom widget pass (panels, shadows, glows — drawn using positions from egui's layout output in step 3)
    - Glyphon text pass (all text)
-   - Preview texture pass (OBS frame composite, stubbed)
+
+   Note: egui's layout pass (step 3) computes all widget positions and hit-test regions. The custom widget pass uses those positions to draw our visuals. egui's default painter is not used — we suppress its visual output and only consume the layout data.
 
 ### Build Strategy
 
@@ -45,6 +46,7 @@ UI-first, OBS later. Steps 1-4 of the build order (shell, egui, glyphon, widgets
 | UI layout + input | `egui` + `egui-wgpu` | Immediate-mode layout, hit testing, widget logic |
 | Text rendering | `glyphon` + `cosmic-text` | Subpixel-quality GPU text |
 | OBS engine | `libobs-rs` | libobs C API (deferred to later build phase) |
+| Custom UI renderer | (in-repo) | wgpu pipelines for panels, animations, blur, glows |
 | Async runtime | `tokio` | Settings I/O, mock data driver, background tasks |
 
 ## egui Integration & Custom Rendering
@@ -66,6 +68,22 @@ egui runs in layout-only mode:
 **Glyphon text pass** replaces egui's built-in text rendering entirely. All text goes through `glyphon` + `cosmic-text`. One bundled typeface (clean sans-serif, finalized in style guide).
 
 Separation principle: egui says *where*, our renderer says *what it looks like*.
+
+### Rendering Techniques
+
+- **Rounded rects, borders, shadows:** SDF-based fragment shader. A single quad per widget, the shader evaluates a signed distance field for the rounded rect shape, applies border and shadow in the same pass. Efficient and resolution-independent.
+- **Backdrop blur:** Per-panel region. Copy the framebuffer region behind the panel, downsample with a two-pass Gaussian blur, composite under the panel. One blur pipeline shared across all panels.
+- **Pipeline organization:** One shared pipeline for SDF widgets (panels, buttons, indicators), one for blur, one for the preview texture. Uniform buffers carry per-widget parameters (color, corner radius, shadow offset).
+
+Detailed visual specifications (colors, spacing, typography, animation curves) will be defined in `STYLEGUIDE.md`.
+
+## Window Configuration
+
+- Default size: 1280x720, resizable
+- Minimum size: 960x540
+- Title: "Lodestone"
+- Single-instance: not enforced for MVP
+- Render cadence: vsync-driven (`PresentMode::AutoVsync`). When no input and no state changes, the loop still renders to keep the preview live. Idle power optimization deferred.
 
 ## Layout
 
@@ -108,7 +126,11 @@ Access: `Arc<Mutex<AppState>>` shared between main loop and (eventually) OBS thr
 
 ### Mock Data Driver
 
-A tokio task periodically updates audio levels and stream stats with realistic fake data. VU meters animate, stats tick, UI feels alive during development without OBS.
+A tokio task updates mock data at ~30Hz:
+- Audio levels: random walk between -60dB and 0dB per source, peak hold decays over ~1s
+- Stream stats: bitrate hovers around configured value with slight jitter, dropped frames increment occasionally, uptime ticks up
+
+This keeps VU meters animated and stats feeling alive during development.
 
 ## OBS Abstraction
 
@@ -117,13 +139,36 @@ Trait-based interface for the OBS engine:
 ```rust
 trait ObsEngine {
     fn init() -> Result<Self>;
+
+    // Scene/source lifecycle
     fn scenes(&self) -> Vec<Scene>;
+    fn create_scene(&mut self, name: &str) -> Result<SceneId>;
+    fn remove_scene(&mut self, id: SceneId) -> Result<()>;
+    fn set_active_scene(&mut self, id: SceneId) -> Result<()>;
+    fn add_source(&mut self, scene: SceneId, source: SourceConfig) -> Result<SourceId>;
+    fn remove_source(&mut self, scene: SceneId, source: SourceId) -> Result<()>;
+    fn update_source_transform(&mut self, source: SourceId, transform: Transform) -> Result<()>;
+
+    // Audio
+    fn set_volume(&mut self, source: SourceId, volume: f32) -> Result<()>;
+    fn set_muted(&mut self, source: SourceId, muted: bool) -> Result<()>;
+
+    // Streaming & recording
     fn start_stream(&mut self, config: StreamConfig) -> Result<()>;
     fn stop_stream(&mut self) -> Result<()>;
+    fn start_recording(&mut self, path: &Path) -> Result<()>;
+    fn stop_recording(&mut self) -> Result<()>;
+
+    // Encoder
+    fn configure_encoder(&mut self, config: EncoderConfig) -> Result<()>;
+
+    // Data
     fn subscribe_stats(&self) -> Receiver<ObsStats>;
-    fn get_frame(&self) -> Option<FrameTexture>;
+    fn get_frame(&self) -> Option<RgbaFrame>;
 }
 ```
+
+`RgbaFrame` is a CPU-side RGBA buffer (`Vec<u8>` + width/height). The renderer uploads it to a `wgpu::Texture` each frame. This keeps the OBS trait GPU-agnostic.
 
 `MockObsEngine` implements this for MVP development. `LiveObsEngine` (backed by `libobs-rs`) implements it later — UI code doesn't change.
 
@@ -133,8 +178,10 @@ Key constraint: OBS runs on a dedicated OS thread. Communication to the render l
 
 TOML files, no databases.
 
-- `~/.config/lodestone/settings.toml` — global settings (default destination, UI preferences, panel layout)
-- `~/.config/lodestone/profiles/<name>.toml` — stream profiles (encoder, bitrate, resolution, stream key)
+- `<config_dir>/lodestone/settings.toml` — global settings (default destination, UI preferences, panel layout)
+- `<config_dir>/lodestone/profiles/<name>.toml` — stream profiles (encoder, bitrate, resolution, stream key)
+
+Platform paths resolved via the `dirs` crate: `~/Library/Application Support/` (macOS), `%APPDATA%` (Windows), `~/.config/` (Linux).
 
 First launch creates a default profile. Settings save on change (debounced async write via tokio). No save button.
 
@@ -177,9 +224,9 @@ lodestone/
 │   ├── obs/
 │   │   ├── mod.rs            ← ObsEngine trait, channel defs
 │   │   ├── mock.rs           ← MockObsEngine
-│   │   ├── scene.rs
-│   │   ├── output.rs
-│   │   └── settings.rs
+│   │   ├── scene.rs          ← scene/source types
+│   │   ├── output.rs         ← streaming/recording output types
+│   │   └── encoder.rs        ← encoder configuration types
 │   └── state.rs              ← AppState, shared types
 └── assets/
     └── fonts/

@@ -210,7 +210,22 @@ impl WindowState {
                                     group.add_tab_entry(entry);
                                 }
                             }
-                            DropZone::Center | DropZone::TabBar { .. } => {
+                            DropZone::TabBar { index } => {
+                                if let Some(group) = self.layout.groups.get_mut(&target_group) {
+                                    // When reordering within the same group, the source
+                                    // tab was already removed, shifting indices down.
+                                    // Adjust the insertion index to compensate.
+                                    let adjusted = if target_group == drag.source_group
+                                        && drag.tab_index < index
+                                    {
+                                        index.saturating_sub(1)
+                                    } else {
+                                        index
+                                    };
+                                    group.insert_tab(adjusted, entry);
+                                }
+                            }
+                            DropZone::Center => {
                                 if let Some(group) = self.layout.groups.get_mut(&target_group) {
                                     group.add_tab_entry(entry);
                                 }

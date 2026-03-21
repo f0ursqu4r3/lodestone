@@ -37,9 +37,10 @@ Replace `egui::Window` for floating panels with a custom `egui::Area`-based cont
 1. **Docked groups** call `render_tab_bar()` + `render_content()` directly (unchanged).
 2. **Floating groups** call a new `render_floating_chrome()` which:
    - Renders the floating chrome header (collapse, title, close)
-   - Handles title bar drag (move) and shift+drag (dock)
+   - Handles title bar drag (move)
    - Handles edge/corner resize
    - Paints shadow and border
+   - Stores the floating window rect for drop target hit testing (currently lines 426-430)
    - Calls `render_tab_bar()` + `render_content()` inside the container
 
 ### Interaction consistency
@@ -54,36 +55,53 @@ All panel groups use the same `render_tab_bar()` with `TabBarContext` flags cont
 
 The grip context menu follows the same pattern. Tab click, drag-to-start, close button, and "+" popup are identical everywhere.
 
+**Behavioral additions from unification:** Floating tabs currently lack drag-to-start support. Using the shared `render_tab_bar()` adds this capability as a side effect — floating tabs become draggable just like docked tabs.
+
 ### Floating chrome header
 
 - Height: `FLOATING_HEADER_HEIGHT` (28px, matches tab bar)
 - Collapse button: left side, clicks emit `LayoutAction::DockFloatingToGrid`
+  - **Note:** This replaces egui's native `.collapsible(true)` (minimize to title bar) with a dock-to-grid action. This is a deliberate behavioral change — collapse means "return to grid," not "minimize."
 - Title: center, shows active panel name
 - Close button: right side, clicks emit `LayoutAction::CloseFloatingGroup`
 - Drag on title area: moves the floating container position
-- Shift+drag on title area: initiates group dock drag (existing behavior)
+
+### Floating container state management
+
+Currently `egui::Window` manages position/size state internally. With `egui::Area`, we must manage this explicitly:
+
+- **Position**: Updated on title bar drag. Stored back into `FloatingGroup.pos` each frame via `LayoutAction::UpdateFloatingGeometry`.
+- **Size**: Updated on resize handle drag. Stored back into `FloatingGroup.size` via the same action.
+- **Z-ordering**: Multiple floating panels need click-to-raise behavior. Track a `floating_z_order: Vec<GroupId>` on `DockLayout` (or use egui temp state). On pointer press inside a floating panel, move it to the front. Render floating panels in z-order so later panels paint on top.
 
 ### Floating container resize
 
-Edge and corner sense zones around the `egui::Area` rect. On drag, update the `FloatingGroup`'s `pos` and `size` via a new `LayoutAction::ResizeFloating`. Min size constraint: 200x100 (preserved from current behavior).
+Edge and corner sense zones around the `egui::Area` rect. On drag, emit `LayoutAction::UpdateFloatingGeometry` with new pos/size. Min size constraint: 200x100 (preserved from current behavior).
 
 ## File changes
 
 ### `src/ui/layout/render.rs`
 
 - **Delete**: Floating group `egui::Window` block (lines 160-440) — inline tab bar, "+", grip, content, open-state tracking
-- **Add**: `render_floating_chrome()` function — custom header + drag/resize + delegates to `render_tab_bar()` and `render_content()`
+- **Add**: `render_floating_chrome()` function — custom header + drag/resize + drop target rect registration + delegates to `render_tab_bar()` and `render_content()`
 - **Add**: `FLOATING_HEADER_HEIGHT` constant
-- **Add**: `LayoutAction::ResizeFloating` variant for floating container resize
+- **Add**: `LayoutAction::UpdateFloatingGeometry { group_id, pos, size }` variant (replaces separate move/resize actions)
 - **No changes**: `render_tab_bar()`, `render_content()`, drag overlay logic
+
+### `src/window.rs`
+
+- **Add**: Handler for `LayoutAction::UpdateFloatingGeometry` in the action match block — updates `FloatingGroup.pos` and `FloatingGroup.size`
+
+### `src/ui/layout/tree.rs`
+
+- **Add**: `DockLayout::update_floating_geometry()` helper method to update a floating group's pos/size by group_id
+- **Possibly add**: `floating_z_order: Vec<GroupId>` field on `DockLayout` for z-ordering (or use egui temp state instead)
 
 ### No changes needed
 
-- `tree.rs` — data structures unchanged
 - `interactions.rs` — drop zone hit testing is rect-based
-- `window.rs` — detached windows already call `render_layout(is_main: false)`
-- `serialize.rs` — layout persistence unchanged
+- `serialize.rs` — layout persistence unchanged (may need to persist z-order if added to DockLayout)
 
 ## Net effect
 
-~240 lines of duplicated floating code deleted, replaced by ~80 lines of floating chrome rendering that delegates to shared functions. All panel group interactions become consistent across all contexts.
+~240 lines of duplicated floating code deleted, replaced by ~100-120 lines of floating chrome rendering + state management. All panel group interactions become consistent across all contexts.

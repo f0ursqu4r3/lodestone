@@ -159,9 +159,10 @@ pub fn render_layout(
                     TabBarContext {
                         is_main,
                         is_floating: false,
+                        order: egui::Order::Middle,
                     },
                 );
-                render_content(ctx, group_id, group, content_rect, state);
+                render_content(ctx, group_id, group, content_rect, state, egui::Order::Middle);
             }
         }
     }
@@ -232,14 +233,16 @@ pub fn render_layout(
                     continue;
                 }
                 if rect.contains(pointer_pos) {
-                    let zone = hit_test_drop_zone(rect, pointer_pos);
+                    let tc = layout.groups.get(&gid).map_or(0, |g| g.tabs.len());
+                    let zone = hit_test_drop_zone(rect, pointer_pos, tc);
                     hovered_group = Some((gid, zone, rect));
                     break;
                 }
             }
 
-            if let Some((_, zone, group_rect)) = &hovered_group {
-                let highlight = drop_zone_highlight_rect(*group_rect, *zone);
+            if let Some((gid, zone, group_rect)) = &hovered_group {
+                let tc = layout.groups.get(gid).map_or(0, |g| g.tabs.len());
+                let highlight = drop_zone_highlight_rect(*group_rect, *zone, tc);
                 let overlay_layer = egui::LayerId::new(
                     egui::Order::Foreground,
                     egui::Id::new("group_dock_overlay"),
@@ -384,20 +387,24 @@ fn render_drag_overlay(
         // Drop zone overlays on grid groups
         let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;
         for &(gid, rect) in group_rects {
-            if gid == drag.source_group
-                && layout.groups.get(&gid).is_some_and(|g| g.tabs.len() <= 1)
-            {
-                continue;
-            }
             if rect.contains(pointer_pos) {
-                let zone = hit_test_drop_zone(rect, pointer_pos);
+                // Skip source group with only 1 tab (can't drop on itself),
+                // but still break to prevent falling through to panels behind.
+                if gid == drag.source_group
+                    && layout.groups.get(&gid).is_some_and(|g| g.tabs.len() <= 1)
+                {
+                    break;
+                }
+                let tc = layout.groups.get(&gid).map_or(0, |g| g.tabs.len());
+                let zone = hit_test_drop_zone(rect, pointer_pos, tc);
                 hovered_group = Some((gid, zone, rect));
                 break;
             }
         }
 
-        if let Some((_, zone, group_rect)) = &hovered_group {
-            let highlight = drop_zone_highlight_rect(*group_rect, *zone);
+        if let Some((gid, zone, group_rect)) = &hovered_group {
+            let tc = layout.groups.get(gid).map_or(0, |g| g.tabs.len());
+            let highlight = drop_zone_highlight_rect(*group_rect, *zone, tc);
             let overlay_layer =
                 egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop_overlay"));
             let overlay_painter = ctx.layer_painter(overlay_layer);
@@ -436,6 +443,9 @@ fn render_drag_overlay(
 struct TabBarContext {
     is_main: bool,
     is_floating: bool,
+    /// Layer order for painters and areas. Docked groups use `Middle`,
+    /// floating groups use `Foreground` so they paint above docked content.
+    order: egui::Order,
 }
 
 /// Render the tab bar for a group. Emits actions for tab clicks, drags, close, and context menus.
@@ -449,7 +459,7 @@ fn render_tab_bar(
     tctx: TabBarContext,
 ) {
     let painter = ctx.layer_painter(egui::LayerId::new(
-        egui::Order::Middle,
+        tctx.order,
         egui::Id::new(("tab_bar_bg", group_id.0)),
     ));
     painter.rect_filled(tab_bar_rect, 0.0, TAB_BAR_BG);
@@ -518,13 +528,17 @@ fn render_tab_bar(
                 painter.galley(label_pos, galley, text_color);
 
                 // Close button (visible only when hovering the tab)
-                if response.hovered() {
-                    let close_center = egui::pos2(tab_rect.max.x - 12.0, tab_rect.center().y);
-                    let close_rect =
-                        egui::Rect::from_center_size(close_center, egui::vec2(14.0, 14.0));
-                    let close_resp = ui.allocate_rect(close_rect, egui::Sense::click());
+                // Use manual pointer detection — the tab Area's click_and_drag
+                // sense consumes clicks before child widgets can receive them.
+                let close_center = egui::pos2(tab_rect.max.x - 12.0, tab_rect.center().y);
+                let close_rect =
+                    egui::Rect::from_center_size(close_center, egui::vec2(14.0, 14.0));
+                let pointer_pos = ui.ctx().input(|i| i.pointer.hover_pos());
+                let close_hovered = pointer_pos.is_some_and(|p| close_rect.contains(p));
+                let mut close_clicked = false;
 
-                    let close_color = if close_resp.hovered() {
+                if response.hovered() {
+                    let close_color = if close_hovered {
                         TEXT_BRIGHT
                     } else {
                         TEXT_DIM
@@ -546,7 +560,8 @@ fn render_tab_bar(
                         egui::Stroke::new(1.5, close_color),
                     );
 
-                    if close_resp.clicked() {
+                    if close_hovered && response.clicked() {
+                        close_clicked = true;
                         actions.push(LayoutAction::Close {
                             group_id: gid,
                             tab_index: tab_idx,
@@ -554,8 +569,8 @@ fn render_tab_bar(
                     }
                 }
 
-                // Click to activate
-                if response.clicked() {
+                // Click to activate (skip if close button was clicked)
+                if response.clicked() && !close_clicked {
                     actions.push(LayoutAction::SetActiveTab {
                         group_id: gid,
                         tab_index: tab_idx,
@@ -737,12 +752,21 @@ fn render_tab_bar(
         ctx.data_mut(|d| d.insert_temp(group_drag_id, gid));
     }
     grip_resp.context_menu(|ui| {
-        if tctx.is_main && ui.button("Detach to Float").clicked() {
-            actions.push(LayoutAction::DetachGroupToFloat { group_id: gid });
-            ui.close();
+        if tctx.is_floating {
+            // Floating group — offer to dock back to grid
+            if ui.button("Dock to Grid").clicked() {
+                actions.push(LayoutAction::DockFloatingToGrid { group_id: gid });
+                ui.close();
+            }
+        } else if tctx.is_main {
+            // Docked group in main window — offer to detach
+            if ui.button("Detach to Float").clicked() {
+                actions.push(LayoutAction::DetachGroupToFloat { group_id: gid });
+                ui.close();
+            }
         }
         if ui.button("Pop Out to Window").clicked() {
-            // Detach each tab to a window (or detach the active tab)
+            // Pop out the active tab to an OS-level window
             actions.push(LayoutAction::DetachToWindow {
                 group_id: gid,
                 tab_index: group.active_tab,
@@ -775,11 +799,16 @@ fn render_content(
     group: &super::tree::Group,
     content_rect: egui::Rect,
     state: &mut crate::state::AppState,
+    order: egui::Order,
 ) {
     let active = group.active_tab_entry();
     let panel_id = active.panel_id;
     let panel_type = active.panel_type;
 
+    // Note: no explicit .order() — the painter layer handles visual z-ordering.
+    // Setting .order() explicitly changes egui's interaction layer behavior
+    // and can break click handling in overlapping Areas (like tab close buttons).
+    let _ = order;
     egui::Area::new(egui::Id::new(("panel_content", group_id.0)))
         .fixed_pos(content_rect.min)
         .sense(egui::Sense::hover())
@@ -813,28 +842,27 @@ fn render_floating_chrome(
     is_main: bool,
 ) {
     let group_id = fg.group_id;
+
+    // Collapsed state — when collapsed, only show the chrome header
+    let collapsed_id = egui::Id::new(("floating_collapsed", group_id.0));
+    let is_collapsed: bool = ctx.data(|d| d.get_temp(collapsed_id).unwrap_or(false));
+
     // fg.size represents the total interior (tab bar + content), matching the old
     // egui::Window default_size semantics. We add only the chrome header on top.
-    let total_height = FLOATING_HEADER_HEIGHT + fg.size.y;
+    let total_height = if is_collapsed {
+        FLOATING_HEADER_HEIGHT
+    } else {
+        FLOATING_HEADER_HEIGHT + fg.size.y
+    };
     let total_size = egui::vec2(fg.size.x, total_height);
-
-    // --- Click-to-raise: bring this floating panel to front on click ---
-    let area_id = egui::Id::new(("floating_chrome", group_id.0));
-    let _area_resp = egui::Area::new(area_id)
-        .fixed_pos(fg.pos)
-        .order(egui::Order::Foreground)
-        .sense(egui::Sense::click())
-        .show(ctx, |ui| {
-            ui.set_min_size(total_size);
-            ui.set_max_size(total_size);
-            ui.allocate_exact_size(total_size, egui::Sense::click())
-        });
 
     let outer_rect = egui::Rect::from_min_size(fg.pos, total_size);
 
-    // --- Shadow + border ---
+    // --- Shadow ---
+    // Shadow at Middle order so it appears above docked panels but below
+    // the floating panel content (which is at Foreground).
     let shadow_layer = egui::LayerId::new(
-        egui::Order::Foreground,
+        egui::Order::Middle,
         egui::Id::new(("floating_shadow", group_id.0)),
     );
     let shadow_painter = ctx.layer_painter(shadow_layer);
@@ -845,10 +873,16 @@ fn render_floating_chrome(
         color: egui::Color32::from_black_alpha(120),
     };
     shadow_painter.add(shadow.as_shape(outer_rect, 0.0));
-    shadow_painter.rect(
+
+    // --- Border (at Foreground, same as the floating content) ---
+    let border_layer = egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new(("floating_border", group_id.0)),
+    );
+    let border_painter = ctx.layer_painter(border_layer);
+    border_painter.rect_stroke(
         outer_rect,
         0.0,
-        CONTENT_BG,
         egui::Stroke::new(1.0, FLOATING_BORDER),
         egui::StrokeKind::Inside,
     );
@@ -887,25 +921,44 @@ fn render_floating_chrome(
         })
         .inner;
 
-    // Draw collapse icon (downward chevron)
+    // Draw collapse icon — chevron down (expanded) or right (collapsed)
     let collapse_color = if collapse_resp.hovered() { TEXT_BRIGHT } else { TEXT_DIM };
     let s = 4.0;
-    chrome_painter.line_segment(
-        [
-            collapse_center + egui::vec2(-s, -s * 0.5),
-            collapse_center + egui::vec2(0.0, s * 0.5),
-        ],
-        egui::Stroke::new(1.5, collapse_color),
-    );
-    chrome_painter.line_segment(
-        [
-            collapse_center + egui::vec2(s, -s * 0.5),
-            collapse_center + egui::vec2(0.0, s * 0.5),
-        ],
-        egui::Stroke::new(1.5, collapse_color),
-    );
+    if is_collapsed {
+        // Right-pointing chevron ›
+        chrome_painter.line_segment(
+            [
+                collapse_center + egui::vec2(-s * 0.5, -s),
+                collapse_center + egui::vec2(s * 0.5, 0.0),
+            ],
+            egui::Stroke::new(1.5, collapse_color),
+        );
+        chrome_painter.line_segment(
+            [
+                collapse_center + egui::vec2(-s * 0.5, s),
+                collapse_center + egui::vec2(s * 0.5, 0.0),
+            ],
+            egui::Stroke::new(1.5, collapse_color),
+        );
+    } else {
+        // Downward chevron ∨
+        chrome_painter.line_segment(
+            [
+                collapse_center + egui::vec2(-s, -s * 0.5),
+                collapse_center + egui::vec2(0.0, s * 0.5),
+            ],
+            egui::Stroke::new(1.5, collapse_color),
+        );
+        chrome_painter.line_segment(
+            [
+                collapse_center + egui::vec2(s, -s * 0.5),
+                collapse_center + egui::vec2(0.0, s * 0.5),
+            ],
+            egui::Stroke::new(1.5, collapse_color),
+        );
+    }
     if collapse_resp.clicked() {
-        actions.push(LayoutAction::DockFloatingToGrid { group_id });
+        ctx.data_mut(|d| d.insert_temp(collapsed_id, !is_collapsed));
     }
 
     // Close button (right)
@@ -955,176 +1008,210 @@ fn render_floating_chrome(
     );
 
     // --- Title bar drag (move floating container) ---
-    let drag_area_id = egui::Id::new(("floating_drag", group_id.0));
-    let drag_resp = egui::Area::new(drag_area_id)
-        .fixed_pos(chrome_rect.min)
-        .order(egui::Order::Foreground)
-        .sense(egui::Sense::drag())
-        .show(ctx, |ui| {
-            let drag_rect = egui::Rect::from_min_max(
-                egui::pos2(
-                    chrome_rect.min.x + button_margin + button_size + 4.0,
-                    chrome_rect.min.y,
-                ),
-                egui::pos2(
-                    chrome_rect.max.x - button_margin - button_size - 4.0,
-                    chrome_rect.max.y,
-                ),
-            );
-            ui.allocate_exact_size(drag_rect.size(), egui::Sense::drag()).1
-        })
-        .inner;
-
-    if drag_resp.dragged() {
-        let delta = drag_resp.drag_delta();
-        let new_pos = fg.pos + delta;
-        actions.push(LayoutAction::UpdateFloatingGeometry {
-            group_id,
-            pos: new_pos,
-            size: fg.size,
-        });
-    }
-
-    // --- Edge/corner resize handles ---
-    let resize_margin = 4.0;
-
-    // Right edge
-    let right_edge = egui::Rect::from_min_size(
-        egui::pos2(outer_rect.max.x - resize_margin, outer_rect.min.y + FLOATING_HEADER_HEIGHT),
-        egui::vec2(resize_margin * 2.0, outer_rect.height() - FLOATING_HEADER_HEIGHT),
-    );
-    let right_id = egui::Id::new(("floating_resize_r", group_id.0));
-    let right_resp = egui::Area::new(right_id)
-        .fixed_pos(right_edge.min)
-        .order(egui::Order::Foreground)
-        .sense(egui::Sense::drag())
-        .show(ctx, |ui| {
-            ui.allocate_exact_size(right_edge.size(), egui::Sense::drag()).1
-        })
-        .inner;
-    if right_resp.hovered() || right_resp.dragged() {
-        ctx.set_cursor_icon(egui::CursorIcon::ResizeColumn);
-    }
-    if right_resp.dragged() {
-        let new_width = (fg.size.x + right_resp.drag_delta().x).max(FLOATING_MIN_SIZE.x);
-        actions.push(LayoutAction::UpdateFloatingGeometry {
-            group_id,
-            pos: fg.pos,
-            size: egui::vec2(new_width, fg.size.y),
-        });
-    }
-
-    // Bottom edge
-    let bottom_edge = egui::Rect::from_min_size(
-        egui::pos2(outer_rect.min.x, outer_rect.max.y - resize_margin),
-        egui::vec2(outer_rect.width(), resize_margin * 2.0),
-    );
-    let bottom_id = egui::Id::new(("floating_resize_b", group_id.0));
-    let bottom_resp = egui::Area::new(bottom_id)
-        .fixed_pos(bottom_edge.min)
-        .order(egui::Order::Foreground)
-        .sense(egui::Sense::drag())
-        .show(ctx, |ui| {
-            ui.allocate_exact_size(bottom_edge.size(), egui::Sense::drag()).1
-        })
-        .inner;
-    if bottom_resp.hovered() || bottom_resp.dragged() {
-        ctx.set_cursor_icon(egui::CursorIcon::ResizeRow);
-    }
-    if bottom_resp.dragged() {
-        let new_height = (fg.size.y + bottom_resp.drag_delta().y).max(FLOATING_MIN_SIZE.y);
-        actions.push(LayoutAction::UpdateFloatingGeometry {
-            group_id,
-            pos: fg.pos,
-            size: egui::vec2(fg.size.x, new_height),
-        });
-    }
-
-    // Left edge
-    let left_edge = egui::Rect::from_min_size(
-        egui::pos2(outer_rect.min.x - resize_margin, outer_rect.min.y + FLOATING_HEADER_HEIGHT),
-        egui::vec2(resize_margin * 2.0, outer_rect.height() - FLOATING_HEADER_HEIGHT),
-    );
-    let left_id = egui::Id::new(("floating_resize_l", group_id.0));
-    let left_resp = egui::Area::new(left_id)
-        .fixed_pos(left_edge.min)
-        .order(egui::Order::Foreground)
-        .sense(egui::Sense::drag())
-        .show(ctx, |ui| {
-            ui.allocate_exact_size(left_edge.size(), egui::Sense::drag()).1
-        })
-        .inner;
-    if left_resp.hovered() || left_resp.dragged() {
-        ctx.set_cursor_icon(egui::CursorIcon::ResizeColumn);
-    }
-    if left_resp.dragged() {
-        let delta = left_resp.drag_delta().x;
-        let new_width = (fg.size.x - delta).max(FLOATING_MIN_SIZE.x);
-        let actual_delta = fg.size.x - new_width;
-        actions.push(LayoutAction::UpdateFloatingGeometry {
-            group_id,
-            pos: egui::pos2(fg.pos.x + actual_delta, fg.pos.y),
-            size: egui::vec2(new_width, fg.size.y),
-        });
-    }
-
-    // Bottom-right corner
-    let corner_rect = egui::Rect::from_min_size(
+    // Use manual pointer tracking instead of egui::Area to avoid stale state
+    // issues when floating groups are destroyed and recreated.
+    let drag_rect = egui::Rect::from_min_max(
         egui::pos2(
-            outer_rect.max.x - resize_margin,
-            outer_rect.max.y - resize_margin,
+            chrome_rect.min.x + button_margin + button_size + 4.0,
+            chrome_rect.min.y,
         ),
-        egui::vec2(resize_margin * 2.0, resize_margin * 2.0),
+        egui::pos2(
+            chrome_rect.max.x - button_margin - button_size - 4.0,
+            chrome_rect.max.y,
+        ),
     );
-    let corner_id = egui::Id::new(("floating_resize_br", group_id.0));
-    let corner_resp = egui::Area::new(corner_id)
-        .fixed_pos(corner_rect.min)
-        .order(egui::Order::Foreground)
-        .sense(egui::Sense::drag())
-        .show(ctx, |ui| {
-            ui.allocate_exact_size(corner_rect.size(), egui::Sense::drag()).1
-        })
-        .inner;
-    if corner_resp.hovered() || corner_resp.dragged() {
-        ctx.set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+    let drag_state_id = egui::Id::new(("floating_dragging", group_id.0));
+    let was_dragging: bool = ctx.data(|d| d.get_temp(drag_state_id).unwrap_or(false));
+
+    if let Some(pointer_pos) = ctx.input(|i| i.pointer.interact_pos()) {
+        let primary_down = ctx.input(|i| i.pointer.primary_down());
+        let primary_pressed = ctx.input(|i| i.pointer.primary_pressed());
+
+        if primary_pressed && drag_rect.contains(pointer_pos)
+            && !collapse_rect.contains(pointer_pos)
+            && !close_rect.contains(pointer_pos)
+        {
+            // Start drag
+            ctx.data_mut(|d| d.insert_temp(drag_state_id, true));
+        } else if was_dragging && primary_down {
+            // Continue drag — compute delta from pointer movement
+            let delta = ctx.input(|i| i.pointer.delta());
+            if delta != egui::Vec2::ZERO {
+                let new_pos = fg.pos + delta;
+                actions.push(LayoutAction::UpdateFloatingGeometry {
+                    group_id,
+                    pos: new_pos,
+                    size: fg.size,
+                });
+            }
+        } else if was_dragging && !primary_down {
+            // End drag
+            ctx.data_mut(|d| d.insert_temp(drag_state_id, false));
+        }
+    } else if was_dragging {
+        ctx.data_mut(|d| d.insert_temp(drag_state_id, false));
     }
-    if corner_resp.dragged() {
-        let d = corner_resp.drag_delta();
-        let new_width = (fg.size.x + d.x).max(FLOATING_MIN_SIZE.x);
-        let new_height = (fg.size.y + d.y).max(FLOATING_MIN_SIZE.y);
-        actions.push(LayoutAction::UpdateFloatingGeometry {
+
+    // Show grab cursor when hovering the drag area
+    if let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) {
+        if drag_rect.contains(pos)
+            && !collapse_rect.contains(pos)
+            && !close_rect.contains(pos)
+        {
+            ctx.set_cursor_icon(egui::CursorIcon::Grab);
+        }
+    }
+
+    // Only render resize handles, tab bar, and content when expanded
+    if !is_collapsed {
+        // --- Edge/corner resize handles ---
+        let resize_margin = 4.0;
+
+        // Right edge
+        let right_edge = egui::Rect::from_min_size(
+            egui::pos2(outer_rect.max.x - resize_margin, outer_rect.min.y + FLOATING_HEADER_HEIGHT),
+            egui::vec2(resize_margin * 2.0, outer_rect.height() - FLOATING_HEADER_HEIGHT),
+        );
+        let right_id = egui::Id::new(("floating_resize_r", group_id.0));
+        let right_resp = egui::Area::new(right_id)
+            .fixed_pos(right_edge.min)
+            .order(egui::Order::Foreground)
+            .sense(egui::Sense::drag())
+            .show(ctx, |ui| {
+                ui.allocate_exact_size(right_edge.size(), egui::Sense::drag()).1
+            })
+            .inner;
+        if right_resp.hovered() || right_resp.dragged() {
+            ctx.set_cursor_icon(egui::CursorIcon::ResizeColumn);
+        }
+        if right_resp.dragged() {
+            let new_width = (fg.size.x + right_resp.drag_delta().x).max(FLOATING_MIN_SIZE.x);
+            actions.push(LayoutAction::UpdateFloatingGeometry {
+                group_id,
+                pos: fg.pos,
+                size: egui::vec2(new_width, fg.size.y),
+            });
+        }
+
+        // Bottom edge
+        let bottom_edge = egui::Rect::from_min_size(
+            egui::pos2(outer_rect.min.x, outer_rect.max.y - resize_margin),
+            egui::vec2(outer_rect.width(), resize_margin * 2.0),
+        );
+        let bottom_id = egui::Id::new(("floating_resize_b", group_id.0));
+        let bottom_resp = egui::Area::new(bottom_id)
+            .fixed_pos(bottom_edge.min)
+            .order(egui::Order::Foreground)
+            .sense(egui::Sense::drag())
+            .show(ctx, |ui| {
+                ui.allocate_exact_size(bottom_edge.size(), egui::Sense::drag()).1
+            })
+            .inner;
+        if bottom_resp.hovered() || bottom_resp.dragged() {
+            ctx.set_cursor_icon(egui::CursorIcon::ResizeRow);
+        }
+        if bottom_resp.dragged() {
+            let new_height = (fg.size.y + bottom_resp.drag_delta().y).max(FLOATING_MIN_SIZE.y);
+            actions.push(LayoutAction::UpdateFloatingGeometry {
+                group_id,
+                pos: fg.pos,
+                size: egui::vec2(fg.size.x, new_height),
+            });
+        }
+
+        // Left edge
+        let left_edge = egui::Rect::from_min_size(
+            egui::pos2(outer_rect.min.x - resize_margin, outer_rect.min.y + FLOATING_HEADER_HEIGHT),
+            egui::vec2(resize_margin * 2.0, outer_rect.height() - FLOATING_HEADER_HEIGHT),
+        );
+        let left_id = egui::Id::new(("floating_resize_l", group_id.0));
+        let left_resp = egui::Area::new(left_id)
+            .fixed_pos(left_edge.min)
+            .order(egui::Order::Foreground)
+            .sense(egui::Sense::drag())
+            .show(ctx, |ui| {
+                ui.allocate_exact_size(left_edge.size(), egui::Sense::drag()).1
+            })
+            .inner;
+        if left_resp.hovered() || left_resp.dragged() {
+            ctx.set_cursor_icon(egui::CursorIcon::ResizeColumn);
+        }
+        if left_resp.dragged() {
+            let delta = left_resp.drag_delta().x;
+            let new_width = (fg.size.x - delta).max(FLOATING_MIN_SIZE.x);
+            let actual_delta = fg.size.x - new_width;
+            actions.push(LayoutAction::UpdateFloatingGeometry {
+                group_id,
+                pos: egui::pos2(fg.pos.x + actual_delta, fg.pos.y),
+                size: egui::vec2(new_width, fg.size.y),
+            });
+        }
+
+        // Bottom-right corner
+        let corner_rect = egui::Rect::from_min_size(
+            egui::pos2(
+                outer_rect.max.x - resize_margin,
+                outer_rect.max.y - resize_margin,
+            ),
+            egui::vec2(resize_margin * 2.0, resize_margin * 2.0),
+        );
+        let corner_id = egui::Id::new(("floating_resize_br", group_id.0));
+        let corner_resp = egui::Area::new(corner_id)
+            .fixed_pos(corner_rect.min)
+            .order(egui::Order::Foreground)
+            .sense(egui::Sense::drag())
+            .show(ctx, |ui| {
+                ui.allocate_exact_size(corner_rect.size(), egui::Sense::drag()).1
+            })
+            .inner;
+        if corner_resp.hovered() || corner_resp.dragged() {
+            ctx.set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+        }
+        if corner_resp.dragged() {
+            let d = corner_resp.drag_delta();
+            let new_width = (fg.size.x + d.x).max(FLOATING_MIN_SIZE.x);
+            let new_height = (fg.size.y + d.y).max(FLOATING_MIN_SIZE.y);
+            actions.push(LayoutAction::UpdateFloatingGeometry {
+                group_id,
+                pos: fg.pos,
+                size: egui::vec2(new_width, new_height),
+            });
+        }
+
+        // --- Shared tab bar ---
+        let tab_bar_rect = egui::Rect::from_min_size(
+            egui::pos2(fg.pos.x, fg.pos.y + FLOATING_HEADER_HEIGHT),
+            egui::vec2(fg.size.x, TAB_BAR_HEIGHT),
+        );
+        render_tab_bar(
+            ctx,
+            layout,
             group_id,
-            pos: fg.pos,
-            size: egui::vec2(new_width, new_height),
-        });
+            group,
+            tab_bar_rect,
+            actions,
+            TabBarContext {
+                is_main,
+                is_floating: true,
+                order: egui::Order::Foreground,
+            },
+        );
+
+        // --- Shared content area ---
+        let content_rect = egui::Rect::from_min_max(
+            egui::pos2(fg.pos.x, fg.pos.y + FLOATING_HEADER_HEIGHT + TAB_BAR_HEIGHT),
+            egui::pos2(fg.pos.x + fg.size.x, fg.pos.y + total_height),
+        );
+        render_content(ctx, group_id, group, content_rect, state, egui::Order::Foreground);
     }
-
-    // --- Shared tab bar ---
-    let tab_bar_rect = egui::Rect::from_min_size(
-        egui::pos2(fg.pos.x, fg.pos.y + FLOATING_HEADER_HEIGHT),
-        egui::vec2(fg.size.x, TAB_BAR_HEIGHT),
-    );
-    render_tab_bar(
-        ctx,
-        layout,
-        group_id,
-        group,
-        tab_bar_rect,
-        actions,
-        TabBarContext {
-            is_main,
-            is_floating: true,
-        },
-    );
-
-    // --- Shared content area ---
-    let content_rect = egui::Rect::from_min_max(
-        egui::pos2(fg.pos.x, fg.pos.y + FLOATING_HEADER_HEIGHT + TAB_BAR_HEIGHT),
-        egui::pos2(fg.pos.x + fg.size.x, fg.pos.y + total_height),
-    );
-    render_content(ctx, group_id, group, content_rect, state);
 
     // --- Store rect for drop target hit testing ---
+    // Store only the tab bar + content area (exclude chrome header) so drop
+    // zones are constrained to the panel group area, matching docked panels.
+    let drop_rect = egui::Rect::from_min_max(
+        egui::pos2(fg.pos.x, fg.pos.y + FLOATING_HEADER_HEIGHT),
+        egui::pos2(fg.pos.x + fg.size.x, fg.pos.y + total_height),
+    );
     let rect_id = egui::Id::new(("floating_rect", group_id.0));
-    ctx.data_mut(|d| d.insert_temp(rect_id, outer_rect));
+    ctx.data_mut(|d| d.insert_temp(rect_id, drop_rect));
 }

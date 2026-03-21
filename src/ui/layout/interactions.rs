@@ -75,11 +75,50 @@ fn collect_dividers_recursive(
     }
 }
 
+/// Tab bar height used for drop zone detection.
+const DROP_TAB_BAR_HEIGHT: f32 = 28.0;
+/// Add button width reserved in the tab bar.
+const DROP_ADD_BUTTON_WIDTH: f32 = 28.0;
+/// Dock grip width reserved in the tab bar.
+const DROP_DOCK_GRIP_WIDTH: f32 = 28.0;
+/// Maximum individual tab width.
+const DROP_MAX_TAB_WIDTH: f32 = 160.0;
+
 /// Determine which drop zone a point falls in within a group rect.
-/// Edge zones are 20% of the dimension; center is the remaining 60%.
-pub fn hit_test_drop_zone(group_rect: egui::Rect, pos: egui::Pos2) -> DropZone {
+/// The group rect includes the tab bar at the top. Dropping on the tab bar
+/// adds as a tab at a computed index. Edge zones (20%) apply to the content
+/// area below the tab bar.
+pub fn hit_test_drop_zone(
+    group_rect: egui::Rect,
+    pos: egui::Pos2,
+    tab_count: usize,
+) -> DropZone {
+    // Check if pointer is in the tab bar area
+    if pos.y < group_rect.min.y + DROP_TAB_BAR_HEIGHT {
+        let available = group_rect.width() - DROP_ADD_BUTTON_WIDTH - DROP_DOCK_GRIP_WIDTH;
+        let tab_width = if tab_count > 0 {
+            (available / tab_count as f32).min(DROP_MAX_TAB_WIDTH)
+        } else {
+            DROP_MAX_TAB_WIDTH
+        };
+        let rel_x = pos.x - group_rect.min.x;
+        // Compute insertion index: which gap between tabs the pointer is closest to
+        let index = ((rel_x + tab_width * 0.5) / tab_width)
+            .floor()
+            .max(0.0) as usize;
+        let index = index.min(tab_count);
+        return DropZone::TabBar { index };
+    }
+
+    // Content area is below the tab bar
+    let content_top = group_rect.min.y + DROP_TAB_BAR_HEIGHT;
+    let content_height = group_rect.max.y - content_top;
+    if content_height <= 0.0 {
+        return DropZone::Center;
+    }
+
     let rel_x = (pos.x - group_rect.min.x) / group_rect.width();
-    let rel_y = (pos.y - group_rect.min.y) / group_rect.height();
+    let rel_y = (pos.y - content_top) / content_height;
 
     if rel_x < 0.2 {
         DropZone::Left
@@ -95,37 +134,64 @@ pub fn hit_test_drop_zone(group_rect: egui::Rect, pos: egui::Pos2) -> DropZone {
 }
 
 /// Get the highlight rect for a drop zone overlay.
-pub fn drop_zone_highlight_rect(group_rect: egui::Rect, zone: DropZone) -> egui::Rect {
+/// Edge zones are constrained to the content area (below the tab bar).
+/// TabBar zone renders a vertical insertion line at the computed index.
+pub fn drop_zone_highlight_rect(
+    group_rect: egui::Rect,
+    zone: DropZone,
+    tab_count: usize,
+) -> egui::Rect {
+    let content_top = group_rect.min.y + DROP_TAB_BAR_HEIGHT;
+    let content_rect = egui::Rect::from_min_max(
+        egui::pos2(group_rect.min.x, content_top),
+        group_rect.max,
+    );
+
     match zone {
+        DropZone::TabBar { index } => {
+            // Vertical insertion line between tabs
+            let available = group_rect.width() - DROP_ADD_BUTTON_WIDTH - DROP_DOCK_GRIP_WIDTH;
+            let tab_width = if tab_count > 0 {
+                (available / tab_count as f32).min(DROP_MAX_TAB_WIDTH)
+            } else {
+                DROP_MAX_TAB_WIDTH
+            };
+            let line_x = group_rect.min.x + index as f32 * tab_width;
+            let line_width = 2.0;
+            egui::Rect::from_min_size(
+                egui::pos2(line_x - line_width * 0.5, group_rect.min.y),
+                egui::vec2(line_width, DROP_TAB_BAR_HEIGHT),
+            )
+        }
+        DropZone::Center => group_rect,
         DropZone::Left => egui::Rect::from_min_max(
-            group_rect.min,
+            content_rect.min,
             egui::pos2(
-                group_rect.min.x + group_rect.width() * 0.5,
-                group_rect.max.y,
+                content_rect.min.x + content_rect.width() * 0.5,
+                content_rect.max.y,
             ),
         ),
         DropZone::Right => egui::Rect::from_min_max(
             egui::pos2(
-                group_rect.min.x + group_rect.width() * 0.5,
-                group_rect.min.y,
+                content_rect.min.x + content_rect.width() * 0.5,
+                content_rect.min.y,
             ),
-            group_rect.max,
+            content_rect.max,
         ),
         DropZone::Top => egui::Rect::from_min_max(
-            group_rect.min,
+            content_rect.min,
             egui::pos2(
-                group_rect.max.x,
-                group_rect.min.y + group_rect.height() * 0.5,
+                content_rect.max.x,
+                content_rect.min.y + content_rect.height() * 0.5,
             ),
         ),
         DropZone::Bottom => egui::Rect::from_min_max(
             egui::pos2(
-                group_rect.min.x,
-                group_rect.min.y + group_rect.height() * 0.5,
+                content_rect.min.x,
+                content_rect.min.y + content_rect.height() * 0.5,
             ),
-            group_rect.max,
+            content_rect.max,
         ),
-        DropZone::Center | DropZone::TabBar { .. } => group_rect,
     }
 }
 
@@ -138,7 +204,7 @@ mod tests {
     fn hit_test_center() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
         assert_eq!(
-            hit_test_drop_zone(rect, egui::pos2(250.0, 200.0)),
+            hit_test_drop_zone(rect, egui::pos2(250.0, 220.0), 2),
             DropZone::Center
         );
     }
@@ -147,7 +213,7 @@ mod tests {
     fn hit_test_left() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
         assert_eq!(
-            hit_test_drop_zone(rect, egui::pos2(30.0, 200.0)),
+            hit_test_drop_zone(rect, egui::pos2(30.0, 220.0), 2),
             DropZone::Left
         );
     }
@@ -156,16 +222,17 @@ mod tests {
     fn hit_test_right() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
         assert_eq!(
-            hit_test_drop_zone(rect, egui::pos2(480.0, 200.0)),
+            hit_test_drop_zone(rect, egui::pos2(480.0, 220.0), 2),
             DropZone::Right
         );
     }
 
     #[test]
     fn hit_test_top() {
+        // Top zone is in the content area (below tab bar), not the tab bar itself
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
         assert_eq!(
-            hit_test_drop_zone(rect, egui::pos2(250.0, 30.0)),
+            hit_test_drop_zone(rect, egui::pos2(250.0, 40.0), 2),
             DropZone::Top
         );
     }
@@ -174,8 +241,39 @@ mod tests {
     fn hit_test_bottom() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
         assert_eq!(
-            hit_test_drop_zone(rect, egui::pos2(250.0, 380.0)),
+            hit_test_drop_zone(rect, egui::pos2(250.0, 380.0), 2),
             DropZone::Bottom
+        );
+    }
+
+    #[test]
+    fn hit_test_tab_bar_first() {
+        // Pointer near the left edge of tab bar → index 0
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
+        assert_eq!(
+            hit_test_drop_zone(rect, egui::pos2(10.0, 14.0), 2),
+            DropZone::TabBar { index: 0 }
+        );
+    }
+
+    #[test]
+    fn hit_test_tab_bar_between() {
+        // With 2 tabs in a 500px rect: available = 500-28-28 = 444, tab_width = 160 (capped)
+        // Pointer at x=170 → between tab 0 and tab 1 → index 1
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
+        assert_eq!(
+            hit_test_drop_zone(rect, egui::pos2(170.0, 14.0), 2),
+            DropZone::TabBar { index: 1 }
+        );
+    }
+
+    #[test]
+    fn hit_test_tab_bar_end() {
+        // Pointer past all tabs → clamped to tab_count
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
+        assert_eq!(
+            hit_test_drop_zone(rect, egui::pos2(400.0, 14.0), 2),
+            DropZone::TabBar { index: 2 }
         );
     }
 

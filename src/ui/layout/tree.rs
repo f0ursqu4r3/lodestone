@@ -670,8 +670,14 @@ impl DockLayout {
     /// Detach a grid group and make it a floating panel.
     /// Returns false if the group is the root (can't detach the last grid group).
     pub fn detach_grid_group_to_floating(&mut self, group_id: GroupId, pos: egui::Pos2) -> bool {
+        // Save the group data before remove_group_from_grid deletes it
+        let group_data = self.groups.get(&group_id).cloned();
         if !self.remove_group_from_grid(group_id) {
             return false;
+        }
+        // Restore the group data so the floating panel has its tabs
+        if let Some(group) = group_data {
+            self.groups.insert(group_id, group);
         }
         self.floating.push(FloatingGroup {
             group_id,

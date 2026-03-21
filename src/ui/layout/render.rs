@@ -396,7 +396,11 @@ fn render_drag_overlay(
                     break;
                 }
                 let tc = layout.groups.get(&gid).map_or(0, |g| g.tabs.len());
-                let zone = hit_test_drop_zone(rect, pointer_pos, tc);
+                let mut zone = hit_test_drop_zone(rect, pointer_pos, tc);
+                // Floating groups can't be split — only allow tab bar or center
+                if layout.is_floating(gid) && !matches!(zone, DropZone::TabBar { .. }) {
+                    zone = DropZone::Center;
+                }
                 hovered_group = Some((gid, zone, rect));
                 break;
             }
@@ -805,25 +809,42 @@ fn render_content(
     let panel_id = active.panel_id;
     let panel_type = active.panel_type;
 
-    // Note: no explicit .order() — the painter layer handles visual z-ordering.
-    // Setting .order() explicitly changes egui's interaction layer behavior
-    // and can break click handling in overlapping Areas (like tab close buttons).
-    let _ = order;
-    egui::Area::new(egui::Id::new(("panel_content", group_id.0)))
+    // For floating panels, paint the background at Foreground so it covers
+    // docked panels visually.
+    if order == egui::Order::Foreground {
+        let bg_layer = egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new(("panel_content_bg", group_id.0)),
+        );
+        ctx.layer_painter(bg_layer)
+            .rect_filled(content_rect, 0.0, CONTENT_BG);
+    }
+
+    let area_id = egui::Id::new(("panel_content", group_id.0));
+    egui::Area::new(area_id)
         .fixed_pos(content_rect.min)
         .sense(egui::Sense::hover())
         .show(ctx, |ui| {
-            let painter = ui.painter();
-            painter.rect_filled(content_rect, 0.0, CONTENT_BG);
+            // Docked panels paint their own background
+            if order != egui::Order::Foreground {
+                ui.painter().rect_filled(content_rect, 0.0, CONTENT_BG);
+            }
 
             ui.set_min_size(content_rect.size());
             ui.set_max_size(content_rect.size());
 
-            // Add inner padding around panel content
             let padded_rect = content_rect.shrink(PANEL_PADDING);
-            let mut padded_ui = ui.new_child(egui::UiBuilder::new().max_rect(padded_rect));
+            let mut padded_ui =
+                ui.new_child(egui::UiBuilder::new().max_rect(padded_rect));
             crate::ui::draw_panel(panel_type, &mut padded_ui, state, panel_id);
         });
+
+    // For floating panels, bring the content Area's layer to the top of
+    // Middle order so it receives interaction priority over docked panels.
+    if order == egui::Order::Foreground {
+        let layer_id = egui::LayerId::new(egui::Order::Middle, area_id);
+        ctx.move_to_top(layer_id);
+    }
 }
 
 // ---------------------------------------------------------------------------

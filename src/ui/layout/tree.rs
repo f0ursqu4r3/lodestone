@@ -3,6 +3,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
+/// Default size for newly created floating panels.
+const DEFAULT_FLOAT_SIZE: egui::Vec2 = egui::vec2(400.0, 300.0);
+
 // ---------------------------------------------------------------------------
 // PanelType (unchanged)
 // ---------------------------------------------------------------------------
@@ -664,6 +667,20 @@ impl DockLayout {
         );
     }
 
+    /// Detach a grid group and make it a floating panel.
+    /// Returns false if the group is the root (can't detach the last grid group).
+    pub fn detach_grid_group_to_floating(&mut self, group_id: GroupId, pos: egui::Pos2) -> bool {
+        if !self.remove_group_from_grid(group_id) {
+            return false;
+        }
+        self.floating.push(FloatingGroup {
+            group_id,
+            pos,
+            size: DEFAULT_FLOAT_SIZE,
+        });
+        true
+    }
+
     /// Collect all grid groups with their computed screen rects.
     pub fn collect_groups_with_rects(&self, rect: egui::Rect) -> Vec<(GroupId, egui::Rect)> {
         let mut result = Vec::new();
@@ -714,7 +731,7 @@ impl DockLayout {
         self.floating.push(FloatingGroup {
             group_id: gid,
             pos,
-            size: egui::vec2(400.0, 300.0),
+            size: DEFAULT_FLOAT_SIZE,
         });
         gid
     }
@@ -722,6 +739,14 @@ impl DockLayout {
     /// Remove a floating group entry (does NOT remove from self.groups).
     pub fn remove_floating(&mut self, group_id: GroupId) {
         self.floating.retain(|f| f.group_id != group_id);
+    }
+
+    /// Update a floating group's position and size.
+    pub fn update_floating_geometry(&mut self, group_id: GroupId, pos: egui::Pos2, size: egui::Vec2) {
+        if let Some(fg) = self.floating.iter_mut().find(|fg| fg.group_id == group_id) {
+            fg.pos = pos;
+            fg.size = size;
+        }
     }
 
     /// Check if a group is floating.
@@ -875,6 +900,20 @@ mod tests {
         let mut layout = DockLayout::new_single(PanelType::Preview);
         let gid = layout.groups.keys().next().copied().unwrap();
         assert!(!layout.remove_group_from_grid(gid));
+    }
+
+    #[test]
+    fn update_floating_geometry() {
+        let mut layout = DockLayout::default_layout();
+        let entry = TabEntry {
+            panel_id: PanelId::next(),
+            panel_type: PanelType::AudioMixer,
+        };
+        let gid = layout.add_floating_group(entry, egui::pos2(100.0, 100.0));
+        layout.update_floating_geometry(gid, egui::pos2(200.0, 300.0), egui::vec2(500.0, 400.0));
+        let fg = layout.floating.iter().find(|f| f.group_id == gid).unwrap();
+        assert_eq!(fg.pos, egui::pos2(200.0, 300.0));
+        assert_eq!(fg.size, egui::vec2(500.0, 400.0));
     }
 
     #[test]

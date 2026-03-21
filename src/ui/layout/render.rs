@@ -23,6 +23,7 @@ const DIVIDER_COLOR: egui::Color32 = egui::Color32::from_gray(60);
 const TAB_BAR_HEIGHT: f32 = 28.0;
 const PANEL_PADDING: f32 = 6.0;
 const ADD_BUTTON_WIDTH: f32 = 28.0;
+const DOCK_GRIP_WIDTH: f32 = 28.0;
 
 // ---------------------------------------------------------------------------
 // LayoutAction
@@ -69,6 +70,29 @@ pub enum LayoutAction {
     DockFloatingToGrid { group_id: GroupId },
     /// Close an entire floating group (all tabs).
     CloseFloatingGroup { group_id: GroupId },
+    /// Detach an entire grid group to a floating panel.
+    DetachGroupToFloat { group_id: GroupId },
+    /// Move an entire group to a target group's zone (merge tabs or split).
+    MoveGroupToTarget {
+        source_group: GroupId,
+        target_group: GroupId,
+        zone: DropZone,
+    },
+    /// Update a floating group's position and/or size.
+    UpdateFloatingGeometry {
+        group_id: GroupId,
+        pos: egui::Pos2,
+        size: egui::Vec2,
+    },
+}
+
+/// Paint a 2x3 grid of dots as a grip/drag handle indicator.
+fn paint_grip_dots(painter: &egui::Painter, center: egui::Pos2, color: egui::Color32) {
+    for dy in [-3.0_f32, 0.0, 3.0] {
+        for dx in [-2.5_f32, 2.5] {
+            painter.circle_filled(center + egui::vec2(dx, dy), 1.0, color);
+        }
+    }
 }
 
 /// All dockable panel types for the type selector dropdown.
@@ -142,8 +166,7 @@ pub fn render_layout(
     // --- Floating groups ---
     // Rendered as egui::Window with custom dark styling. We render tab bar inline
     // using the window's own UI so the window sizes correctly.
-    let floating_snapshot: Vec<_> = layout.floating.clone();
-    for fg in &floating_snapshot {
+    for fg in &layout.floating {
         if let Some(group) = layout.groups.get(&fg.group_id) {
             let win_id = egui::Id::new(("floating_group", fg.group_id.0));
             let dark_frame = egui::Frame {
@@ -191,9 +214,8 @@ pub fn render_layout(
 
                     // Tabs start at the left edge (no collapse button)
                     let tabs_start_x = tab_bar_rect.min.x;
-
                     let available_for_tabs =
-                        tab_bar_rect.width() - ADD_BUTTON_WIDTH;
+                        tab_bar_rect.width() - ADD_BUTTON_WIDTH - DOCK_GRIP_WIDTH;
                     let max_tab_width = 160.0_f32;
                     let tab_width = if tab_count > 0 {
                         (available_for_tabs / tab_count as f32).min(max_tab_width)
@@ -381,6 +403,26 @@ pub fn render_layout(
                     }
                     ctx.data_mut(|d| d.insert_temp(popup_state_id, is_open));
 
+                    // Dock grip (right end of tab bar) — drag to dock group
+                    let dock_x = tab_bar_rect.max.x - DOCK_GRIP_WIDTH;
+                    let dock_rect = egui::Rect::from_min_size(
+                        egui::pos2(dock_x, tab_bar_rect.min.y),
+                        egui::vec2(DOCK_GRIP_WIDTH, TAB_BAR_HEIGHT),
+                    );
+                    paint_grip_dots(painter, dock_rect.center(), TEXT_DIM);
+                    let dock_resp = ui.interact(
+                        dock_rect,
+                        egui::Id::new(("fdock_handle", fgid.0)),
+                        egui::Sense::drag(),
+                    );
+                    if dock_resp.hovered() || dock_resp.dragged() {
+                        ctx.set_cursor_icon(egui::CursorIcon::Grab);
+                    }
+                    if dock_resp.drag_started() || dock_resp.dragged() {
+                        let group_drag_id = egui::Id::new("group_dock_drag");
+                        ctx.data_mut(|d| d.insert_temp(group_drag_id, fgid));
+                    }
+
                     // --- Content area (frame fill is already CONTENT_BG) ---
                     let active = group.active_tab_entry();
                     ui.add_space(PANEL_PADDING);
@@ -391,13 +433,6 @@ pub fn render_layout(
             if let Some(ref inner_response) = win_response {
                 let rect_id = egui::Id::new(("floating_rect", fg.group_id.0));
                 ctx.data_mut(|d| d.insert_temp(rect_id, inner_response.response.rect));
-
-                // Shift+drag on title bar: enter group dock mode
-                let shift_held = ctx.input(|i| i.modifiers.shift);
-                if shift_held && inner_response.response.dragged() {
-                    let dock_drag_id = egui::Id::new("floating_dock_drag");
-                    ctx.data_mut(|d| d.insert_temp(dock_drag_id, fg.group_id));
-                }
             }
 
             // Handle close button (is_open set to false by egui)
@@ -410,65 +445,102 @@ pub fn render_layout(
         }
     }
 
-    // --- Collect floating group rects for drop targeting ---
-    // Floating groups are checked first (higher z-order) so they take
-    // priority over grid groups they overlap.
-    let mut all_drop_rects: Vec<(GroupId, egui::Rect)> = Vec::new();
-    for fg in &floating_snapshot {
-        let rect_id = egui::Id::new(("floating_rect", fg.group_id.0));
-        if let Some(rect) = ctx.data(|d| d.get_temp::<egui::Rect>(rect_id)) {
-            all_drop_rects.push((fg.group_id, rect));
-        }
-    }
-    all_drop_rects.extend_from_slice(&group_rects);
-
     // --- Dividers ---
     render_dividers(ctx, layout, available_rect, &mut actions);
+
+    // --- Build drop rects only when a drag is active ---
+    let group_drag_id = egui::Id::new("group_dock_drag");
+    let has_tab_drag = layout.drag.is_some();
+    let dragging_group = ctx.data(|d| d.get_temp::<GroupId>(group_drag_id));
+    let all_drop_rects = if has_tab_drag || dragging_group.is_some() {
+        // Floating groups checked first (higher z-order)
+        let mut rects: Vec<(GroupId, egui::Rect)> = Vec::new();
+        for fg in &layout.floating {
+            let rect_id = egui::Id::new(("floating_rect", fg.group_id.0));
+            if let Some(rect) = ctx.data(|d| d.get_temp::<egui::Rect>(rect_id)) {
+                rects.push((fg.group_id, rect));
+            }
+        }
+        rects.extend_from_slice(&group_rects);
+        rects
+    } else {
+        Vec::new()
+    };
 
     // --- Drag ghost and drop zones ---
     if let Some(drag) = &layout.drag {
         render_drag_overlay(ctx, drag, &all_drop_rects, layout, &mut actions);
     }
 
-    // --- Shift+drag floating group dock overlay ---
-    let dock_drag_id = egui::Id::new("floating_dock_drag");
-    let shift_held = ctx.input(|i| i.modifiers.shift);
-    if let Some(dragging_gid) = ctx.data(|d| d.get_temp::<GroupId>(dock_drag_id)) {
-        if shift_held {
-            if let Some(pointer_pos) = ctx.pointer_interact_pos() {
-                // Show drop zone overlay on grid groups
-                let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;
-                for &(gid, rect) in &group_rects {
-                    if rect.contains(pointer_pos) {
-                        let zone = hit_test_drop_zone(rect, pointer_pos);
-                        hovered_group = Some((gid, zone, rect));
-                        break;
-                    }
-                }
+    // --- Group drag overlay (grip handle drag) ---
+    if let Some(dragging_gid) = dragging_group {
+        if let Some(pointer_pos) = ctx.pointer_interact_pos() {
+            // Ghost label following cursor
+            let ghost_layer =
+                egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("group_drag_ghost"));
+            let ghost_painter = ctx.layer_painter(ghost_layer);
+            let group_name = layout
+                .groups
+                .get(&dragging_gid)
+                .map(|g| g.active_tab_entry().panel_type.display_name())
+                .unwrap_or("Group");
+            let font = egui::FontId::proportional(13.0);
+            let galley =
+                ghost_painter.layout_no_wrap(group_name.to_string(), font, TEXT_BRIGHT);
+            let text_rect =
+                egui::Rect::from_min_size(pointer_pos + egui::vec2(12.0, -8.0), galley.size())
+                    .expand(4.0);
+            ghost_painter.rect_filled(
+                text_rect,
+                4.0,
+                egui::Color32::from_rgba_premultiplied(0x1e, 0x1e, 0x2e, 0xd0),
+            );
+            ghost_painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, TEXT_BRIGHT);
 
-                if let Some((_, zone, group_rect)) = &hovered_group {
-                    let highlight = drop_zone_highlight_rect(*group_rect, *zone);
-                    let overlay_layer = egui::LayerId::new(
-                        egui::Order::Foreground,
-                        egui::Id::new("dock_group_overlay"),
-                    );
-                    let overlay_painter = ctx.layer_painter(overlay_layer);
-                    overlay_painter.rect_filled(highlight, 0.0, DROP_ZONE_TINT);
+            // Show drop zone overlays on all groups (excluding the dragged group)
+            let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;
+            for &(gid, rect) in &all_drop_rects {
+                if gid == dragging_gid {
+                    continue;
                 }
-
-                // On release: dock the floating group into the target
-                if ctx.input(|i| i.pointer.any_released()) {
-                    if let Some((_target_gid, _zone, _)) = hovered_group {
-                        actions.push(LayoutAction::DockFloatingToGrid {
-                            group_id: dragging_gid,
-                        });
-                    }
-                    ctx.data_mut(|d| d.remove::<GroupId>(dock_drag_id));
+                if rect.contains(pointer_pos) {
+                    let zone = hit_test_drop_zone(rect, pointer_pos);
+                    hovered_group = Some((gid, zone, rect));
+                    break;
                 }
             }
+
+            if let Some((_, zone, group_rect)) = &hovered_group {
+                let highlight = drop_zone_highlight_rect(*group_rect, *zone);
+                let overlay_layer = egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("group_dock_overlay"),
+                );
+                let overlay_painter = ctx.layer_painter(overlay_layer);
+                overlay_painter.rect_filled(highlight, 0.0, DROP_ZONE_TINT);
+            }
+
+            // On release: move group to target or detach to float
+            if ctx.input(|i| i.pointer.any_released()) {
+                let is_floating = layout.is_floating(dragging_gid);
+                if let Some((target_gid, zone, _)) = hovered_group {
+                    // Merge all tabs from dragged group into target
+                    actions.push(LayoutAction::MoveGroupToTarget {
+                        source_group: dragging_gid,
+                        target_group: target_gid,
+                        zone,
+                    });
+                } else if !is_floating {
+                    // Dropped in empty space from grid → detach to float
+                    actions.push(LayoutAction::DetachGroupToFloat {
+                        group_id: dragging_gid,
+                    });
+                }
+                ctx.data_mut(|d| d.remove::<GroupId>(group_drag_id));
+            }
         } else {
-            // Shift released — cancel dock drag
-            ctx.data_mut(|d| d.remove::<GroupId>(dock_drag_id));
+            // No pointer — cancel
+            ctx.data_mut(|d| d.remove::<GroupId>(group_drag_id));
         }
     }
 
@@ -656,8 +728,7 @@ fn render_tab_bar(
 
     let tab_count = group.tabs.len();
     let max_tab_width = 160.0_f32;
-    // Reserve space for the "+" button at the end of the tab bar
-    let available_for_tabs = tab_bar_rect.width() - ADD_BUTTON_WIDTH;
+    let available_for_tabs = tab_bar_rect.width() - ADD_BUTTON_WIDTH - DOCK_GRIP_WIDTH;
     let tab_width = if tab_count > 0 {
         (available_for_tabs / tab_count as f32).min(max_tab_width)
     } else {
@@ -908,6 +979,61 @@ fn render_tab_bar(
     }
 
     ctx.data_mut(|d| d.insert_temp(popup_state_id, is_open));
+
+    // Dock grip (right-aligned in tab bar) — drag to move the group
+    let dock_x = tab_bar_rect.max.x - DOCK_GRIP_WIDTH;
+    let dock_rect = egui::Rect::from_min_size(
+        egui::pos2(dock_x, tab_bar_rect.min.y),
+        egui::vec2(DOCK_GRIP_WIDTH, TAB_BAR_HEIGHT),
+    );
+    // Paint grip dots (2x3 grid)
+    paint_grip_dots(&painter, dock_rect.center(), TEXT_DIM);
+    // Drag + context menu interaction via a tightly-sized Area
+    let grip_area_resp = egui::Area::new(egui::Id::new(("grip_area", gid.0)))
+        .fixed_pos(dock_rect.min)
+        .sense(egui::Sense::click_and_drag())
+        .order(egui::Order::Middle)
+        .default_size(dock_rect.size())
+        .show(ctx, |ui| {
+            ui.set_min_size(dock_rect.size());
+            ui.set_max_size(dock_rect.size());
+            ui.allocate_exact_size(dock_rect.size(), egui::Sense::click_and_drag())
+                .1
+        });
+    let grip_resp = &grip_area_resp.inner;
+    if grip_resp.hovered() || grip_resp.dragged() {
+        ctx.set_cursor_icon(egui::CursorIcon::Grab);
+    }
+    if grip_resp.drag_started() || grip_resp.dragged() {
+        let group_drag_id = egui::Id::new("group_dock_drag");
+        ctx.data_mut(|d| d.insert_temp(group_drag_id, gid));
+    }
+    grip_resp.context_menu(|ui| {
+        if tctx.is_main && ui.button("Detach to Float").clicked() {
+            actions.push(LayoutAction::DetachGroupToFloat { group_id: gid });
+            ui.close();
+        }
+        if ui.button("Pop Out to Window").clicked() {
+            // Detach each tab to a window (or detach the active tab)
+            actions.push(LayoutAction::DetachToWindow {
+                group_id: gid,
+                tab_index: group.active_tab,
+            });
+            ui.close();
+        }
+        if tab_count > 0 {
+            ui.separator();
+            if ui.button("Close Group").clicked() {
+                for i in (0..tab_count).rev() {
+                    actions.push(LayoutAction::Close {
+                        group_id: gid,
+                        tab_index: i,
+                    });
+                }
+                ui.close();
+            }
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------

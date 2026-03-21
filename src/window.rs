@@ -289,6 +289,80 @@ impl WindowState {
                     self.layout.remove_floating(group_id);
                     self.layout.groups.remove(&group_id);
                 }
+                LayoutAction::DetachGroupToFloat { group_id } => {
+                    self.layout
+                        .detach_grid_group_to_floating(group_id, egui::pos2(200.0, 200.0));
+                }
+                LayoutAction::MoveGroupToTarget {
+                    source_group,
+                    target_group,
+                    zone,
+                } => {
+                    // Skip self-drop
+                    if source_group == target_group {
+                        continue;
+                    }
+
+                    // Take all tabs from the source group
+                    let source_tabs = self
+                        .layout
+                        .groups
+                        .get(&source_group)
+                        .map(|g| g.tabs.clone())
+                        .unwrap_or_default();
+
+                    if source_tabs.is_empty() {
+                        continue;
+                    }
+
+                    // Remove the source group from wherever it is
+                    let was_floating = self.layout.is_floating(source_group);
+                    if was_floating {
+                        self.layout.remove_floating(source_group);
+                        self.layout.groups.remove(&source_group);
+                    } else {
+                        self.layout.remove_group_from_grid(source_group);
+                    }
+
+                    // Add all tabs to the target based on drop zone
+                    match zone {
+                        DropZone::Center | DropZone::TabBar { .. } => {
+                            if let Some(group) = self.layout.groups.get_mut(&target_group) {
+                                for tab in source_tabs {
+                                    group.add_tab_entry(tab);
+                                }
+                            }
+                        }
+                        _ => {
+                            if let Some(first_tab) = source_tabs.first() {
+                                let direction = match zone {
+                                    DropZone::Left | DropZone::Right => SplitDirection::Vertical,
+                                    _ => SplitDirection::Horizontal,
+                                };
+                                let before = matches!(zone, DropZone::Left | DropZone::Top);
+                                if let Some(new_gid) = self.layout.split_group_with_tab(
+                                    target_group,
+                                    direction,
+                                    first_tab.clone(),
+                                    before,
+                                )
+                                    && let Some(group) = self.layout.groups.get_mut(&new_gid)
+                                {
+                                    for tab in &source_tabs[1..] {
+                                        group.add_tab_entry(tab.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                LayoutAction::UpdateFloatingGeometry {
+                    group_id,
+                    pos,
+                    size,
+                } => {
+                    self.layout.update_floating_geometry(group_id, pos, size);
+                }
             }
         }
 

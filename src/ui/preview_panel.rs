@@ -92,10 +92,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     // Compute letterboxed rect and emit the paint callback
     let preview_rect = letterboxed_rect(panel_rect, state.preview_width, state.preview_height);
 
-    ui.painter().add(Callback::new_paint_callback(
-        preview_rect,
-        PreviewCallback,
-    ));
+    ui.painter()
+        .add(Callback::new_paint_callback(preview_rect, PreviewCallback));
 
     // Allocate the space so egui knows it's used
     ui.allocate_rect(panel_rect, egui::Sense::hover());

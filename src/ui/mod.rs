@@ -2,6 +2,7 @@ pub mod audio_mixer;
 pub mod layout;
 pub mod preview_panel;
 pub mod scene_editor;
+pub mod settings_window;
 pub mod stream_controls;
 
 use crate::state::AppState;

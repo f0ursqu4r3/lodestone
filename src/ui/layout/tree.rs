@@ -740,7 +740,12 @@ impl DockLayout {
     }
 
     /// Update a floating group's position and size.
-    pub fn update_floating_geometry(&mut self, group_id: GroupId, pos: egui::Pos2, size: egui::Vec2) {
+    pub fn update_floating_geometry(
+        &mut self,
+        group_id: GroupId,
+        pos: egui::Pos2,
+        size: egui::Vec2,
+    ) {
         if let Some(fg) = self.floating.iter_mut().find(|fg| fg.group_id == group_id) {
             fg.pos = pos;
             fg.size = size;

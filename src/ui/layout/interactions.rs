@@ -88,11 +88,7 @@ const DROP_MAX_TAB_WIDTH: f32 = 160.0;
 /// The group rect includes the tab bar at the top. Dropping on the tab bar
 /// adds as a tab at a computed index. Edge zones (20%) apply to the content
 /// area below the tab bar.
-pub fn hit_test_drop_zone(
-    group_rect: egui::Rect,
-    pos: egui::Pos2,
-    tab_count: usize,
-) -> DropZone {
+pub fn hit_test_drop_zone(group_rect: egui::Rect, pos: egui::Pos2, tab_count: usize) -> DropZone {
     // Check if pointer is in the tab bar area
     if pos.y < group_rect.min.y + DROP_TAB_BAR_HEIGHT {
         let available = group_rect.width() - DROP_ADD_BUTTON_WIDTH - DROP_DOCK_GRIP_WIDTH;
@@ -103,9 +99,7 @@ pub fn hit_test_drop_zone(
         };
         let rel_x = pos.x - group_rect.min.x;
         // Compute insertion index: which gap between tabs the pointer is closest to
-        let index = ((rel_x + tab_width * 0.5) / tab_width)
-            .floor()
-            .max(0.0) as usize;
+        let index = ((rel_x + tab_width * 0.5) / tab_width).floor().max(0.0) as usize;
         let index = index.min(tab_count);
         return DropZone::TabBar { index };
     }
@@ -142,10 +136,8 @@ pub fn drop_zone_highlight_rect(
     tab_count: usize,
 ) -> egui::Rect {
     let content_top = group_rect.min.y + DROP_TAB_BAR_HEIGHT;
-    let content_rect = egui::Rect::from_min_max(
-        egui::pos2(group_rect.min.x, content_top),
-        group_rect.max,
-    );
+    let content_rect =
+        egui::Rect::from_min_max(egui::pos2(group_rect.min.x, content_top), group_rect.max);
 
     match zone {
         DropZone::TabBar { index } => {

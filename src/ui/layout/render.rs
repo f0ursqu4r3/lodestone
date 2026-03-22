@@ -162,7 +162,14 @@ pub fn render_layout(
                         order: egui::Order::Middle,
                     },
                 );
-                render_content(ctx, group_id, group, content_rect, state, egui::Order::Middle);
+                render_content(
+                    ctx,
+                    group_id,
+                    group,
+                    content_rect,
+                    state,
+                    egui::Order::Middle,
+                );
             }
         }
     }
@@ -214,8 +221,7 @@ pub fn render_layout(
                 .map(|g| g.active_tab_entry().panel_type.display_name())
                 .unwrap_or("Group");
             let font = egui::FontId::proportional(13.0);
-            let galley =
-                ghost_painter.layout_no_wrap(group_name.to_string(), font, TEXT_BRIGHT);
+            let galley = ghost_painter.layout_no_wrap(group_name.to_string(), font, TEXT_BRIGHT);
             let text_rect =
                 egui::Rect::from_min_size(pointer_pos + egui::vec2(12.0, -8.0), galley.size())
                     .expand(4.0);
@@ -525,39 +531,26 @@ fn render_tab_bar(
                 let available_text_width = (tab_width - 28.0).max(10.0);
                 let font = egui::FontId::proportional(12.0);
                 let full_name = tab.panel_type.display_name();
-                let galley = painter.layout_no_wrap(
-                    full_name.to_string(),
-                    font.clone(),
-                    text_color,
-                );
+                let galley =
+                    painter.layout_no_wrap(full_name.to_string(), font.clone(), text_color);
                 if galley.size().x > available_text_width {
                     let ellipsis = "…";
-                    let ellipsis_galley = painter.layout_no_wrap(
-                        ellipsis.to_string(),
-                        font.clone(),
-                        text_color,
-                    );
+                    let ellipsis_galley =
+                        painter.layout_no_wrap(ellipsis.to_string(), font.clone(), text_color);
                     let text_budget = available_text_width - ellipsis_galley.size().x;
                     // Find how many chars fit within the budget
                     let mut truncated = String::new();
                     for ch in full_name.chars() {
                         truncated.push(ch);
-                        let test = painter.layout_no_wrap(
-                            truncated.clone(),
-                            font.clone(),
-                            text_color,
-                        );
+                        let test =
+                            painter.layout_no_wrap(truncated.clone(), font.clone(), text_color);
                         if test.size().x > text_budget {
                             truncated.pop();
                             break;
                         }
                     }
                     truncated.push_str(ellipsis);
-                    let truncated_galley = painter.layout_no_wrap(
-                        truncated,
-                        font,
-                        text_color,
-                    );
+                    let truncated_galley = painter.layout_no_wrap(truncated, font, text_color);
                     painter.galley(label_pos, truncated_galley, text_color);
                 } else {
                     painter.galley(label_pos, galley, text_color);
@@ -567,18 +560,13 @@ fn render_tab_bar(
                 // Use manual pointer detection — the tab Area's click_and_drag
                 // sense consumes clicks before child widgets can receive them.
                 let close_center = egui::pos2(tab_rect.max.x - 12.0, tab_rect.center().y);
-                let close_rect =
-                    egui::Rect::from_center_size(close_center, egui::vec2(14.0, 14.0));
+                let close_rect = egui::Rect::from_center_size(close_center, egui::vec2(14.0, 14.0));
                 let pointer_pos = ui.ctx().input(|i| i.pointer.hover_pos());
                 let close_hovered = pointer_pos.is_some_and(|p| close_rect.contains(p));
                 let mut close_clicked = false;
 
                 if response.hovered() {
-                    let close_color = if close_hovered {
-                        TEXT_BRIGHT
-                    } else {
-                        TEXT_DIM
-                    };
+                    let close_color = if close_hovered { TEXT_BRIGHT } else { TEXT_DIM };
 
                     let s = 3.5;
                     painter.line_segment(
@@ -854,8 +842,7 @@ fn render_content(
             ui.set_max_size(content_rect.size());
 
             let padded_rect = content_rect.shrink(PANEL_PADDING);
-            let mut padded_ui =
-                ui.new_child(egui::UiBuilder::new().max_rect(padded_rect));
+            let mut padded_ui = ui.new_child(egui::UiBuilder::new().max_rect(padded_rect));
             egui::ScrollArea::both()
                 .auto_shrink(false)
                 .show(&mut padded_ui, |ui| {
@@ -926,10 +913,8 @@ fn render_floating_chrome(
     );
 
     // --- Chrome header (collapse, title, close) ---
-    let chrome_rect = egui::Rect::from_min_size(
-        fg.pos,
-        egui::vec2(fg.size.x, FLOATING_HEADER_HEIGHT),
-    );
+    let chrome_rect =
+        egui::Rect::from_min_size(fg.pos, egui::vec2(fg.size.x, FLOATING_HEADER_HEIGHT));
     let chrome_layer = egui::LayerId::new(
         egui::Order::Foreground,
         egui::Id::new(("floating_chrome_bar", group_id.0)),
@@ -945,22 +930,25 @@ fn render_floating_chrome(
         chrome_rect.min.x + button_margin + button_size / 2.0,
         chrome_rect.center().y,
     );
-    let collapse_rect = egui::Rect::from_center_size(
-        collapse_center,
-        egui::vec2(button_size, button_size),
-    );
+    let collapse_rect =
+        egui::Rect::from_center_size(collapse_center, egui::vec2(button_size, button_size));
     let collapse_id = egui::Id::new(("floating_collapse", group_id.0));
     let collapse_resp = egui::Area::new(collapse_id)
         .fixed_pos(collapse_rect.min)
         .order(egui::Order::Foreground)
         .sense(egui::Sense::click())
         .show(ctx, |ui| {
-            ui.allocate_exact_size(collapse_rect.size(), egui::Sense::click()).1
+            ui.allocate_exact_size(collapse_rect.size(), egui::Sense::click())
+                .1
         })
         .inner;
 
     // Draw collapse icon — chevron down (expanded) or right (collapsed)
-    let collapse_color = if collapse_resp.hovered() { TEXT_BRIGHT } else { TEXT_DIM };
+    let collapse_color = if collapse_resp.hovered() {
+        TEXT_BRIGHT
+    } else {
+        TEXT_DIM
+    };
     let s = 4.0;
     if is_collapsed {
         // Right-pointing chevron ›
@@ -1004,24 +992,30 @@ fn render_floating_chrome(
         chrome_rect.max.x - button_margin - button_size / 2.0,
         chrome_rect.center().y,
     );
-    let close_rect = egui::Rect::from_center_size(
-        close_center,
-        egui::vec2(button_size, button_size),
-    );
+    let close_rect =
+        egui::Rect::from_center_size(close_center, egui::vec2(button_size, button_size));
     let close_id = egui::Id::new(("floating_close", group_id.0));
     let close_resp = egui::Area::new(close_id)
         .fixed_pos(close_rect.min)
         .order(egui::Order::Foreground)
         .sense(egui::Sense::click())
         .show(ctx, |ui| {
-            ui.allocate_exact_size(close_rect.size(), egui::Sense::click()).1
+            ui.allocate_exact_size(close_rect.size(), egui::Sense::click())
+                .1
         })
         .inner;
 
-    let close_color = if close_resp.hovered() { TEXT_BRIGHT } else { TEXT_DIM };
+    let close_color = if close_resp.hovered() {
+        TEXT_BRIGHT
+    } else {
+        TEXT_DIM
+    };
     let xs = 3.5;
     chrome_painter.line_segment(
-        [close_center - egui::vec2(xs, xs), close_center + egui::vec2(xs, xs)],
+        [
+            close_center - egui::vec2(xs, xs),
+            close_center + egui::vec2(xs, xs),
+        ],
         egui::Stroke::new(1.5, close_color),
     );
     chrome_painter.line_segment(
@@ -1065,7 +1059,8 @@ fn render_floating_chrome(
         let primary_down = ctx.input(|i| i.pointer.primary_down());
         let primary_pressed = ctx.input(|i| i.pointer.primary_pressed());
 
-        if primary_pressed && drag_rect.contains(pointer_pos)
+        if primary_pressed
+            && drag_rect.contains(pointer_pos)
             && !collapse_rect.contains(pointer_pos)
             && !close_rect.contains(pointer_pos)
         {
@@ -1092,10 +1087,7 @@ fn render_floating_chrome(
 
     // Show grab cursor when hovering the drag area
     if let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) {
-        if drag_rect.contains(pos)
-            && !collapse_rect.contains(pos)
-            && !close_rect.contains(pos)
-        {
+        if drag_rect.contains(pos) && !collapse_rect.contains(pos) && !close_rect.contains(pos) {
             ctx.set_cursor_icon(egui::CursorIcon::Grab);
         }
     }
@@ -1113,16 +1105,17 @@ fn render_floating_chrome(
         let corner_len = 16.0;
 
         // Helper: create a resize Area and return its response
-        let make_resize_area = |ctx: &egui::Context, id: egui::Id, rect: egui::Rect| -> egui::Response {
-            egui::Area::new(id)
-                .fixed_pos(rect.min)
-                .order(egui::Order::Foreground)
-                .sense(egui::Sense::drag())
-                .show(ctx, |ui| {
-                    ui.allocate_exact_size(rect.size(), egui::Sense::drag()).1
-                })
-                .inner
-        };
+        let make_resize_area =
+            |ctx: &egui::Context, id: egui::Id, rect: egui::Rect| -> egui::Response {
+                egui::Area::new(id)
+                    .fixed_pos(rect.min)
+                    .order(egui::Order::Foreground)
+                    .sense(egui::Sense::drag())
+                    .show(ctx, |ui| {
+                        ui.allocate_exact_size(rect.size(), egui::Sense::drag()).1
+                    })
+                    .inner
+            };
 
         // --- Four edges (between corners) ---
         // Top edge
@@ -1130,13 +1123,25 @@ fn render_floating_chrome(
             egui::pos2(outer_rect.center().x, outer_rect.min.y),
             egui::vec2(outer_rect.width() - corner_size.x, resize_margin * 2.0),
         );
-        let top_resp = make_resize_area(ctx, egui::Id::new(("floating_resize_t", group_id.0)), top_edge);
+        let top_resp = make_resize_area(
+            ctx,
+            egui::Id::new(("floating_resize_t", group_id.0)),
+            top_edge,
+        );
         if top_resp.hovered() || top_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeRow);
-            let color = if top_resp.dragged() { resize_active } else { resize_hover };
+            let color = if top_resp.dragged() {
+                resize_active
+            } else {
+                resize_hover
+            };
             border_painter.rect_filled(
-                egui::Rect::from_min_size(outer_rect.min, egui::vec2(outer_rect.width(), edge_thickness)),
-                0.0, color,
+                egui::Rect::from_min_size(
+                    outer_rect.min,
+                    egui::vec2(outer_rect.width(), edge_thickness),
+                ),
+                0.0,
+                color,
             );
         }
         if top_resp.dragged() {
@@ -1155,16 +1160,25 @@ fn render_floating_chrome(
             egui::pos2(outer_rect.max.x, outer_rect.center().y),
             egui::vec2(resize_margin * 2.0, outer_rect.height() - corner_size.y),
         );
-        let right_resp = make_resize_area(ctx, egui::Id::new(("floating_resize_r", group_id.0)), right_edge);
+        let right_resp = make_resize_area(
+            ctx,
+            egui::Id::new(("floating_resize_r", group_id.0)),
+            right_edge,
+        );
         if right_resp.hovered() || right_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeColumn);
-            let color = if right_resp.dragged() { resize_active } else { resize_hover };
+            let color = if right_resp.dragged() {
+                resize_active
+            } else {
+                resize_hover
+            };
             border_painter.rect_filled(
                 egui::Rect::from_min_size(
                     egui::pos2(outer_rect.max.x - edge_thickness, outer_rect.min.y),
                     egui::vec2(edge_thickness, outer_rect.height()),
                 ),
-                0.0, color,
+                0.0,
+                color,
             );
         }
         if right_resp.dragged() {
@@ -1181,16 +1195,25 @@ fn render_floating_chrome(
             egui::pos2(outer_rect.center().x, outer_rect.max.y),
             egui::vec2(outer_rect.width() - corner_size.x, resize_margin * 2.0),
         );
-        let bottom_resp = make_resize_area(ctx, egui::Id::new(("floating_resize_b", group_id.0)), bottom_edge);
+        let bottom_resp = make_resize_area(
+            ctx,
+            egui::Id::new(("floating_resize_b", group_id.0)),
+            bottom_edge,
+        );
         if bottom_resp.hovered() || bottom_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeRow);
-            let color = if bottom_resp.dragged() { resize_active } else { resize_hover };
+            let color = if bottom_resp.dragged() {
+                resize_active
+            } else {
+                resize_hover
+            };
             border_painter.rect_filled(
                 egui::Rect::from_min_size(
                     egui::pos2(outer_rect.min.x, outer_rect.max.y - edge_thickness),
                     egui::vec2(outer_rect.width(), edge_thickness),
                 ),
-                0.0, color,
+                0.0,
+                color,
             );
         }
         if bottom_resp.dragged() {
@@ -1207,16 +1230,25 @@ fn render_floating_chrome(
             egui::pos2(outer_rect.min.x, outer_rect.center().y),
             egui::vec2(resize_margin * 2.0, outer_rect.height() - corner_size.y),
         );
-        let left_resp = make_resize_area(ctx, egui::Id::new(("floating_resize_l", group_id.0)), left_edge);
+        let left_resp = make_resize_area(
+            ctx,
+            egui::Id::new(("floating_resize_l", group_id.0)),
+            left_edge,
+        );
         if left_resp.hovered() || left_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeColumn);
-            let color = if left_resp.dragged() { resize_active } else { resize_hover };
+            let color = if left_resp.dragged() {
+                resize_active
+            } else {
+                resize_hover
+            };
             border_painter.rect_filled(
                 egui::Rect::from_min_size(
                     egui::pos2(outer_rect.min.x, outer_rect.min.y),
                     egui::vec2(edge_thickness, outer_rect.height()),
                 ),
-                0.0, color,
+                0.0,
+                color,
             );
         }
         if left_resp.dragged() {
@@ -1233,12 +1265,34 @@ fn render_floating_chrome(
         // --- Four corners ---
         // Top-left corner
         let tl_rect = egui::Rect::from_center_size(outer_rect.left_top(), corner_size);
-        let tl_resp = make_resize_area(ctx, egui::Id::new(("floating_resize_tl", group_id.0)), tl_rect);
+        let tl_resp = make_resize_area(
+            ctx,
+            egui::Id::new(("floating_resize_tl", group_id.0)),
+            tl_rect,
+        );
         if tl_resp.hovered() || tl_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeNwSe);
-            let color = if tl_resp.dragged() { resize_active } else { resize_hover };
-            border_painter.rect_filled(egui::Rect::from_min_size(outer_rect.left_top(), egui::vec2(corner_len, edge_thickness)), 0.0, color);
-            border_painter.rect_filled(egui::Rect::from_min_size(outer_rect.left_top(), egui::vec2(edge_thickness, corner_len)), 0.0, color);
+            let color = if tl_resp.dragged() {
+                resize_active
+            } else {
+                resize_hover
+            };
+            border_painter.rect_filled(
+                egui::Rect::from_min_size(
+                    outer_rect.left_top(),
+                    egui::vec2(corner_len, edge_thickness),
+                ),
+                0.0,
+                color,
+            );
+            border_painter.rect_filled(
+                egui::Rect::from_min_size(
+                    outer_rect.left_top(),
+                    egui::vec2(edge_thickness, corner_len),
+                ),
+                0.0,
+                color,
+            );
         }
         if tl_resp.dragged() {
             let d = tl_resp.drag_delta();
@@ -1255,12 +1309,34 @@ fn render_floating_chrome(
 
         // Top-right corner
         let tr_rect = egui::Rect::from_center_size(outer_rect.right_top(), corner_size);
-        let tr_resp = make_resize_area(ctx, egui::Id::new(("floating_resize_tr", group_id.0)), tr_rect);
+        let tr_resp = make_resize_area(
+            ctx,
+            egui::Id::new(("floating_resize_tr", group_id.0)),
+            tr_rect,
+        );
         if tr_resp.hovered() || tr_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeNeSw);
-            let color = if tr_resp.dragged() { resize_active } else { resize_hover };
-            border_painter.rect_filled(egui::Rect::from_min_size(egui::pos2(outer_rect.max.x - corner_len, outer_rect.min.y), egui::vec2(corner_len, edge_thickness)), 0.0, color);
-            border_painter.rect_filled(egui::Rect::from_min_size(egui::pos2(outer_rect.max.x - edge_thickness, outer_rect.min.y), egui::vec2(edge_thickness, corner_len)), 0.0, color);
+            let color = if tr_resp.dragged() {
+                resize_active
+            } else {
+                resize_hover
+            };
+            border_painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(outer_rect.max.x - corner_len, outer_rect.min.y),
+                    egui::vec2(corner_len, edge_thickness),
+                ),
+                0.0,
+                color,
+            );
+            border_painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(outer_rect.max.x - edge_thickness, outer_rect.min.y),
+                    egui::vec2(edge_thickness, corner_len),
+                ),
+                0.0,
+                color,
+            );
         }
         if tr_resp.dragged() {
             let d = tr_resp.drag_delta();
@@ -1276,12 +1352,34 @@ fn render_floating_chrome(
 
         // Bottom-left corner
         let bl_rect = egui::Rect::from_center_size(outer_rect.left_bottom(), corner_size);
-        let bl_resp = make_resize_area(ctx, egui::Id::new(("floating_resize_bl", group_id.0)), bl_rect);
+        let bl_resp = make_resize_area(
+            ctx,
+            egui::Id::new(("floating_resize_bl", group_id.0)),
+            bl_rect,
+        );
         if bl_resp.hovered() || bl_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeNeSw);
-            let color = if bl_resp.dragged() { resize_active } else { resize_hover };
-            border_painter.rect_filled(egui::Rect::from_min_size(egui::pos2(outer_rect.min.x, outer_rect.max.y - edge_thickness), egui::vec2(corner_len, edge_thickness)), 0.0, color);
-            border_painter.rect_filled(egui::Rect::from_min_size(egui::pos2(outer_rect.min.x, outer_rect.max.y - corner_len), egui::vec2(edge_thickness, corner_len)), 0.0, color);
+            let color = if bl_resp.dragged() {
+                resize_active
+            } else {
+                resize_hover
+            };
+            border_painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(outer_rect.min.x, outer_rect.max.y - edge_thickness),
+                    egui::vec2(corner_len, edge_thickness),
+                ),
+                0.0,
+                color,
+            );
+            border_painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(outer_rect.min.x, outer_rect.max.y - corner_len),
+                    egui::vec2(edge_thickness, corner_len),
+                ),
+                0.0,
+                color,
+            );
         }
         if bl_resp.dragged() {
             let d = bl_resp.drag_delta();
@@ -1297,12 +1395,40 @@ fn render_floating_chrome(
 
         // Bottom-right corner
         let br_rect = egui::Rect::from_center_size(outer_rect.right_bottom(), corner_size);
-        let br_resp = make_resize_area(ctx, egui::Id::new(("floating_resize_br", group_id.0)), br_rect);
+        let br_resp = make_resize_area(
+            ctx,
+            egui::Id::new(("floating_resize_br", group_id.0)),
+            br_rect,
+        );
         if br_resp.hovered() || br_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeNwSe);
-            let color = if br_resp.dragged() { resize_active } else { resize_hover };
-            border_painter.rect_filled(egui::Rect::from_min_size(egui::pos2(outer_rect.max.x - corner_len, outer_rect.max.y - edge_thickness), egui::vec2(corner_len, edge_thickness)), 0.0, color);
-            border_painter.rect_filled(egui::Rect::from_min_size(egui::pos2(outer_rect.max.x - edge_thickness, outer_rect.max.y - corner_len), egui::vec2(edge_thickness, corner_len)), 0.0, color);
+            let color = if br_resp.dragged() {
+                resize_active
+            } else {
+                resize_hover
+            };
+            border_painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(
+                        outer_rect.max.x - corner_len,
+                        outer_rect.max.y - edge_thickness,
+                    ),
+                    egui::vec2(corner_len, edge_thickness),
+                ),
+                0.0,
+                color,
+            );
+            border_painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(
+                        outer_rect.max.x - edge_thickness,
+                        outer_rect.max.y - corner_len,
+                    ),
+                    egui::vec2(edge_thickness, corner_len),
+                ),
+                0.0,
+                color,
+            );
         }
         if br_resp.dragged() {
             let d = br_resp.drag_delta();
@@ -1339,7 +1465,14 @@ fn render_floating_chrome(
             egui::pos2(fg.pos.x, fg.pos.y + FLOATING_HEADER_HEIGHT + TAB_BAR_HEIGHT),
             egui::pos2(fg.pos.x + fg.size.x, fg.pos.y + total_height),
         );
-        render_content(ctx, group_id, group, content_rect, state, egui::Order::Foreground);
+        render_content(
+            ctx,
+            group_id,
+            group,
+            content_rect,
+            state,
+            egui::Order::Foreground,
+        );
     }
 
     // --- Store rect for drop target hit testing ---

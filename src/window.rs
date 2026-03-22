@@ -4,12 +4,12 @@ use egui_wgpu::wgpu::{Surface, SurfaceConfiguration};
 use winit::window::Window;
 
 use crate::renderer::SharedGpuState;
-use crate::ui::preview_panel::PreviewResources;
 use crate::state::AppState;
 use crate::ui::layout::render::LayoutAction;
 use crate::ui::layout::tree::{
     DockLayout, DragState, DropZone, GroupId, PanelId, PanelType, SplitDirection,
 };
+use crate::ui::preview_panel::PreviewResources;
 
 /// A request to create a new OS-level window for a detached panel.
 pub struct DetachRequest {
@@ -360,8 +360,7 @@ impl WindowState {
                                     direction,
                                     first_tab.clone(),
                                     before,
-                                )
-                                    && let Some(group) = self.layout.groups.get_mut(&new_gid)
+                                ) && let Some(group) = self.layout.groups.get_mut(&new_gid)
                                 {
                                     for tab in &source_tabs[1..] {
                                         group.add_tab_entry(tab.clone());

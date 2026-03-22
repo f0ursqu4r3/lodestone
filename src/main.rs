@@ -49,23 +49,13 @@ impl NativeMenu {
         let app_menu = Submenu::new("Lodestone", true);
         app_menu.append(&PredefinedMenuItem::about(None, None)).ok();
         app_menu.append(&PredefinedMenuItem::separator()).ok();
-        app_menu
-            .append(&PredefinedMenuItem::services(None))
-            .ok();
+        app_menu.append(&PredefinedMenuItem::services(None)).ok();
         app_menu.append(&PredefinedMenuItem::separator()).ok();
-        app_menu
-            .append(&PredefinedMenuItem::hide(None))
-            .ok();
-        app_menu
-            .append(&PredefinedMenuItem::hide_others(None))
-            .ok();
-        app_menu
-            .append(&PredefinedMenuItem::show_all(None))
-            .ok();
+        app_menu.append(&PredefinedMenuItem::hide(None)).ok();
+        app_menu.append(&PredefinedMenuItem::hide_others(None)).ok();
+        app_menu.append(&PredefinedMenuItem::show_all(None)).ok();
         app_menu.append(&PredefinedMenuItem::separator()).ok();
-        app_menu
-            .append(&PredefinedMenuItem::quit(None))
-            .ok();
+        app_menu.append(&PredefinedMenuItem::quit(None)).ok();
         menu.append(&app_menu).ok();
 
         // File menu
@@ -83,9 +73,7 @@ impl NativeMenu {
         edit_menu.append(&PredefinedMenuItem::cut(None)).ok();
         edit_menu.append(&PredefinedMenuItem::copy(None)).ok();
         edit_menu.append(&PredefinedMenuItem::paste(None)).ok();
-        edit_menu
-            .append(&PredefinedMenuItem::select_all(None))
-            .ok();
+        edit_menu.append(&PredefinedMenuItem::select_all(None)).ok();
         menu.append(&edit_menu).ok();
 
         // View menu
@@ -107,20 +95,14 @@ impl NativeMenu {
         view_menu.append(&add_panel_menu).ok();
         view_menu.append(&reset_layout).ok();
         view_menu.append(&PredefinedMenuItem::separator()).ok();
-        view_menu
-            .append(&PredefinedMenuItem::fullscreen(None))
-            .ok();
+        view_menu.append(&PredefinedMenuItem::fullscreen(None)).ok();
 
         menu.append(&view_menu).ok();
 
         // Window menu
         let window_menu = Submenu::new("Window", true);
-        window_menu
-            .append(&PredefinedMenuItem::minimize(None))
-            .ok();
-        window_menu
-            .append(&PredefinedMenuItem::maximize(None))
-            .ok();
+        window_menu.append(&PredefinedMenuItem::minimize(None)).ok();
+        window_menu.append(&PredefinedMenuItem::maximize(None)).ok();
         menu.append(&window_menu).ok();
 
         Self {
@@ -461,6 +443,17 @@ impl ApplicationHandler for AppManager {
                         drop(app_state);
                     }
 
+                    // Show settings window (main window only, after releasing AppState lock)
+                    if Some(window_id) == self.main_window_id {
+                        if let Some(win) = self.windows.get(&window_id) {
+                            crate::ui::settings_window::show(
+                                &win.egui_ctx,
+                                &self.state,
+                                &self.settings_window_open,
+                            );
+                        }
+                    }
+
                     // Check for reattach request from detached windows
                     if Some(window_id) != self.main_window_id
                         && self
@@ -534,8 +527,9 @@ impl ApplicationHandler for AppManager {
                     pipeline: gpu.preview_renderer.pipeline(),
                     bind_group: gpu.preview_renderer.bind_group(),
                 };
-                let win_state = WindowState::new(window, gpu, layout, false, Some(preview_resources))
-                    .expect("init detached window");
+                let win_state =
+                    WindowState::new(window, gpu, layout, false, Some(preview_resources))
+                        .expect("init detached window");
                 self.windows.insert(window.id(), win_state);
             }
         }

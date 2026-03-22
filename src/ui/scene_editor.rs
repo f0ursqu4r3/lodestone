@@ -39,6 +39,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
                 id: new_src_id,
                 name: format!("Source {}", state.sources.len() + 1),
                 source_type: crate::scene::SourceType::Display,
+                properties: crate::scene::SourceProperties::default(),
                 transform: crate::scene::Transform::new(0.0, 0.0, 1920.0, 1080.0),
                 visible: true,
                 muted: false,

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Device, Queue, TextureFormat};
 
-use crate::obs::RgbaFrame;
+use crate::gstreamer::RgbaFrame;
 
 const PREVIEW_SHADER: &str = r#"
 struct VertexOutput {

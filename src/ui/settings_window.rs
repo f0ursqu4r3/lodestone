@@ -5,7 +5,7 @@ use egui::{
     StrokeKind, Ui, Vec2, Widget,
 };
 
-use crate::obs::StreamDestination;
+use crate::gstreamer::StreamDestination;
 use crate::settings::{
     AdvancedSettings, AppearanceSettings, AudioSettings, GeneralSettings, HotkeySettings,
     StreamSettings, VideoSettings,

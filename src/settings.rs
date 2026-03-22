@@ -1,4 +1,4 @@
-use crate::obs::StreamDestination;
+use crate::gstreamer::StreamDestination;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

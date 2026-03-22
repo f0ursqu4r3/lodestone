@@ -14,7 +14,7 @@ use pipelines::WidgetPipeline;
 use preview::PreviewRenderer;
 use text::GlyphonRenderer;
 
-use crate::obs::RgbaFrame;
+use crate::gstreamer::RgbaFrame;
 
 // ---------------------------------------------------------------------------
 // SharedGpuState — owns GPU device/queue and shared pipelines

@@ -155,7 +155,12 @@ impl AppManager {
         let gst_handle = gstreamer::spawn_gstreamer_thread(thread_channels);
 
         use crate::scene::SceneCollection;
-        let collection = SceneCollection::load_from(&settings::scenes_path());
+        let scenes_path = settings::scenes_path();
+        let collection = SceneCollection::load_from(&scenes_path);
+        // Save default scenes on first run so the file exists
+        if !scenes_path.exists() {
+            let _ = collection.save_to(&scenes_path);
+        }
         let initial_state = AppState {
             scenes: collection.scenes,
             sources: collection.sources,
@@ -441,6 +446,22 @@ impl ApplicationHandler for AppManager {
         match event {
             WindowEvent::CloseRequested => {
                 if Some(window_id) == self.main_window_id {
+                    // Save scenes before exiting
+                    {
+                        let app_state = self.state.lock().unwrap();
+                        if app_state.scenes_dirty {
+                            let collection = crate::scene::SceneCollection {
+                                scenes: app_state.scenes.clone(),
+                                sources: app_state.sources.clone(),
+                                active_scene_id: app_state.active_scene_id,
+                                next_scene_id: app_state.next_scene_id,
+                                next_source_id: app_state.next_source_id,
+                            };
+                            if let Err(e) = collection.save_to(&settings::scenes_path()) {
+                                log::warn!("Failed to save scenes on exit: {e}");
+                            }
+                        }
+                    }
                     event_loop.exit();
                 } else if Some(window_id) == self.settings_window_id {
                     self.close_settings_window();

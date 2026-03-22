@@ -33,19 +33,34 @@ enum SerializedNode {
     },
 }
 
-/// A serializable tab within a group.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// Used for serialization — writes the PanelType enum directly.
+#[derive(Serialize, Debug, Clone)]
 struct SerializedTab {
     panel_id: u64,
     panel_type: PanelType,
 }
 
-/// A serializable group.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// A serializable group (used for serialization only).
+#[derive(Serialize, Debug, Clone)]
 struct SerializedGroup {
     id: u64,
     active_tab: usize,
     tabs: Vec<SerializedTab>,
+}
+
+/// Used for deserialization — tolerates unknown panel types.
+#[derive(Deserialize, Debug, Clone)]
+struct DeserializedTab {
+    panel_id: u64,
+    panel_type: toml::Value,
+}
+
+/// Deserialization counterpart of [`SerializedGroup`].
+#[derive(Deserialize, Debug, Clone)]
+struct DeserializedGroup {
+    id: u64,
+    active_tab: usize,
+    tabs: Vec<DeserializedTab>,
 }
 
 /// A serializable floating group entry.
@@ -58,12 +73,24 @@ struct SerializedFloating {
     height: f32,
 }
 
-/// Top-level TOML document structure.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// Top-level TOML document structure (serialization only).
+#[derive(Serialize, Debug, Clone)]
 struct SerializedLayout {
     tree: SerializedNode,
     #[serde(default)]
     groups: Vec<SerializedGroup>,
+    #[serde(default)]
+    floating: Vec<SerializedFloating>,
+    #[serde(default)]
+    detached: Vec<DetachedEntry>,
+}
+
+/// Top-level TOML document structure (deserialization — tolerates unknown panel types).
+#[derive(Deserialize, Debug, Clone)]
+struct DeserializedLayout {
+    tree: SerializedNode,
+    #[serde(default)]
+    groups: Vec<DeserializedGroup>,
     #[serde(default)]
     floating: Vec<SerializedFloating>,
     #[serde(default)]
@@ -172,10 +199,15 @@ pub fn serialize_with_detached(layout: &DockLayout, detached: &[DetachedEntry]) 
 }
 
 /// Deserialize a [`DockLayout`] and detached entries from a TOML string.
+///
+/// Unknown panel types (e.g. a removed variant like `"Settings"`) are silently
+/// dropped. If all tabs in a group are unknown the entire group is dropped, and
+/// any leaf nodes referencing that group are replaced with a default Preview panel.
 pub fn deserialize_full_layout(toml_str: &str) -> Result<(DockLayout, Vec<DetachedEntry>)> {
-    let doc: SerializedLayout = toml::from_str(toml_str).context("failed to parse layout TOML")?;
+    let doc: DeserializedLayout =
+        toml::from_str(toml_str).context("failed to parse layout TOML")?;
 
-    // Rebuild groups.
+    // Rebuild groups, filtering out tabs with unknown panel types.
     let mut groups: HashMap<GroupId, Group> = HashMap::new();
     let mut max_group_id: u64 = 0;
     let mut max_panel_id: u64 = 0;
@@ -185,19 +217,29 @@ pub fn deserialize_full_layout(toml_str: &str) -> Result<(DockLayout, Vec<Detach
         let tabs: Vec<TabEntry> = sg
             .tabs
             .iter()
-            .map(|t| {
+            .filter_map(|t| {
+                let panel_type: PanelType = t.panel_type.clone().try_into().ok()?;
                 max_panel_id = max_panel_id.max(t.panel_id);
-                TabEntry {
+                Some(TabEntry {
                     panel_id: PanelId(t.panel_id),
-                    panel_type: t.panel_type,
-                }
+                    panel_type,
+                })
             })
             .collect();
 
+        if tabs.is_empty() {
+            log::warn!(
+                "Dropping group {} — all tabs had unknown panel types",
+                sg.id
+            );
+            continue;
+        }
+
+        let active_tab = sg.active_tab.min(tabs.len().saturating_sub(1));
         let group = Group {
             id: GroupId(sg.id),
             tabs,
-            active_tab: sg.active_tab,
+            active_tab,
         };
         groups.insert(group.id, group);
     }
@@ -229,6 +271,9 @@ pub fn deserialize_full_layout(toml_str: &str) -> Result<(DockLayout, Vec<Detach
     PanelId::set_counter(max_panel_id + 1);
     GroupId::set_counter(max_group_id + 1);
 
+    // Repair leaf nodes that reference dropped groups.
+    repair_orphaned_leaves(&mut nodes, &mut groups, root_id);
+
     let layout = DockLayout::from_parts(nodes, root_id, next_node_id, groups, floating);
 
     Ok((layout, doc.detached))
@@ -238,6 +283,30 @@ pub fn deserialize_full_layout(toml_str: &str) -> Result<(DockLayout, Vec<Detach
 #[allow(dead_code)]
 pub fn deserialize_with_detached(toml_str: &str) -> Result<(DockLayout, Vec<DetachedEntry>)> {
     deserialize_full_layout(toml_str)
+}
+
+/// Replace leaf nodes whose group was dropped (e.g. because all tabs had
+/// unknown panel types) with a new default Preview group.
+fn repair_orphaned_leaves(
+    nodes: &mut HashMap<NodeId, SplitNode>,
+    groups: &mut HashMap<GroupId, Group>,
+    _root: NodeId,
+) {
+    let node_ids: Vec<NodeId> = nodes.keys().copied().collect();
+    for node_id in node_ids {
+        if let Some(SplitNode::Leaf { group_id }) = nodes.get(&node_id)
+            && !groups.contains_key(group_id)
+        {
+            let new_group = Group::new(PanelType::Preview);
+            let new_gid = new_group.id;
+            groups.insert(new_gid, new_group);
+            nodes.insert(node_id, SplitNode::Leaf { group_id: new_gid });
+            log::warn!(
+                "Replaced orphaned leaf node {:?} with default Preview group",
+                node_id
+            );
+        }
+    }
 }
 
 /// Recursively rebuild split-tree nodes from a [`SerializedNode`], assigning
@@ -438,6 +507,31 @@ height = 300
     fn invalid_toml_returns_error() {
         let result = deserialize_full_layout("this is not valid toml {{{{");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn unknown_panel_type_drops_gracefully() {
+        let toml_str = r#"
+[tree]
+type = "leaf"
+group_id = 1
+
+[[groups]]
+id = 1
+active_tab = 0
+[[groups.tabs]]
+panel_id = 1
+panel_type = "Settings"
+[[groups.tabs]]
+panel_id = 2
+panel_type = "Preview"
+"#;
+        let result = deserialize_full_layout(toml_str);
+        assert!(result.is_ok());
+        let (layout, _) = result.unwrap();
+        let all_panels = layout.collect_all_panels();
+        assert_eq!(all_panels.len(), 1);
+        assert_eq!(all_panels[0].1, PanelType::Preview);
     }
 
     #[test]

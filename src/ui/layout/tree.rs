@@ -16,7 +16,6 @@ pub enum PanelType {
     SceneEditor,
     AudioMixer,
     StreamControls,
-    Settings,
 }
 
 impl PanelType {
@@ -26,14 +25,7 @@ impl PanelType {
             Self::SceneEditor => "Scene Editor",
             Self::AudioMixer => "Audio Mixer",
             Self::StreamControls => "Stream Controls",
-            Self::Settings => "Settings",
         }
-    }
-
-    /// Whether this panel type can be placed in the tiling layout.
-    #[allow(dead_code)]
-    pub fn is_dockable(&self) -> bool {
-        !matches!(self, Self::Settings)
     }
 }
 

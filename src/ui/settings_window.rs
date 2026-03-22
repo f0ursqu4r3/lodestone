@@ -1,10 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use egui::{
     Align, Color32, CornerRadius, CursorIcon, Id, Layout, Rect, Response, Sense, Stroke,
-    StrokeKind, Ui, Vec2, ViewportBuilder, ViewportClass, ViewportId, Widget,
+    StrokeKind, Ui, Vec2, Widget,
 };
 
 use crate::obs::StreamDestination;
@@ -23,7 +23,6 @@ const MUTED: Color32 = Color32::from_rgb(0x6c, 0x70, 0x86);
 const SURFACE: Color32 = Color32::from_rgb(0x31, 0x32, 0x44);
 const SECTION_HEADER: Color32 = Color32::from_rgb(0x58, 0x5b, 0x70);
 const SIDEBAR_BG: Color32 = Color32::from_rgb(0x18, 0x18, 0x25);
-const CONTENT_BG: Color32 = Color32::from_rgb(0x1e, 0x1e, 0x2e);
 
 // ── Category enum ─────────────────────────────────────────────────────────────
 
@@ -119,81 +118,11 @@ pub fn show_embedded(
     }
 }
 
-// ── Legacy entry point (for future native viewports) ─────────────────────────
-
-/// Show the settings window via `show_viewport_deferred`.
-///
-/// **Warning:** This will deadlock if called while `AppState` is already locked,
-/// because `embed_viewports()` causes the callback to run inline. Prefer
-/// `show_embedded` for the current custom winit+wgpu setup.
-#[allow(dead_code)]
-pub fn show(ctx: &egui::Context, state: &Arc<Mutex<AppState>>, open: &Arc<AtomicBool>) {
-    if !open.load(Ordering::Relaxed) {
-        return;
-    }
-
-    let state = Arc::clone(state);
-    let open = Arc::clone(open);
-
-    // Read desired window size from settings
-    let (win_w, win_h) = {
-        let app = state
-            .lock()
-            .expect("lock AppState for settings window size");
-        (
-            app.settings.settings_window.width,
-            app.settings.settings_window.height,
-        )
-    };
-
-    let viewport_id = ViewportId::from_hash_of("lodestone_settings");
-    let viewport_builder = ViewportBuilder::default()
-        .with_title("Settings")
-        .with_inner_size(Vec2::new(win_w, win_h))
-        .with_min_inner_size(Vec2::new(500.0, 400.0))
-        .with_close_button(true)
-        .with_minimize_button(false)
-        .with_maximize_button(false);
-
-    ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
-        match class {
-            ViewportClass::Embedded => {
-                // Fallback: render as an egui::Window overlay in the main viewport
-                let mut is_open = true;
-                egui::Window::new("Settings")
-                    .open(&mut is_open)
-                    .default_size(Vec2::new(win_w, win_h))
-                    .min_size(Vec2::new(500.0, 400.0))
-                    .collapsible(false)
-                    .show(ctx, |ui| {
-                        render_settings_ui(ctx, &state, ui);
-                    });
-                if !is_open {
-                    open.store(false, Ordering::Relaxed);
-                }
-            }
-            ViewportClass::Deferred | ViewportClass::Immediate | ViewportClass::Root => {
-                // Native viewport: detect close request / Escape
-                let close_requested = ctx.input(|i| i.viewport().close_requested());
-                let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-
-                if close_requested || escape_pressed {
-                    open.store(false, Ordering::Relaxed);
-                    if escape_pressed {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    return;
-                }
-
-                // Fill the viewport with sidebar + content
-                let frame = egui::Frame::NONE.fill(CONTENT_BG);
-                egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
-                    render_settings_ui(ctx, &state, ui);
-                });
-            }
-        }
-    });
-}
+// NOTE: Native viewport support (separate OS window) is not available with our custom
+// winit+wgpu setup because egui's `embed_viewports()` defaults to true, which runs
+// viewport callbacks inline and would deadlock on the AppState mutex. If native viewports
+// are needed in the future, the rendering architecture will need to pass already-locked
+// state into viewport callbacks rather than re-locking.
 
 // ── Shared rendering logic ────────────────────────────────────────────────────
 
@@ -245,12 +174,6 @@ fn render_settings_ui_direct(ctx: &egui::Context, state: &mut AppState, ui: &mut
     });
 
     ctx.data_mut(|d| d.insert_temp(settings_id, active));
-}
-
-/// Render settings UI from an `Arc<Mutex<AppState>>` (for the legacy `show` path).
-fn render_settings_ui(ctx: &egui::Context, state: &Arc<Mutex<AppState>>, ui: &mut Ui) {
-    let mut app = state.lock().expect("lock AppState for settings UI");
-    render_settings_ui_direct(ctx, &mut app, ui);
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -881,13 +804,15 @@ fn draw_appearance(ui: &mut Ui, settings: &mut AppearanceSettings) -> bool {
 fn parse_hex_color(hex: &str) -> Color32 {
     let hex = hex.trim_start_matches('#');
     if hex.len() >= 6 {
-        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0x7c);
-        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0x6c);
-        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0xf0);
-        Color32::from_rgb(r, g, b)
-    } else {
-        ACCENT
+        if let (Ok(r), Ok(g), Ok(b)) = (
+            u8::from_str_radix(&hex[0..2], 16),
+            u8::from_str_radix(&hex[2..4], 16),
+            u8::from_str_radix(&hex[4..6], 16),
+        ) {
+            return Color32::from_rgb(r, g, b);
+        }
     }
+    ACCENT
 }
 
 // ── Category: Advanced ────────────────────────────────────────────────────────

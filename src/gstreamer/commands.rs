@@ -7,11 +7,15 @@ use super::types::{PipelineStats, RgbaFrame};
 
 /// Commands sent from the UI thread to the GStreamer thread.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum GstCommand {
     SetCaptureSource(CaptureSourceConfig),
     StartStream(StreamConfig),
     StopStream,
-    StartRecording { path: PathBuf, format: RecordingFormat },
+    StartRecording {
+        path: PathBuf,
+        format: RecordingFormat,
+    },
     StopRecording,
     UpdateEncoder(EncoderConfig),
     Shutdown,
@@ -25,6 +29,7 @@ pub enum CaptureSourceConfig {
 
 /// Recording container format.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum RecordingFormat {
     Mkv,
     Mp4,
@@ -79,6 +84,7 @@ impl Default for EncoderConfig {
 pub struct GstChannels {
     pub command_tx: mpsc::Sender<GstCommand>,
     pub frame_rx: mpsc::Receiver<RgbaFrame>,
+    #[allow(dead_code)]
     pub stats_rx: watch::Receiver<PipelineStats>,
     pub error_rx: mpsc::UnboundedReceiver<GstError>,
 }
@@ -87,6 +93,7 @@ pub struct GstChannels {
 pub(crate) struct GstThreadChannels {
     pub command_rx: mpsc::Receiver<GstCommand>,
     pub frame_tx: mpsc::Sender<RgbaFrame>,
+    #[allow(dead_code)]
     pub stats_tx: watch::Sender<PipelineStats>,
     pub error_tx: mpsc::UnboundedSender<GstError>,
 }
@@ -128,14 +135,25 @@ mod tests {
     #[test]
     fn capture_source_config_screen() {
         let config = CaptureSourceConfig::Screen { screen_index: 0 };
-        assert!(matches!(config, CaptureSourceConfig::Screen { screen_index: 0 }));
+        assert!(matches!(
+            config,
+            CaptureSourceConfig::Screen { screen_index: 0 }
+        ));
     }
 
     #[test]
     fn stream_destination_rtmp_urls() {
-        assert_eq!(StreamDestination::Twitch.rtmp_url(), "rtmp://live.twitch.tv/app");
-        assert_eq!(StreamDestination::YouTube.rtmp_url(), "rtmp://a.rtmp.youtube.com/live2");
-        let custom = StreamDestination::CustomRtmp { url: "rtmp://my.server/live".to_string() };
+        assert_eq!(
+            StreamDestination::Twitch.rtmp_url(),
+            "rtmp://live.twitch.tv/app"
+        );
+        assert_eq!(
+            StreamDestination::YouTube.rtmp_url(),
+            "rtmp://a.rtmp.youtube.com/live2"
+        );
+        let custom = StreamDestination::CustomRtmp {
+            url: "rtmp://my.server/live".to_string(),
+        };
         assert_eq!(custom.rtmp_url(), "rtmp://my.server/live");
     }
 

@@ -8,6 +8,7 @@ pub struct RgbaFrame {
 
 /// Pipeline statistics sent periodically from the GStreamer thread.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PipelineStats {
     pub bitrate_kbps: f64,
     pub dropped_frames: u64,

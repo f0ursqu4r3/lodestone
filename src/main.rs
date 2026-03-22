@@ -133,6 +133,7 @@ struct AppManager {
     windows: HashMap<WindowId, WindowState>,
     main_window_id: Option<WindowId>,
     state: Arc<Mutex<AppState>>,
+    #[allow(dead_code)]
     runtime: tokio::runtime::Runtime,
     gst_channels: Option<gstreamer::GstChannels>,
     #[allow(dead_code)]

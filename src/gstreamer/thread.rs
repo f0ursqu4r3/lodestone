@@ -197,39 +197,37 @@ impl GstThread {
             }
 
             // Pull frame from capture, forward to preview and encode pipelines
-            if let Some(appsink) = &self.capture_appsink {
-                if let Some(sample) =
+            if let Some(appsink) = &self.capture_appsink
+                && let Some(sample) =
                     appsink.try_pull_sample(gstreamer::ClockTime::from_mseconds(0))
+            {
+                let (width, height) = sample
+                    .caps()
+                    .and_then(|caps| gstreamer_video::VideoInfo::from_caps(caps).ok())
+                    .map(|info| (info.width(), info.height()))
+                    .unwrap_or((self.encoder_config.width, self.encoder_config.height));
+
+                if let Some(buffer) = sample.buffer()
+                    && let Ok(map) = buffer.map_readable()
                 {
-                    let (width, height) = sample
-                        .caps()
-                        .and_then(|caps| gstreamer_video::VideoInfo::from_caps(caps).ok())
-                        .map(|info| (info.width(), info.height()))
-                        .unwrap_or((self.encoder_config.width, self.encoder_config.height));
+                    let data = map.as_slice();
+                    let pts =
+                        gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);
 
-                    if let Some(buffer) = sample.buffer() {
-                        if let Ok(map) = buffer.map_readable() {
-                            let data = map.as_slice();
-                            let pts = gstreamer::ClockTime::from_nseconds(
-                                start_time.elapsed().as_nanos() as u64,
-                            );
+                    // Send to preview
+                    let frame = RgbaFrame {
+                        data: data.to_vec(),
+                        width,
+                        height,
+                    };
+                    let _ = self.channels.frame_tx.try_send(frame);
 
-                            // Send to preview
-                            let frame = RgbaFrame {
-                                data: data.to_vec(),
-                                width,
-                                height,
-                            };
-                            let _ = self.channels.frame_tx.try_send(frame);
-
-                            // Feed active encode pipelines
-                            if let Some(ref appsrc) = self.stream_appsrc {
-                                Self::push_to_encode(appsrc, data, pts);
-                            }
-                            if let Some(ref appsrc) = self.record_appsrc {
-                                Self::push_to_encode(appsrc, data, pts);
-                            }
-                        }
+                    // Feed active encode pipelines
+                    if let Some(ref appsrc) = self.stream_appsrc {
+                        Self::push_to_encode(appsrc, data, pts);
+                    }
+                    if let Some(ref appsrc) = self.record_appsrc {
+                        Self::push_to_encode(appsrc, data, pts);
                     }
                 }
             }

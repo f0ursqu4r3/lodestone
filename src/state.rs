@@ -3,14 +3,15 @@ use crate::scene::{Scene, SceneId, Source, SourceId};
 use crate::settings::AppSettings;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AudioLevel {
     pub source_id: SourceId,
     pub current_db: f32,
-    #[allow(dead_code)]
     pub peak_db: f32,
 }
 
 impl AudioLevel {
+    #[allow(dead_code)]
     pub fn new(source_id: SourceId, current_db: f32, peak_db: f32) -> Self {
         Self {
             source_id,
@@ -50,6 +51,7 @@ pub struct AppState {
     pub scenes: Vec<Scene>,
     pub sources: Vec<Source>,
     pub active_scene_id: Option<SceneId>,
+    #[allow(dead_code)]
     pub audio_levels: Vec<AudioLevel>,
     pub stream_status: StreamStatus,
     pub settings: AppSettings,

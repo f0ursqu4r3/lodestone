@@ -1,5 +1,6 @@
 /// Errors reported from the GStreamer thread to the main thread.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum GstError {
     /// Screen/window/camera capture failed.
     CaptureFailure { message: String },

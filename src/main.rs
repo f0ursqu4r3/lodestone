@@ -13,6 +13,7 @@ use obs::mock::MockObsEngine;
 use renderer::SharedGpuState;
 use state::AppState;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 #[allow(unused_imports)]
 use ui::layout::{
@@ -160,6 +161,7 @@ struct AppManager {
     modifiers: ModifiersState,
     native_menu: Option<NativeMenu>,
     focused_window_id: Option<WindowId>,
+    settings_window_open: Arc<AtomicBool>,
 }
 
 impl AppManager {
@@ -187,6 +189,7 @@ impl AppManager {
             modifiers: ModifiersState::empty(),
             native_menu: None,
             focused_window_id: None,
+            settings_window_open: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -387,6 +390,11 @@ impl ApplicationHandler for AppManager {
                 let shift = self.modifiers.shift_key();
                 if ctrl && shift && *key_code == KeyCode::KeyR {
                     self.reset_layout();
+                    return;
+                }
+                if self.modifiers.super_key() && *key_code == KeyCode::Comma {
+                    let current = self.settings_window_open.load(Ordering::Relaxed);
+                    self.settings_window_open.store(!current, Ordering::Relaxed);
                     return;
                 }
             }

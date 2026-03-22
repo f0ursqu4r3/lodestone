@@ -1086,10 +1086,12 @@ fn render_floating_chrome(
     }
 
     // Show grab cursor when hovering the drag area
-    if let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) {
-        if drag_rect.contains(pos) && !collapse_rect.contains(pos) && !close_rect.contains(pos) {
-            ctx.set_cursor_icon(egui::CursorIcon::Grab);
-        }
+    if let Some(pos) = ctx.input(|i| i.pointer.hover_pos())
+        && drag_rect.contains(pos)
+        && !collapse_rect.contains(pos)
+        && !close_rect.contains(pos)
+    {
+        ctx.set_cursor_icon(egui::CursorIcon::Grab);
     }
 
     // Only render resize handles, tab bar, and content when expanded

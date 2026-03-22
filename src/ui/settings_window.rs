@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use egui::{
@@ -86,11 +86,7 @@ const SIDEBAR_GROUPS: &[SidebarGroup] = &[
 /// Show the settings window as an embedded `egui::Window` overlay.
 /// Called inside the main egui frame when `embed_viewports()` is true,
 /// which avoids the mutex deadlock that `show_viewport_deferred` would cause.
-pub fn show_embedded(
-    ctx: &egui::Context,
-    state: &mut AppState,
-    open: &Arc<AtomicBool>,
-) {
+pub fn show_embedded(ctx: &egui::Context, state: &mut AppState, open: &Arc<AtomicBool>) {
     if !open.load(Ordering::Relaxed) {
         return;
     }
@@ -803,14 +799,14 @@ fn draw_appearance(ui: &mut Ui, settings: &mut AppearanceSettings) -> bool {
 
 fn parse_hex_color(hex: &str) -> Color32 {
     let hex = hex.trim_start_matches('#');
-    if hex.len() >= 6 {
-        if let (Ok(r), Ok(g), Ok(b)) = (
+    if hex.len() >= 6
+        && let (Ok(r), Ok(g), Ok(b)) = (
             u8::from_str_radix(&hex[0..2], 16),
             u8::from_str_radix(&hex[2..4], 16),
             u8::from_str_radix(&hex[4..6], 16),
-        ) {
-            return Color32::from_rgb(r, g, b);
-        }
+        )
+    {
+        return Color32::from_rgb(r, g, b);
     }
     ACCENT
 }

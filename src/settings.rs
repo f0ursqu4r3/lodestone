@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Top-level application settings, persisted as TOML.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppSettings {
     #[serde(default)]
     pub ui: UiSettings,
@@ -24,22 +24,6 @@ pub struct AppSettings {
     pub advanced: AdvancedSettings,
     #[serde(default)]
     pub settings_window: SettingsWindowConfig,
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            ui: UiSettings::default(),
-            general: GeneralSettings::default(),
-            stream: StreamSettings::default(),
-            audio: AudioSettings::default(),
-            video: VideoSettings::default(),
-            hotkeys: HotkeySettings::default(),
-            appearance: AppearanceSettings::default(),
-            advanced: AdvancedSettings::default(),
-            settings_window: SettingsWindowConfig::default(),
-        }
-    }
 }
 
 /// UI panel visibility settings.
@@ -154,16 +138,9 @@ impl Default for VideoSettings {
 /// User-defined hotkey bindings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct HotkeySettings {
     pub bindings: HashMap<String, String>,
-}
-
-impl Default for HotkeySettings {
-    fn default() -> Self {
-        Self {
-            bindings: HashMap::new(),
-        }
-    }
 }
 
 /// Visual appearance preferences.

@@ -1,3 +1,4 @@
+mod gstreamer;
 mod mock_driver;
 mod obs;
 mod renderer;

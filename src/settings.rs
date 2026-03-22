@@ -44,6 +44,7 @@ impl Default for AppSettings {
 
 /// UI panel visibility settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UiSettings {
     pub scene_panel_open: bool,
     pub mixer_panel_open: bool,
@@ -62,6 +63,7 @@ impl Default for UiSettings {
 
 /// General application preferences.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GeneralSettings {
     pub language: String,
     pub check_for_updates: bool,
@@ -82,6 +84,7 @@ impl Default for GeneralSettings {
 
 /// Stream output configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct StreamSettings {
     pub stream_key: String,
     pub destination: StreamDestination,
@@ -108,6 +111,7 @@ impl Default for StreamSettings {
 
 /// Audio device and capture settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AudioSettings {
     pub input_device: String,
     pub output_device: String,
@@ -128,6 +132,7 @@ impl Default for AudioSettings {
 
 /// Video capture and rendering settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct VideoSettings {
     pub base_resolution: String,
     pub output_resolution: String,
@@ -148,6 +153,7 @@ impl Default for VideoSettings {
 
 /// User-defined hotkey bindings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HotkeySettings {
     pub bindings: HashMap<String, String>,
 }
@@ -162,6 +168,7 @@ impl Default for HotkeySettings {
 
 /// Visual appearance preferences.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppearanceSettings {
     pub accent_color: String,
     pub font_size: f32,
@@ -180,6 +187,7 @@ impl Default for AppearanceSettings {
 
 /// Advanced/power-user settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AdvancedSettings {
     pub process_priority: String,
     pub network_buffer_size_kb: u32,
@@ -196,6 +204,7 @@ impl Default for AdvancedSettings {
 
 /// Settings window geometry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SettingsWindowConfig {
     pub width: f32,
     pub height: f32,

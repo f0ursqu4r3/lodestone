@@ -13,7 +13,6 @@ use obs::mock::MockObsEngine;
 use renderer::SharedGpuState;
 use state::AppState;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 #[allow(unused_imports)]
 use ui::layout::{
@@ -143,7 +142,8 @@ struct AppManager {
     modifiers: ModifiersState,
     native_menu: Option<NativeMenu>,
     focused_window_id: Option<WindowId>,
-    settings_window_open: Arc<AtomicBool>,
+    settings_window_id: Option<WindowId>,
+    pending_settings_window: bool,
 }
 
 impl AppManager {
@@ -171,7 +171,8 @@ impl AppManager {
             modifiers: ModifiersState::empty(),
             native_menu: None,
             focused_window_id: None,
-            settings_window_open: Arc::new(AtomicBool::new(false)),
+            settings_window_id: None,
+            pending_settings_window: false,
         }
     }
 
@@ -263,10 +264,11 @@ impl AppManager {
     fn reset_layout(&mut self) {
         // Close all detached windows by collecting their IDs.
         if let Some(main_id) = self.main_window_id {
+            let settings_id = self.settings_window_id;
             let detached_ids: Vec<WindowId> = self
                 .windows
                 .keys()
-                .filter(|id| **id != main_id)
+                .filter(|id| **id != main_id && Some(**id) != settings_id)
                 .copied()
                 .collect();
             for id in detached_ids {
@@ -375,8 +377,19 @@ impl ApplicationHandler for AppManager {
                     return;
                 }
                 if self.modifiers.super_key() && *key_code == KeyCode::Comma {
-                    let current = self.settings_window_open.load(Ordering::Relaxed);
-                    self.settings_window_open.store(!current, Ordering::Relaxed);
+                    if let Some(settings_id) = self.settings_window_id {
+                        // Close the settings window
+                        if let Some(win) = self.windows.remove(&settings_id) {
+                            let win_ptr = win.window as *const Window as *mut Window;
+                            unsafe {
+                                drop(Box::from_raw(win_ptr));
+                            }
+                        }
+                        self.settings_window_id = None;
+                    } else {
+                        // Request settings window creation (deferred to about_to_wait)
+                        self.pending_settings_window = true;
+                    }
                     return;
                 }
             }
@@ -387,6 +400,15 @@ impl ApplicationHandler for AppManager {
             WindowEvent::CloseRequested => {
                 if Some(window_id) == self.main_window_id {
                     event_loop.exit();
+                } else if Some(window_id) == self.settings_window_id {
+                    // Close settings window
+                    if let Some(win) = self.windows.remove(&window_id) {
+                        let win_ptr = win.window as *const Window as *mut Window;
+                        unsafe {
+                            drop(Box::from_raw(win_ptr));
+                        }
+                    }
+                    self.settings_window_id = None;
                 } else {
                     // Close the detached window — panels are discarded, not reattached.
                     if let Some(detached_win) = self.windows.remove(&window_id) {
@@ -410,31 +432,13 @@ impl ApplicationHandler for AppManager {
                 if let Some(gpu) = &self.gpu
                     && let Some(win) = self.windows.get_mut(&window_id)
                 {
-                    let mut app_state = self.state.lock().unwrap();
-                    let settings_open = if Some(window_id) == self.main_window_id {
-                        Some(&self.settings_window_open)
-                    } else {
-                        None
-                    };
-                    let layout_changed = match win.render(gpu, &mut app_state, settings_open) {
-                        Ok(detach_requests) => {
-                            let changed = !detach_requests.is_empty();
-                            self.pending_detaches.extend(detach_requests);
-                            changed
-                        }
-                        Err(e) => {
-                            log::error!("Render error: {e}");
-                            false
-                        }
-                    };
-                    drop(app_state);
-                    if layout_changed {
-                        self.save_layout();
-                    }
-
-                    // Debounced settings persistence
-                    if Some(window_id) == self.main_window_id {
+                    if Some(window_id) == self.settings_window_id {
+                        // Settings window render path
                         let mut app_state = self.state.lock().unwrap();
+                        if let Err(e) = win.render_settings(gpu, &mut app_state) {
+                            log::error!("Settings render error: {e}");
+                        }
+                        // Debounced settings persistence
                         if app_state.settings_dirty
                             && app_state.settings_last_changed.elapsed()
                                 > std::time::Duration::from_millis(500)
@@ -446,6 +450,40 @@ impl ApplicationHandler for AppManager {
                             app_state.settings_dirty = false;
                         }
                         drop(app_state);
+                    } else {
+                        // Normal render path
+                        let mut app_state = self.state.lock().unwrap();
+                        let layout_changed = match win.render(gpu, &mut app_state) {
+                            Ok(detach_requests) => {
+                                let changed = !detach_requests.is_empty();
+                                self.pending_detaches.extend(detach_requests);
+                                changed
+                            }
+                            Err(e) => {
+                                log::error!("Render error: {e}");
+                                false
+                            }
+                        };
+                        drop(app_state);
+                        if layout_changed {
+                            self.save_layout();
+                        }
+
+                        // Debounced settings persistence (main window)
+                        if Some(window_id) == self.main_window_id {
+                            let mut app_state = self.state.lock().unwrap();
+                            if app_state.settings_dirty
+                                && app_state.settings_last_changed.elapsed()
+                                    > std::time::Duration::from_millis(500)
+                            {
+                                let path = settings::settings_path();
+                                if let Err(e) = app_state.settings.save_to(&path) {
+                                    log::warn!("Failed to save settings: {e}");
+                                }
+                                app_state.settings_dirty = false;
+                            }
+                            drop(app_state);
+                        }
                     }
 
                     // Check for reattach request from detached windows
@@ -501,6 +539,35 @@ impl ApplicationHandler for AppManager {
         // Process native menu events
         if let Ok(event) = MenuEvent::receiver().try_recv() {
             self.handle_menu_event(&event.id);
+        }
+
+        // Create settings window if requested
+        if self.pending_settings_window {
+            self.pending_settings_window = false;
+            if let Some(gpu) = &self.gpu {
+                let app_state = self.state.lock().unwrap();
+                let win_w = app_state.settings.settings_window.width;
+                let win_h = app_state.settings.settings_window.height;
+                drop(app_state);
+
+                let attrs = WindowAttributes::default()
+                    .with_title("Settings")
+                    .with_inner_size(LogicalSize::new(win_w as f64, win_h as f64))
+                    .with_min_inner_size(LogicalSize::new(500.0, 400.0))
+                    .with_maximized(false);
+                let window = event_loop
+                    .create_window(attrs)
+                    .expect("create settings window");
+                let window: &'static Window = Box::leak(Box::new(window));
+
+                // Settings window doesn't need a layout or preview — use a dummy single-panel layout
+                let layout = DockLayout::new_single(PanelType::Preview);
+                let win_state = WindowState::new(window, gpu, layout, false, None)
+                    .expect("init settings window");
+                let window_id = window.id();
+                self.windows.insert(window_id, win_state);
+                self.settings_window_id = Some(window_id);
+            }
         }
 
         // Create windows for any pending detach requests.

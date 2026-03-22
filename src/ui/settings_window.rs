@@ -1,5 +1,3 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use egui::{
@@ -23,6 +21,7 @@ const MUTED: Color32 = Color32::from_rgb(0x6c, 0x70, 0x86);
 const SURFACE: Color32 = Color32::from_rgb(0x31, 0x32, 0x44);
 const SECTION_HEADER: Color32 = Color32::from_rgb(0x58, 0x5b, 0x70);
 const SIDEBAR_BG: Color32 = Color32::from_rgb(0x18, 0x18, 0x25);
+const CONTENT_BG: Color32 = Color32::from_rgb(0x1e, 0x1e, 0x2e);
 
 // ── Category enum ─────────────────────────────────────────────────────────────
 
@@ -81,80 +80,43 @@ const SIDEBAR_GROUPS: &[SidebarGroup] = &[
     },
 ];
 
-// ── Public entry point (embedded) ─────────────────────────────────────────────
+// ── Public entry point (native window) ────────────────────────────────────────
 
-/// Show the settings window as an embedded `egui::Window` overlay.
-/// Called inside the main egui frame when `embed_viewports()` is true,
-/// which avoids the mutex deadlock that `show_viewport_deferred` would cause.
-pub fn show_embedded(ctx: &egui::Context, state: &mut AppState, open: &Arc<AtomicBool>) {
-    if !open.load(Ordering::Relaxed) {
+/// Render settings UI directly into a native window's egui context.
+/// Called from `WindowState::render_settings()`.
+pub fn render_native(ctx: &egui::Context, state: &mut AppState) {
+    // Handle Escape to close
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         return;
     }
 
-    let win_w = state.settings.settings_window.width;
-    let win_h = state.settings.settings_window.height;
-
-    let mut is_open = true;
-    egui::Window::new("Settings")
-        .open(&mut is_open)
-        .default_size(egui::vec2(win_w, win_h))
-        .min_size(egui::vec2(500.0, 400.0))
-        .collapsible(false)
-        .show(ctx, |ui| {
-            render_settings_ui_direct(ctx, state, ui);
-        });
-
-    if !is_open {
-        open.store(false, Ordering::Relaxed);
-    }
-
-    // Handle Escape
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        open.store(false, Ordering::Relaxed);
-    }
-}
-
-// NOTE: Native viewport support (separate OS window) is not available with our custom
-// winit+wgpu setup because egui's `embed_viewports()` defaults to true, which runs
-// viewport callbacks inline and would deadlock on the AppState mutex. If native viewports
-// are needed in the future, the rendering architecture will need to pass already-locked
-// state into viewport callbacks rather than re-locking.
-
-// ── Shared rendering logic ────────────────────────────────────────────────────
-
-/// Render settings UI taking `&mut AppState` directly, avoiding any mutex locking.
-fn render_settings_ui_direct(ctx: &egui::Context, state: &mut AppState, ui: &mut Ui) {
     let settings_id = Id::new("settings_active_category");
     let mut active = ctx
         .data_mut(|d| d.get_temp::<SettingsCategory>(settings_id))
         .unwrap_or(SettingsCategory::General);
 
-    ui.horizontal(|ui| {
-        // Sidebar
-        let sidebar_width = 190.0;
-        let available_height = ui.available_height();
+    // Sidebar panel
+    egui::SidePanel::left("settings_sidebar")
+        .exact_width(190.0)
+        .resizable(false)
+        .frame(egui::Frame::NONE.fill(SIDEBAR_BG))
+        .show(ctx, |ui| {
+            ui.add_space(12.0);
+            render_sidebar(ui, &mut active);
+        });
 
-        ui.allocate_ui_with_layout(
-            Vec2::new(sidebar_width, available_height),
-            Layout::top_down(Align::Min),
-            |ui| {
-                let rect = Rect::from_min_size(
-                    ui.min_rect().min,
-                    Vec2::new(sidebar_width, available_height),
-                );
-                ui.painter()
-                    .rect_filled(rect, CornerRadius::ZERO, SIDEBAR_BG);
-                ui.set_min_size(Vec2::new(sidebar_width, available_height));
-                render_sidebar(ui, &mut active);
-            },
-        );
-
-        // Content area
-        ui.with_layout(Layout::top_down(Align::Min), |ui| {
+    // Content panel
+    egui::CentralPanel::default()
+        .frame(
+            egui::Frame::NONE
+                .fill(CONTENT_BG)
+                .inner_margin(egui::Margin::same(24)),
+        )
+        .show(ctx, |ui| {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui.add_space(24.0);
                     ui.style_mut().spacing.item_spacing.y = 8.0;
 
                     let changed = render_content_direct(ui, active, state);
@@ -167,7 +129,6 @@ fn render_settings_ui_direct(ctx: &egui::Context, state: &mut AppState, ui: &mut
                     ui.add_space(24.0);
                 });
         });
-    });
 
     ctx.data_mut(|d| d.insert_temp(settings_id, active));
 }

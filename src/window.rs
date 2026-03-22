@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
 use anyhow::Result;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Surface, SurfaceConfiguration};
@@ -105,7 +102,6 @@ impl WindowState {
         &mut self,
         gpu: &SharedGpuState,
         state: &mut AppState,
-        settings_open: Option<&Arc<AtomicBool>>,
     ) -> Result<Vec<DetachRequest>> {
         let raw_input = self.egui_state.take_egui_input(self.window);
 
@@ -129,11 +125,6 @@ impl WindowState {
                 available_rect,
                 is_main,
             ));
-
-            // Show settings window overlay (main window only)
-            if let Some(open) = settings_open {
-                crate::ui::settings_window::show_embedded(ctx, state, open);
-            }
         });
 
         // Apply layout actions after the egui frame
@@ -488,6 +479,111 @@ impl WindowState {
             .handle_platform_output(self.window, full_output.platform_output);
 
         Ok(detach_requests)
+    }
+
+    /// Render the settings window content.
+    pub fn render_settings(&mut self, gpu: &SharedGpuState, state: &mut AppState) -> Result<()> {
+        let raw_input = self.egui_state.take_egui_input(self.window);
+
+        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+            crate::ui::settings_window::render_native(ctx, state);
+        });
+
+        let pixels_per_point = full_output.pixels_per_point;
+        let paint_jobs = self
+            .egui_ctx
+            .tessellate(full_output.shapes, pixels_per_point);
+
+        let output = self
+            .surface
+            .get_current_texture()
+            .map_err(|e| anyhow::anyhow!("Failed to get surface texture: {e}"))?;
+        let view = output.texture.create_view(&Default::default());
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("settings_render_encoder"),
+            });
+
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.surface_config.width, self.surface_config.height],
+            pixels_per_point,
+        };
+
+        for (id, image_delta) in &full_output.textures_delta.set {
+            self.egui_renderer
+                .update_texture(&gpu.device, &gpu.queue, *id, image_delta);
+        }
+
+        let user_cmd_bufs = self.egui_renderer.update_buffers(
+            &gpu.device,
+            &gpu.queue,
+            &mut encoder,
+            &paint_jobs,
+            &screen_descriptor,
+        );
+
+        // Clear pass
+        {
+            let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("settings_clear_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.08,
+                            g: 0.08,
+                            b: 0.10,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+
+        // egui pass
+        {
+            let mut render_pass = encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("settings_egui_pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                })
+                .forget_lifetime();
+            self.egui_renderer
+                .render(&mut render_pass, &paint_jobs, &screen_descriptor);
+            gpu.text_renderer.render()?;
+        }
+
+        for id in &full_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
+
+        let mut cmds: Vec<wgpu::CommandBuffer> = user_cmd_bufs;
+        cmds.push(encoder.finish());
+        gpu.queue.submit(cmds);
+        output.present();
+
+        self.egui_state
+            .handle_platform_output(self.window, full_output.platform_output);
+
+        Ok(())
     }
 
     /// Close a tab. If it's the last tab in a floating group, remove the floating group.

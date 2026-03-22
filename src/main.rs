@@ -154,14 +154,14 @@ impl AppManager {
         let (main_channels, thread_channels) = gstreamer::create_channels();
         let gst_handle = gstreamer::spawn_gstreamer_thread(thread_channels);
 
-        use crate::scene::{Scene, SceneId};
+        use crate::scene::SceneCollection;
+        let collection = SceneCollection::load_from(&settings::scenes_path());
         let initial_state = AppState {
-            scenes: vec![Scene {
-                id: SceneId(1),
-                name: "Scene 1".to_string(),
-                sources: vec![],
-            }],
-            active_scene_id: Some(SceneId(1)),
+            scenes: collection.scenes,
+            sources: collection.sources,
+            active_scene_id: collection.active_scene_id,
+            next_scene_id: collection.next_scene_id,
+            next_source_id: collection.next_source_id,
             command_tx: Some(main_channels.command_tx.clone()),
             ..AppState::default()
         };
@@ -357,6 +357,33 @@ impl ApplicationHandler for AppManager {
         }
         self.native_menu = Some(native_menu);
 
+        // Store monitor count
+        {
+            let monitor_count = event_loop.available_monitors().count().max(1);
+            let mut state = self.state.lock().unwrap();
+            state.monitor_count = monitor_count;
+        }
+
+        // Send initial capture command based on active scene
+        {
+            let state = self.state.lock().unwrap();
+            if let Some(scene_id) = state.active_scene_id {
+                if let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id) {
+                    if let Some(&src_id) = scene.sources.first() {
+                        if let Some(source) = state.sources.iter().find(|s| s.id == src_id) {
+                            let crate::scene::SourceProperties::Display { screen_index } =
+                                source.properties;
+                            if let Some(ref tx) = state.command_tx {
+                                let _ = tx.try_send(gstreamer::GstCommand::SetCaptureSource(
+                                    gstreamer::CaptureSourceConfig::Screen { screen_index },
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         log::info!("Window and renderer initialized");
     }
 
@@ -490,6 +517,25 @@ impl ApplicationHandler for AppManager {
                                 }
                                 app_state.settings_dirty = false;
                             }
+
+                            // Debounced scene persistence
+                            if app_state.scenes_dirty
+                                && app_state.scenes_last_changed.elapsed()
+                                    > std::time::Duration::from_millis(500)
+                            {
+                                let collection = crate::scene::SceneCollection {
+                                    scenes: app_state.scenes.clone(),
+                                    sources: app_state.sources.clone(),
+                                    active_scene_id: app_state.active_scene_id,
+                                    next_scene_id: app_state.next_scene_id,
+                                    next_source_id: app_state.next_source_id,
+                                };
+                                let path = settings::scenes_path();
+                                if let Err(e) = collection.save_to(&path) {
+                                    log::warn!("Failed to save scenes: {e}");
+                                }
+                                app_state.scenes_dirty = false;
+                            }
                             drop(app_state);
                         }
                     }
@@ -571,6 +617,32 @@ impl ApplicationHandler for AppManager {
                 let devices = channels.devices_rx.borrow_and_update().clone();
                 let mut app_state = self.state.lock().expect("lock AppState");
                 app_state.available_audio_devices = devices;
+            }
+        }
+
+        // Upload blank preview when capture is stopped
+        {
+            let state = self.state.lock().unwrap();
+            if !state.capture_active {
+                drop(state);
+                if let Some(ref gpu) = self.gpu {
+                    let w = gpu.preview_renderer.width;
+                    let h = gpu.preview_renderer.height;
+                    let size = (w * h * 4) as usize;
+                    let mut data = vec![0u8; size];
+                    for pixel in data.chunks_exact_mut(4) {
+                        pixel[0] = 30;
+                        pixel[1] = 30;
+                        pixel[2] = 30;
+                        pixel[3] = 255;
+                    }
+                    let blank = gstreamer::RgbaFrame {
+                        data,
+                        width: w,
+                        height: h,
+                    };
+                    gpu.preview_renderer.upload_frame(&gpu.queue, &blank);
+                }
             }
         }
 

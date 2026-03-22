@@ -8,8 +8,8 @@ pub mod types;
 
 #[allow(unused_imports)]
 pub use commands::{
-    AudioEncoderConfig, AudioSourceKind, GstChannels, GstCommand, RecordingFormat, StreamConfig,
-    StreamDestination, create_channels,
+    AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, GstChannels, GstCommand,
+    RecordingFormat, StreamConfig, StreamDestination, create_channels,
 };
 pub use error::GstError;
 pub use thread::spawn_gstreamer_thread;

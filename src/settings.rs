@@ -225,6 +225,10 @@ pub fn settings_path() -> PathBuf {
     config_dir().join("settings.toml")
 }
 
+pub fn scenes_path() -> PathBuf {
+    config_dir().join("scenes.toml")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

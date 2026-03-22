@@ -5,10 +5,10 @@ use egui::{
     StrokeKind, Ui, Vec2, Widget,
 };
 
-use crate::gstreamer::StreamDestination;
+use crate::gstreamer::{AudioSourceKind, GstCommand, StreamDestination};
 use crate::settings::{
-    AdvancedSettings, AppearanceSettings, AudioSettings, GeneralSettings, HotkeySettings,
-    StreamSettings, VideoSettings,
+    AdvancedSettings, AppearanceSettings, GeneralSettings, HotkeySettings, StreamSettings,
+    VideoSettings,
 };
 use crate::state::AppState;
 
@@ -216,7 +216,7 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
             match category {
                 SettingsCategory::General => draw_general(ui, &mut state.settings.general),
                 SettingsCategory::StreamOutput => draw_stream(ui, &mut state.settings.stream),
-                SettingsCategory::Audio => draw_audio(ui, &mut state.settings.audio),
+                SettingsCategory::Audio => draw_audio(ui, state),
                 SettingsCategory::Video => draw_video(ui, &mut state.settings.video),
                 SettingsCategory::Hotkeys => draw_hotkeys(ui, &mut state.settings.hotkeys),
                 SettingsCategory::Appearance => draw_appearance(ui, &mut state.settings.appearance),
@@ -451,7 +451,7 @@ fn draw_stream(ui: &mut Ui, settings: &mut StreamSettings) -> bool {
 
 // ── Category: Audio ───────────────────────────────────────────────────────────
 
-fn draw_audio(ui: &mut Ui, settings: &mut AudioSettings) -> bool {
+fn draw_audio(ui: &mut Ui, state: &mut AppState) -> bool {
     let mut changed = false;
 
     section_header(ui, "DEVICES");
@@ -459,14 +459,42 @@ fn draw_audio(ui: &mut Ui, settings: &mut AudioSettings) -> bool {
     ui.horizontal(|ui| {
         labeled_row(ui, "Input Device");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            // Build the list of non-loopback (microphone) devices from runtime enumeration.
+            let mic_devices: Vec<_> = state
+                .available_audio_devices
+                .iter()
+                .filter(|d| !d.is_loopback)
+                .cloned()
+                .collect();
+
+            let selected_text = mic_devices
+                .iter()
+                .find(|d| d.uid == state.settings.audio.input_device)
+                .map(|d| d.name.as_str())
+                .unwrap_or(&state.settings.audio.input_device);
+
             let combo = egui::ComboBox::from_id_salt("audio_input")
-                .selected_text(&settings.input_device)
+                .selected_text(selected_text.to_string())
                 .show_ui(ui, |ui| {
                     let mut c = false;
-                    for dev in &["Default", "Built-in Microphone", "USB Audio"] {
-                        c |= ui
-                            .selectable_value(&mut settings.input_device, dev.to_string(), *dev)
+                    for dev in &mic_devices {
+                        let selected = ui
+                            .selectable_value(
+                                &mut state.settings.audio.input_device,
+                                dev.uid.clone(),
+                                &dev.name,
+                            )
                             .changed();
+                        if selected {
+                            // Notify the GStreamer thread of the new device.
+                            if let Some(tx) = &state.command_tx {
+                                let _ = tx.try_send(GstCommand::SetAudioDevice {
+                                    source: AudioSourceKind::Mic,
+                                    device_uid: dev.uid.clone(),
+                                });
+                            }
+                            c = true;
+                        }
                     }
                     c
                 });
@@ -480,12 +508,16 @@ fn draw_audio(ui: &mut Ui, settings: &mut AudioSettings) -> bool {
         labeled_row(ui, "Output Device");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("audio_output")
-                .selected_text(&settings.output_device)
+                .selected_text(&state.settings.audio.output_device)
                 .show_ui(ui, |ui| {
                     let mut c = false;
                     for dev in &["Default", "Built-in Speakers", "USB Audio"] {
                         c |= ui
-                            .selectable_value(&mut settings.output_device, dev.to_string(), *dev)
+                            .selectable_value(
+                                &mut state.settings.audio.output_device,
+                                dev.to_string(),
+                                *dev,
+                            )
                             .changed();
                     }
                     c
@@ -502,13 +534,13 @@ fn draw_audio(ui: &mut Ui, settings: &mut AudioSettings) -> bool {
         labeled_row(ui, "Sample Rate");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("sample_rate")
-                .selected_text(format!("{} Hz", settings.sample_rate))
+                .selected_text(format!("{} Hz", state.settings.audio.sample_rate))
                 .show_ui(ui, |ui| {
                     let mut c = false;
                     for rate in &[44100u32, 48000, 96000] {
                         c |= ui
                             .selectable_value(
-                                &mut settings.sample_rate,
+                                &mut state.settings.audio.sample_rate,
                                 *rate,
                                 format!("{rate} Hz"),
                             )
@@ -526,12 +558,16 @@ fn draw_audio(ui: &mut Ui, settings: &mut AudioSettings) -> bool {
         labeled_row(ui, "Monitoring");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("monitoring")
-                .selected_text(&settings.monitoring)
+                .selected_text(&state.settings.audio.monitoring)
                 .show_ui(ui, |ui| {
                     let mut c = false;
                     for mode in &["off", "monitor only", "monitor and output"] {
                         c |= ui
-                            .selectable_value(&mut settings.monitoring, mode.to_string(), *mode)
+                            .selectable_value(
+                                &mut state.settings.audio.monitoring,
+                                mode.to_string(),
+                                *mode,
+                            )
                             .changed();
                     }
                     c

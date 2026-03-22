@@ -1,3 +1,4 @@
+use crate::gstreamer::{GstCommand, GstError};
 use crate::scene::{Scene, SceneId, Source, SourceId};
 use crate::settings::AppSettings;
 
@@ -37,6 +38,13 @@ impl StreamStatus {
     }
 }
 
+/// Whether the app is currently recording.
+#[derive(Debug, Clone)]
+pub enum RecordingStatus {
+    Idle,
+    Recording { path: std::path::PathBuf },
+}
+
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub scenes: Vec<Scene>,
@@ -49,6 +57,9 @@ pub struct AppState {
     pub settings_last_changed: std::time::Instant,
     pub preview_width: u32,
     pub preview_height: u32,
+    pub active_errors: Vec<GstError>,
+    pub recording_status: RecordingStatus,
+    pub command_tx: Option<tokio::sync::mpsc::Sender<GstCommand>>,
 }
 
 impl Default for AppState {
@@ -64,6 +75,9 @@ impl Default for AppState {
             settings_last_changed: std::time::Instant::now(),
             preview_width: 0,
             preview_height: 0,
+            active_errors: Vec::new(),
+            recording_status: RecordingStatus::Idle,
+            command_tx: None,
         }
     }
 }

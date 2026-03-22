@@ -1,6 +1,4 @@
 mod gstreamer;
-mod mock_driver;
-mod obs;
 mod renderer;
 mod scene;
 mod settings;
@@ -10,8 +8,6 @@ mod window;
 
 use anyhow::Result;
 use muda::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
-use obs::ObsEngine;
-use obs::mock::MockObsEngine;
 use renderer::SharedGpuState;
 use state::AppState;
 use std::collections::HashMap;
@@ -138,8 +134,9 @@ struct AppManager {
     main_window_id: Option<WindowId>,
     state: Arc<Mutex<AppState>>,
     runtime: tokio::runtime::Runtime,
+    gst_channels: Option<gstreamer::GstChannels>,
     #[allow(dead_code)]
-    engine: MockObsEngine,
+    gst_thread: Option<std::thread::JoinHandle<()>>,
     pending_detaches: Vec<DetachRequest>,
     modifiers: ModifiersState,
     native_menu: Option<NativeMenu>,
@@ -151,14 +148,20 @@ struct AppManager {
 impl AppManager {
     fn new() -> Self {
         let runtime = tokio::runtime::Runtime::new().expect("create tokio runtime");
-        let engine = MockObsEngine::new();
 
-        // Populate initial AppState from the engine's default scenes/sources.
-        let scenes = engine.scenes();
-        let active_scene_id = engine.active_scene_id();
+        // Create GStreamer channels and spawn the GStreamer thread.
+        let (main_channels, thread_channels) = gstreamer::create_channels();
+        let gst_handle = gstreamer::spawn_gstreamer_thread(thread_channels);
+
+        use crate::scene::{Scene, SceneId};
         let initial_state = AppState {
-            scenes,
-            active_scene_id,
+            scenes: vec![Scene {
+                id: SceneId(1),
+                name: "Scene 1".to_string(),
+                sources: vec![],
+            }],
+            active_scene_id: Some(SceneId(1)),
+            command_tx: Some(main_channels.command_tx.clone()),
             ..AppState::default()
         };
 
@@ -168,7 +171,8 @@ impl AppManager {
             main_window_id: None,
             state: Arc::new(Mutex::new(initial_state)),
             runtime,
-            engine,
+            gst_channels: Some(main_channels),
+            gst_thread: Some(gst_handle),
             pending_detaches: Vec::new(),
             modifiers: ModifiersState::empty(),
             native_menu: None,
@@ -351,10 +355,6 @@ impl ApplicationHandler for AppManager {
             let _ = unsafe { native_menu.menu.init_for_hwnd(window.rwh().hwnd) };
         }
         self.native_menu = Some(native_menu);
-
-        // Spawn mock data driver on the tokio runtime
-        self.runtime
-            .spawn(mock_driver::run_mock_driver(self.state.clone()));
 
         log::info!("Window and renderer initialized");
     }
@@ -543,6 +543,22 @@ impl ApplicationHandler for AppManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        // Poll GStreamer frame channel and upload to preview texture
+        if let Some(ref mut channels) = self.gst_channels {
+            while let Ok(frame) = channels.frame_rx.try_recv() {
+                if let Some(ref gpu) = self.gpu {
+                    gpu.preview_renderer.upload_frame(&gpu.queue, &frame);
+                }
+            }
+
+            // Poll GStreamer error channel
+            while let Ok(err) = channels.error_rx.try_recv() {
+                log::error!("GStreamer error: {err}");
+                let mut app_state = self.state.lock().expect("lock AppState");
+                app_state.active_errors.push(err);
+            }
+        }
+
         // Process native menu events
         if let Ok(event) = MenuEvent::receiver().try_recv() {
             self.handle_menu_event(&event.id);

@@ -437,6 +437,22 @@ impl ApplicationHandler for AppManager {
                         self.save_layout();
                     }
 
+                    // Debounced settings persistence
+                    if Some(window_id) == self.main_window_id {
+                        let mut app_state = self.state.lock().unwrap();
+                        if app_state.settings_dirty
+                            && app_state.settings_last_changed.elapsed()
+                                > std::time::Duration::from_millis(500)
+                        {
+                            let path = settings::settings_path();
+                            if let Err(e) = app_state.settings.save_to(&path) {
+                                log::warn!("Failed to save settings: {e}");
+                            }
+                            app_state.settings_dirty = false;
+                        }
+                        drop(app_state);
+                    }
+
                     // Check for reattach request from detached windows
                     if Some(window_id) != self.main_window_id
                         && self

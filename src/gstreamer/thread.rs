@@ -107,14 +107,30 @@ impl GstThread {
             self.audio_encoder_config.sample_rate,
         ) {
             Ok((pipeline, appsink, volume_name)) => {
-                if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
-                    let _ =
-                        self.channels
-                            .error_tx
-                            .send(GstError::AudioCaptureFailure {
-                                message: format!("Failed to start {kind:?} audio capture: {e}"),
-                            });
-                    return;
+                log::info!("Starting {kind:?} audio pipeline for device '{device_uid}'");
+                match pipeline.set_state(gstreamer::State::Playing) {
+                    Err(e) => {
+                        // Check the bus for more detailed error info
+                        if let Some(bus) = pipeline.bus() {
+                            if let Some(msg) = bus.timed_pop_filtered(
+                                gstreamer::ClockTime::from_mseconds(100),
+                                &[gstreamer::MessageType::Error],
+                            ) {
+                                if let gstreamer::MessageView::Error(err) = msg.view() {
+                                    log::error!("Audio pipeline error detail: {}", err.error());
+                                    if let Some(debug) = err.debug() {
+                                        log::error!("Audio pipeline debug: {debug}");
+                                    }
+                                }
+                            }
+                        }
+                        let _ = pipeline.set_state(gstreamer::State::Null);
+                        let _ = self.channels.error_tx.send(GstError::AudioCaptureFailure {
+                            message: format!("Failed to start {kind:?} audio capture: {e}"),
+                        });
+                        return;
+                    }
+                    Ok(_) => {}
                 }
                 match kind {
                     AudioSourceKind::Mic => {

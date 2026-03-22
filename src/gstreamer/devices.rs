@@ -22,7 +22,7 @@ pub fn enumerate_audio_input_devices() -> Result<Vec<AudioDevice>> {
         let name = device.display_name().to_string();
         let uid = device
             .properties()
-            .and_then(|props| props.get::<String>("device.uid").ok())
+            .and_then(|props| props.get::<String>("unique-id").ok())
             .unwrap_or_else(|| name.clone());
 
         let is_loopback = LOOPBACK_DEVICE_NAMES

@@ -272,7 +272,13 @@ pub fn deserialize_full_layout(toml_str: &str) -> Result<(DockLayout, Vec<Detach
     GroupId::set_counter(max_group_id + 1);
 
     // Repair leaf nodes that reference dropped groups.
-    repair_orphaned_leaves(&mut nodes, &mut groups, root_id);
+    repair_orphaned_leaves(&mut nodes, &mut groups);
+
+    // Filter out floating groups referencing dropped groups
+    let floating: Vec<FloatingGroup> = floating
+        .into_iter()
+        .filter(|f| groups.contains_key(&f.group_id))
+        .collect();
 
     let layout = DockLayout::from_parts(nodes, root_id, next_node_id, groups, floating);
 
@@ -290,7 +296,6 @@ pub fn deserialize_with_detached(toml_str: &str) -> Result<(DockLayout, Vec<Deta
 fn repair_orphaned_leaves(
     nodes: &mut HashMap<NodeId, SplitNode>,
     groups: &mut HashMap<GroupId, Group>,
-    _root: NodeId,
 ) {
     let node_ids: Vec<NodeId> = nodes.keys().copied().collect();
     for node_id in node_ids {
@@ -532,6 +537,45 @@ panel_type = "Preview"
         let all_panels = layout.collect_all_panels();
         assert_eq!(all_panels.len(), 1);
         assert_eq!(all_panels[0].1, PanelType::Preview);
+    }
+
+    #[test]
+    fn all_unknown_tabs_group_gets_repaired() {
+        let toml_str = r#"
+[tree]
+type = "split"
+direction = "Vertical"
+ratio = 0.5
+
+[tree.first]
+type = "leaf"
+group_id = 1
+
+[tree.second]
+type = "leaf"
+group_id = 2
+
+[[groups]]
+id = 1
+active_tab = 0
+[[groups.tabs]]
+panel_id = 1
+panel_type = "Preview"
+
+[[groups]]
+id = 2
+active_tab = 0
+[[groups.tabs]]
+panel_id = 2
+panel_type = "Settings"
+"#;
+        let result = deserialize_full_layout(toml_str);
+        assert!(result.is_ok());
+        let (layout, _) = result.unwrap();
+        // Group 2's Settings tab is unknown, so it gets replaced with a default Preview group
+        assert_eq!(layout.groups.len(), 2);
+        let all_panels = layout.collect_all_panels();
+        assert!(all_panels.iter().all(|(_, t)| *t == PanelType::Preview));
     }
 
     #[test]

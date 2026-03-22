@@ -283,6 +283,20 @@ impl AppManager {
         self.save_layout();
         log::info!("Layout reset to default");
     }
+
+    /// Close the settings window if it's open.
+    fn close_settings_window(&mut self) {
+        if let Some(settings_id) = self.settings_window_id.take()
+            && let Some(win) = self.windows.remove(&settings_id)
+        {
+            let win_ptr = win.window as *const Window as *mut Window;
+            // SAFETY: the pointer was created via Box::leak(Box::new(window))
+            // in `about_to_wait`, and we are the sole owner.
+            unsafe {
+                drop(Box::from_raw(win_ptr));
+            }
+        }
+    }
 }
 
 impl ApplicationHandler for AppManager {
@@ -377,19 +391,17 @@ impl ApplicationHandler for AppManager {
                     return;
                 }
                 if self.modifiers.super_key() && *key_code == KeyCode::Comma {
-                    if let Some(settings_id) = self.settings_window_id {
-                        // Close the settings window
-                        if let Some(win) = self.windows.remove(&settings_id) {
-                            let win_ptr = win.window as *const Window as *mut Window;
-                            unsafe {
-                                drop(Box::from_raw(win_ptr));
-                            }
-                        }
-                        self.settings_window_id = None;
+                    if self.settings_window_id.is_some() {
+                        self.close_settings_window();
                     } else {
                         // Request settings window creation (deferred to about_to_wait)
                         self.pending_settings_window = true;
                     }
+                    return;
+                }
+                // Escape closes the settings window when it's focused
+                if *key_code == KeyCode::Escape && Some(window_id) == self.settings_window_id {
+                    self.close_settings_window();
                     return;
                 }
             }
@@ -401,14 +413,7 @@ impl ApplicationHandler for AppManager {
                 if Some(window_id) == self.main_window_id {
                     event_loop.exit();
                 } else if Some(window_id) == self.settings_window_id {
-                    // Close settings window
-                    if let Some(win) = self.windows.remove(&window_id) {
-                        let win_ptr = win.window as *const Window as *mut Window;
-                        unsafe {
-                            drop(Box::from_raw(win_ptr));
-                        }
-                    }
-                    self.settings_window_id = None;
+                    self.close_settings_window();
                 } else {
                     // Close the detached window — panels are discarded, not reattached.
                     if let Some(detached_win) = self.windows.remove(&window_id) {

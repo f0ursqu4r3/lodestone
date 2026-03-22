@@ -85,12 +85,6 @@ const SIDEBAR_GROUPS: &[SidebarGroup] = &[
 /// Render settings UI directly into a native window's egui context.
 /// Called from `WindowState::render_settings()`.
 pub fn render_native(ctx: &egui::Context, state: &mut AppState) {
-    // Handle Escape to close
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        return;
-    }
-
     let settings_id = Id::new("settings_active_category");
     let mut active = ctx
         .data_mut(|d| d.get_temp::<SettingsCategory>(settings_id))

@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod commands;
+pub mod devices;
 pub mod encode;
 pub mod error;
 pub mod thread;

@@ -411,7 +411,12 @@ impl ApplicationHandler for AppManager {
                     && let Some(win) = self.windows.get_mut(&window_id)
                 {
                     let mut app_state = self.state.lock().unwrap();
-                    let layout_changed = match win.render(gpu, &mut app_state) {
+                    let settings_open = if Some(window_id) == self.main_window_id {
+                        Some(&self.settings_window_open)
+                    } else {
+                        None
+                    };
+                    let layout_changed = match win.render(gpu, &mut app_state, settings_open) {
                         Ok(detach_requests) => {
                             let changed = !detach_requests.is_empty();
                             self.pending_detaches.extend(detach_requests);
@@ -441,17 +446,6 @@ impl ApplicationHandler for AppManager {
                             app_state.settings_dirty = false;
                         }
                         drop(app_state);
-                    }
-
-                    // Show settings window (main window only, after releasing AppState lock)
-                    if Some(window_id) == self.main_window_id {
-                        if let Some(win) = self.windows.get(&window_id) {
-                            crate::ui::settings_window::show(
-                                &win.egui_ctx,
-                                &self.state,
-                                &self.settings_window_open,
-                            );
-                        }
                     }
 
                     // Check for reattach request from detached windows

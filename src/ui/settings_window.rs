@@ -82,12 +82,51 @@ const SIDEBAR_GROUPS: &[SidebarGroup] = &[
     },
 ];
 
-// ── Public entry point ────────────────────────────────────────────────────────
+// ── Public entry point (embedded) ─────────────────────────────────────────────
 
-/// Show the settings window. Called each frame from the main render loop.
+/// Show the settings window as an embedded `egui::Window` overlay.
+/// Called inside the main egui frame when `embed_viewports()` is true,
+/// which avoids the mutex deadlock that `show_viewport_deferred` would cause.
+pub fn show_embedded(
+    ctx: &egui::Context,
+    state: &mut AppState,
+    open: &Arc<AtomicBool>,
+) {
+    if !open.load(Ordering::Relaxed) {
+        return;
+    }
+
+    let win_w = state.settings.settings_window.width;
+    let win_h = state.settings.settings_window.height;
+
+    let mut is_open = true;
+    egui::Window::new("Settings")
+        .open(&mut is_open)
+        .default_size(egui::vec2(win_w, win_h))
+        .min_size(egui::vec2(500.0, 400.0))
+        .collapsible(false)
+        .show(ctx, |ui| {
+            render_settings_ui_direct(ctx, state, ui);
+        });
+
+    if !is_open {
+        open.store(false, Ordering::Relaxed);
+    }
+
+    // Handle Escape
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        open.store(false, Ordering::Relaxed);
+    }
+}
+
+// ── Legacy entry point (for future native viewports) ─────────────────────────
+
+/// Show the settings window via `show_viewport_deferred`.
 ///
-/// Uses `show_viewport_deferred` which falls back to an `egui::Window` overlay
-/// when native viewports are not supported (the default for our custom winit+wgpu setup).
+/// **Warning:** This will deadlock if called while `AppState` is already locked,
+/// because `embed_viewports()` causes the callback to run inline. Prefer
+/// `show_embedded` for the current custom winit+wgpu setup.
+#[allow(dead_code)]
 pub fn show(ctx: &egui::Context, state: &Arc<Mutex<AppState>>, open: &Arc<AtomicBool>) {
     if !open.load(Ordering::Relaxed) {
         return;
@@ -158,7 +197,8 @@ pub fn show(ctx: &egui::Context, state: &Arc<Mutex<AppState>>, open: &Arc<Atomic
 
 // ── Shared rendering logic ────────────────────────────────────────────────────
 
-fn render_settings_ui(ctx: &egui::Context, state: &Arc<Mutex<AppState>>, ui: &mut Ui) {
+/// Render settings UI taking `&mut AppState` directly, avoiding any mutex locking.
+fn render_settings_ui_direct(ctx: &egui::Context, state: &mut AppState, ui: &mut Ui) {
     let settings_id = Id::new("settings_active_category");
     let mut active = ctx
         .data_mut(|d| d.get_temp::<SettingsCategory>(settings_id))
@@ -192,12 +232,11 @@ fn render_settings_ui(ctx: &egui::Context, state: &Arc<Mutex<AppState>>, ui: &mu
                     ui.add_space(24.0);
                     ui.style_mut().spacing.item_spacing.y = 8.0;
 
-                    let changed = render_content(ui, active, state);
+                    let changed = render_content_direct(ui, active, state);
 
                     if changed {
-                        let mut app = state.lock().expect("lock AppState for dirty flag");
-                        app.settings_dirty = true;
-                        app.settings_last_changed = Instant::now();
+                        state.settings_dirty = true;
+                        state.settings_last_changed = Instant::now();
                     }
 
                     ui.add_space(24.0);
@@ -206,6 +245,12 @@ fn render_settings_ui(ctx: &egui::Context, state: &Arc<Mutex<AppState>>, ui: &mu
     });
 
     ctx.data_mut(|d| d.insert_temp(settings_id, active));
+}
+
+/// Render settings UI from an `Arc<Mutex<AppState>>` (for the legacy `show` path).
+fn render_settings_ui(ctx: &egui::Context, state: &Arc<Mutex<AppState>>, ui: &mut Ui) {
+    let mut app = state.lock().expect("lock AppState for settings UI");
+    render_settings_ui_direct(ctx, &mut app, ui);
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -276,9 +321,8 @@ fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory) {
 
 // ── Content dispatch ──────────────────────────────────────────────────────────
 
-fn render_content(ui: &mut Ui, category: SettingsCategory, state: &Arc<Mutex<AppState>>) -> bool {
-    let mut app = state.lock().expect("lock AppState for settings content");
-
+/// Render the content area for the active category, taking `&mut AppState` directly.
+fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut AppState) -> bool {
     // Section title
     ui.horizontal(|ui| {
         ui.add_space(24.0);
@@ -296,13 +340,13 @@ fn render_content(ui: &mut Ui, category: SettingsCategory, state: &Arc<Mutex<App
         ui.with_layout(Layout::top_down(Align::Min), |ui| {
             ui.set_width(ui.available_width() - 24.0);
             match category {
-                SettingsCategory::General => draw_general(ui, &mut app.settings.general),
-                SettingsCategory::StreamOutput => draw_stream(ui, &mut app.settings.stream),
-                SettingsCategory::Audio => draw_audio(ui, &mut app.settings.audio),
-                SettingsCategory::Video => draw_video(ui, &mut app.settings.video),
-                SettingsCategory::Hotkeys => draw_hotkeys(ui, &mut app.settings.hotkeys),
-                SettingsCategory::Appearance => draw_appearance(ui, &mut app.settings.appearance),
-                SettingsCategory::Advanced => draw_advanced(ui, &mut app.settings.advanced),
+                SettingsCategory::General => draw_general(ui, &mut state.settings.general),
+                SettingsCategory::StreamOutput => draw_stream(ui, &mut state.settings.stream),
+                SettingsCategory::Audio => draw_audio(ui, &mut state.settings.audio),
+                SettingsCategory::Video => draw_video(ui, &mut state.settings.video),
+                SettingsCategory::Hotkeys => draw_hotkeys(ui, &mut state.settings.hotkeys),
+                SettingsCategory::Appearance => draw_appearance(ui, &mut state.settings.appearance),
+                SettingsCategory::Advanced => draw_advanced(ui, &mut state.settings.advanced),
             }
         })
         .inner

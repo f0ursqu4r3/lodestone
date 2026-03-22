@@ -1,3 +1,6 @@
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
 use anyhow::Result;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Surface, SurfaceConfiguration};
@@ -102,6 +105,7 @@ impl WindowState {
         &mut self,
         gpu: &SharedGpuState,
         state: &mut AppState,
+        settings_open: Option<&Arc<AtomicBool>>,
     ) -> Result<Vec<DetachRequest>> {
         let raw_input = self.egui_state.take_egui_input(self.window);
 
@@ -125,6 +129,11 @@ impl WindowState {
                 available_rect,
                 is_main,
             ));
+
+            // Show settings window overlay (main window only)
+            if let Some(open) = settings_open {
+                crate::ui::settings_window::show_embedded(ctx, state, open);
+            }
         });
 
         // Apply layout actions after the egui frame

@@ -1,25 +1,6 @@
 use crate::gstreamer::{GstCommand, GstError};
-use crate::scene::{Scene, SceneId, Source, SourceId};
+use crate::scene::{Scene, SceneId, Source};
 use crate::settings::AppSettings;
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct AudioLevel {
-    pub source_id: SourceId,
-    pub current_db: f32,
-    pub peak_db: f32,
-}
-
-impl AudioLevel {
-    #[allow(dead_code)]
-    pub fn new(source_id: SourceId, current_db: f32, peak_db: f32) -> Self {
-        Self {
-            source_id,
-            current_db: current_db.clamp(-60.0, 0.0),
-            peak_db: peak_db.clamp(-60.0, 0.0),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum StreamStatus {
@@ -51,8 +32,8 @@ pub struct AppState {
     pub scenes: Vec<Scene>,
     pub sources: Vec<Source>,
     pub active_scene_id: Option<SceneId>,
-    #[allow(dead_code)]
-    pub audio_levels: Vec<AudioLevel>,
+    pub audio_levels: crate::gstreamer::AudioLevelUpdate,
+    pub available_audio_devices: Vec<crate::gstreamer::AudioDevice>,
     pub stream_status: StreamStatus,
     pub settings: AppSettings,
     pub settings_dirty: bool,
@@ -70,7 +51,8 @@ impl Default for AppState {
             scenes: Vec::new(),
             sources: Vec::new(),
             active_scene_id: None,
-            audio_levels: Vec::new(),
+            audio_levels: crate::gstreamer::AudioLevelUpdate::default(),
+            available_audio_devices: Vec::new(),
             stream_status: StreamStatus::Offline,
             settings: AppSettings::default(),
             settings_dirty: false,
@@ -104,12 +86,5 @@ mod tests {
         };
         assert!(status.is_live());
         assert!(!StreamStatus::Offline.is_live());
-    }
-
-    #[test]
-    fn audio_level_clamping() {
-        let level = AudioLevel::new(SourceId(1), -80.0, -80.0);
-        assert!(level.current_db >= -60.0);
-        assert_eq!(level.source_id, SourceId(1));
     }
 }

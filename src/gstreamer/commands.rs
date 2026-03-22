@@ -55,6 +55,7 @@ pub enum GstCommand {
         source: AudioSourceKind,
         muted: bool,
     },
+    StopCapture,
     Shutdown,
 }
 

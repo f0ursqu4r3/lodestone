@@ -271,6 +271,10 @@ impl GstThread {
                     element.set_property("mute", muted);
                 }
             }
+            GstCommand::StopCapture => {
+                self.stop_capture();
+                log::info!("Capture stopped");
+            }
             GstCommand::Shutdown => {
                 self.stop_pipeline(PipelineKind::Stream);
                 self.stop_pipeline(PipelineKind::Record);
@@ -386,8 +390,6 @@ impl GstThread {
 
     /// Main run loop for the GStreamer thread.
     fn run(mut self) {
-        self.start_capture(&CaptureSourceConfig::Screen { screen_index: 0 });
-
         // Enumerate audio devices and start default audio capture.
         match super::devices::enumerate_audio_input_devices() {
             Ok(devices) => {

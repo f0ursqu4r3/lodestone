@@ -558,6 +558,20 @@ impl ApplicationHandler for AppManager {
                 let mut app_state = self.state.lock().expect("lock AppState");
                 app_state.active_errors.push(err);
             }
+
+            // Poll audio levels
+            if channels.audio_level_rx.has_changed().unwrap_or(false) {
+                let levels = channels.audio_level_rx.borrow_and_update().clone();
+                let mut app_state = self.state.lock().expect("lock AppState");
+                app_state.audio_levels = levels;
+            }
+
+            // Poll device list
+            if channels.devices_rx.has_changed().unwrap_or(false) {
+                let devices = channels.devices_rx.borrow_and_update().clone();
+                let mut app_state = self.state.lock().expect("lock AppState");
+                app_state.available_audio_devices = devices;
+            }
         }
 
         // Process native menu events

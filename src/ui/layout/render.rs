@@ -519,18 +519,49 @@ fn render_tab_bar(
                     painter.rect_filled(accent_rect, 0.0, TAB_ACCENT);
                 }
 
-                // Label
+                // Label — truncate with ellipsis when too wide
                 let text_color = if is_active { TEXT_BRIGHT } else { TEXT_DIM };
                 let label_pos = egui::pos2(tab_rect.min.x + 8.0, tab_rect.center().y - 6.0);
-                let available_text_width = tab_width - 28.0;
+                let available_text_width = (tab_width - 28.0).max(10.0);
                 let font = egui::FontId::proportional(12.0);
-                let galley = painter.layout(
-                    tab.panel_type.display_name().to_string(),
-                    font,
+                let full_name = tab.panel_type.display_name();
+                let galley = painter.layout_no_wrap(
+                    full_name.to_string(),
+                    font.clone(),
                     text_color,
-                    available_text_width.max(10.0),
                 );
-                painter.galley(label_pos, galley, text_color);
+                if galley.size().x > available_text_width {
+                    let ellipsis = "…";
+                    let ellipsis_galley = painter.layout_no_wrap(
+                        ellipsis.to_string(),
+                        font.clone(),
+                        text_color,
+                    );
+                    let text_budget = available_text_width - ellipsis_galley.size().x;
+                    // Find how many chars fit within the budget
+                    let mut truncated = String::new();
+                    for ch in full_name.chars() {
+                        truncated.push(ch);
+                        let test = painter.layout_no_wrap(
+                            truncated.clone(),
+                            font.clone(),
+                            text_color,
+                        );
+                        if test.size().x > text_budget {
+                            truncated.pop();
+                            break;
+                        }
+                    }
+                    truncated.push_str(ellipsis);
+                    let truncated_galley = painter.layout_no_wrap(
+                        truncated,
+                        font,
+                        text_color,
+                    );
+                    painter.galley(label_pos, truncated_galley, text_color);
+                } else {
+                    painter.galley(label_pos, galley, text_color);
+                }
 
                 // Close button (visible only when hovering the tab)
                 // Use manual pointer detection — the tab Area's click_and_drag
@@ -825,7 +856,11 @@ fn render_content(
             let padded_rect = content_rect.shrink(PANEL_PADDING);
             let mut padded_ui =
                 ui.new_child(egui::UiBuilder::new().max_rect(padded_rect));
-            crate::ui::draw_panel(panel_type, &mut padded_ui, state, panel_id);
+            egui::ScrollArea::both()
+                .auto_shrink(false)
+                .show(&mut padded_ui, |ui| {
+                    crate::ui::draw_panel(panel_type, ui, state, panel_id);
+                });
         });
 }
 
@@ -1070,6 +1105,11 @@ fn render_floating_chrome(
         // --- Edge/corner resize handles ---
         let resize_margin = 4.0;
 
+        // --- Edge/corner resize highlight colors ---
+        let resize_hover = egui::Color32::from_rgba_premultiplied(0x7c, 0x6c, 0xf0, 0x30);
+        let resize_active = egui::Color32::from_rgba_premultiplied(0x7c, 0x6c, 0xf0, 0x90);
+        let edge_thickness = 2.0;
+
         // Right edge
         let right_edge = egui::Rect::from_min_size(
             egui::pos2(outer_rect.max.x - resize_margin, outer_rect.min.y + FLOATING_HEADER_HEIGHT),
@@ -1086,6 +1126,12 @@ fn render_floating_chrome(
             .inner;
         if right_resp.hovered() || right_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeColumn);
+            let color = if right_resp.dragged() { resize_active } else { resize_hover };
+            let highlight = egui::Rect::from_min_size(
+                egui::pos2(outer_rect.max.x - edge_thickness, outer_rect.min.y + FLOATING_HEADER_HEIGHT),
+                egui::vec2(edge_thickness, outer_rect.height() - FLOATING_HEADER_HEIGHT),
+            );
+            border_painter.rect_filled(highlight, 0.0, color);
         }
         if right_resp.dragged() {
             let new_width = (fg.size.x + right_resp.drag_delta().x).max(FLOATING_MIN_SIZE.x);
@@ -1112,6 +1158,12 @@ fn render_floating_chrome(
             .inner;
         if bottom_resp.hovered() || bottom_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeRow);
+            let color = if bottom_resp.dragged() { resize_active } else { resize_hover };
+            let highlight = egui::Rect::from_min_size(
+                egui::pos2(outer_rect.min.x, outer_rect.max.y - edge_thickness),
+                egui::vec2(outer_rect.width(), edge_thickness),
+            );
+            border_painter.rect_filled(highlight, 0.0, color);
         }
         if bottom_resp.dragged() {
             let new_height = (fg.size.y + bottom_resp.drag_delta().y).max(FLOATING_MIN_SIZE.y);
@@ -1138,6 +1190,12 @@ fn render_floating_chrome(
             .inner;
         if left_resp.hovered() || left_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeColumn);
+            let color = if left_resp.dragged() { resize_active } else { resize_hover };
+            let highlight = egui::Rect::from_min_size(
+                egui::pos2(outer_rect.min.x, outer_rect.min.y + FLOATING_HEADER_HEIGHT),
+                egui::vec2(edge_thickness, outer_rect.height() - FLOATING_HEADER_HEIGHT),
+            );
+            border_painter.rect_filled(highlight, 0.0, color);
         }
         if left_resp.dragged() {
             let delta = left_resp.drag_delta().x;
@@ -1169,6 +1227,27 @@ fn render_floating_chrome(
             .inner;
         if corner_resp.hovered() || corner_resp.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+            let corner_len = 16.0;
+            let color = if corner_resp.dragged() { resize_active } else { resize_hover };
+            let fade = egui::Color32::TRANSPARENT;
+            // Horizontal gradient (right edge, fading left)
+            let h_rect = egui::Rect::from_min_size(
+                egui::pos2(outer_rect.max.x - corner_len, outer_rect.max.y - edge_thickness),
+                egui::vec2(corner_len, edge_thickness),
+            );
+            border_painter.rect_filled(h_rect, 0.0, color);
+            // Fade overlay on left portion of horizontal bar
+            let h_fade_mesh = gradient_rect_h(h_rect, fade, egui::Color32::TRANSPARENT);
+            border_painter.add(h_fade_mesh);
+            // Vertical gradient (bottom edge, fading up)
+            let v_rect = egui::Rect::from_min_size(
+                egui::pos2(outer_rect.max.x - edge_thickness, outer_rect.max.y - corner_len),
+                egui::vec2(edge_thickness, corner_len),
+            );
+            border_painter.rect_filled(v_rect, 0.0, color);
+            // Fade overlay on top portion of vertical bar
+            let v_fade_mesh = gradient_rect_v(v_rect, fade, egui::Color32::TRANSPARENT);
+            border_painter.add(v_fade_mesh);
         }
         if corner_resp.dragged() {
             let d = corner_resp.drag_delta();

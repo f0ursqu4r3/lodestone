@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use std::path::Path;
 use tokio::sync::mpsc::{self, Receiver};
 
+use crate::scene::{Scene, SceneId, Source, SourceConfig, SourceId, Transform};
 use super::{
     ObsEngine, ObsStats, RgbaFrame,
     encoder::EncoderConfig,
     output::StreamConfig,
-    scene::{Scene, SceneId, Source, SourceConfig, SourceId, Transform},
 };
 
 pub struct MockObsEngine {
@@ -240,7 +240,7 @@ impl ObsEngine for MockObsEngine {
 #[cfg(test)]
 mod tests {
     use super::super::output::StreamDestination;
-    use super::super::scene::SourceType;
+    use crate::scene::SourceType;
     use super::*;
 
     #[test]

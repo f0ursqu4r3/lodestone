@@ -1,4 +1,4 @@
-use crate::obs::SourceId;
+use crate::scene::SourceId;
 use crate::state::AppState;
 use crate::ui::layout::PanelId;
 
@@ -8,8 +8,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
         ui.heading("Scenes");
         if ui.button("+").clicked() {
             let new_id =
-                crate::obs::SceneId(state.scenes.iter().map(|s| s.id.0).max().unwrap_or(0) + 1);
-            state.scenes.push(crate::obs::Scene {
+                crate::scene::SceneId(state.scenes.iter().map(|s| s.id.0).max().unwrap_or(0) + 1);
+            state.scenes.push(crate::scene::Scene {
                 id: new_id,
                 name: format!("Scene {}", state.scenes.len() + 1),
                 sources: Vec::new(),
@@ -17,7 +17,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
         }
     });
 
-    let mut new_active: Option<crate::obs::SceneId> = state.active_scene_id;
+    let mut new_active: Option<crate::scene::SceneId> = state.active_scene_id;
     for scene in &state.scenes {
         let is_selected = state.active_scene_id == Some(scene.id);
         if ui.selectable_label(is_selected, &scene.name).clicked() {
@@ -35,11 +35,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
             && let Some(active_id) = state.active_scene_id
         {
             let new_src_id = SourceId(state.sources.iter().map(|s| s.id.0).max().unwrap_or(0) + 1);
-            let new_source = crate::obs::Source {
+            let new_source = crate::scene::Source {
                 id: new_src_id,
                 name: format!("Source {}", state.sources.len() + 1),
-                source_type: crate::obs::SourceType::Display,
-                transform: crate::obs::Transform::new(0.0, 0.0, 1920.0, 1080.0),
+                source_type: crate::scene::SourceType::Display,
+                transform: crate::scene::Transform::new(0.0, 0.0, 1920.0, 1080.0),
                 visible: true,
                 muted: false,
                 volume: 1.0,
@@ -72,12 +72,12 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
     for src_id in &scene_source_ids {
         if let Some(source) = state.sources.iter().find(|s| s.id == *src_id) {
             let type_label = match source.source_type {
-                crate::obs::SourceType::Display => "Display",
-                crate::obs::SourceType::Window => "Window",
-                crate::obs::SourceType::Camera => "Camera",
-                crate::obs::SourceType::Audio => "Audio",
-                crate::obs::SourceType::Image => "Image",
-                crate::obs::SourceType::Browser => "Browser",
+                crate::scene::SourceType::Display => "Display",
+                crate::scene::SourceType::Window => "Window",
+                crate::scene::SourceType::Camera => "Camera",
+                crate::scene::SourceType::Audio => "Audio",
+                crate::scene::SourceType::Image => "Image",
+                crate::scene::SourceType::Browser => "Browser",
             };
             let label_text = format!("{} ({})", source.name, type_label);
             let is_sel = selected_source_id == Some(*src_id);

@@ -1,6 +1,7 @@
 mod mock_driver;
 mod obs;
 mod renderer;
+mod scene;
 mod settings;
 mod state;
 mod ui;

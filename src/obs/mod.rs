@@ -9,7 +9,7 @@ use tokio::sync::mpsc::Receiver;
 
 pub use encoder::EncoderConfig;
 pub use output::{StreamConfig, StreamDestination};
-pub use scene::{Scene, SceneId, Source, SourceConfig, SourceId, SourceType, Transform};
+pub use crate::scene::{Scene, SceneId, Source, SourceConfig, SourceId, SourceType, Transform};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]

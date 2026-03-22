@@ -1,4 +1,4 @@
-use crate::obs::{Scene, SceneId, Source, SourceId};
+use crate::scene::{Scene, SceneId, Source, SourceId};
 use crate::settings::AppSettings;
 
 #[derive(Debug, Clone)]

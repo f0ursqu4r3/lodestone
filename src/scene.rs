@@ -173,7 +173,10 @@ mod tests {
     #[test]
     fn source_properties_default_is_display_0() {
         let props = SourceProperties::default();
-        assert!(matches!(props, SourceProperties::Display { screen_index: 0 }));
+        assert!(matches!(
+            props,
+            SourceProperties::Display { screen_index: 0 }
+        ));
     }
 
     #[test]

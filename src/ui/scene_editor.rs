@@ -11,14 +11,14 @@ fn send_capture_for_scene(
     scene: &Scene,
 ) {
     let Some(tx) = cmd_tx else { return };
-    if let Some(&src_id) = scene.sources.first() {
-        if let Some(source) = sources.iter().find(|s| s.id == src_id) {
-            let SourceProperties::Display { screen_index } = source.properties;
-            let _ = tx.try_send(GstCommand::SetCaptureSource(
-                CaptureSourceConfig::Screen { screen_index },
-            ));
-            return;
-        }
+    if let Some(&src_id) = scene.sources.first()
+        && let Some(source) = sources.iter().find(|s| s.id == src_id)
+    {
+        let SourceProperties::Display { screen_index } = source.properties;
+        let _ = tx.try_send(GstCommand::SetCaptureSource(CaptureSourceConfig::Screen {
+            screen_index,
+        }));
+        return;
     }
     let _ = tx.try_send(GstCommand::StopCapture);
 }
@@ -46,42 +46,42 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
         }
 
         // Delete active scene
-        if ui.button("−").clicked() {
-            if let Some(active_id) = state.active_scene_id {
-                // If this is the last scene, create a new default first.
-                if state.scenes.len() <= 1 {
-                    let new_id = SceneId(state.next_scene_id);
-                    state.next_scene_id += 1;
-                    state.scenes.push(Scene {
-                        id: new_id,
-                        name: "Scene 1".to_string(),
-                        sources: Vec::new(),
-                    });
-                }
-
-                // Remove sources belonging to the deleted scene.
-                if let Some(scene) = state.scenes.iter().find(|s| s.id == active_id) {
-                    let src_ids: Vec<SourceId> = scene.sources.clone();
-                    state.sources.retain(|s| !src_ids.contains(&s.id));
-                }
-
-                // Remove the scene itself.
-                state.scenes.retain(|s| s.id != active_id);
-
-                // Select the first remaining scene.
-                let first_scene = state.scenes.first().cloned();
-                if let Some(ref scene) = first_scene {
-                    state.active_scene_id = Some(scene.id);
-                    send_capture_for_scene(&cmd_tx, &state.sources, scene);
-                    state.capture_active = !scene.sources.is_empty();
-                } else {
-                    state.active_scene_id = None;
-                    state.capture_active = false;
-                }
-
-                state.scenes_dirty = true;
-                state.scenes_last_changed = std::time::Instant::now();
+        if ui.button("−").clicked()
+            && let Some(active_id) = state.active_scene_id
+        {
+            // If this is the last scene, create a new default first.
+            if state.scenes.len() <= 1 {
+                let new_id = SceneId(state.next_scene_id);
+                state.next_scene_id += 1;
+                state.scenes.push(Scene {
+                    id: new_id,
+                    name: "Scene 1".to_string(),
+                    sources: Vec::new(),
+                });
             }
+
+            // Remove sources belonging to the deleted scene.
+            if let Some(scene) = state.scenes.iter().find(|s| s.id == active_id) {
+                let src_ids: Vec<SourceId> = scene.sources.clone();
+                state.sources.retain(|s| !src_ids.contains(&s.id));
+            }
+
+            // Remove the scene itself.
+            state.scenes.retain(|s| s.id != active_id);
+
+            // Select the first remaining scene.
+            let first_scene = state.scenes.first().cloned();
+            if let Some(ref scene) = first_scene {
+                state.active_scene_id = Some(scene.id);
+                send_capture_for_scene(&cmd_tx, &state.sources, scene);
+                state.capture_active = !scene.sources.is_empty();
+            } else {
+                state.active_scene_id = None;
+                state.capture_active = false;
+            }
+
+            state.scenes_dirty = true;
+            state.scenes_last_changed = std::time::Instant::now();
         }
     });
 
@@ -140,9 +140,9 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
                 scene.sources.push(new_src_id);
             }
             if let Some(ref tx) = cmd_tx {
-                let _ = tx.try_send(GstCommand::SetCaptureSource(
-                    CaptureSourceConfig::Screen { screen_index: 0 },
-                ));
+                let _ = tx.try_send(GstCommand::SetCaptureSource(CaptureSourceConfig::Screen {
+                    screen_index: 0,
+                }));
             }
             state.capture_active = true;
             state.scenes_dirty = true;
@@ -216,11 +216,9 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
 
         if *screen_index != prev_index {
             if let Some(ref tx) = cmd_tx {
-                let _ = tx.try_send(GstCommand::SetCaptureSource(
-                    CaptureSourceConfig::Screen {
-                        screen_index: *screen_index,
-                    },
-                ));
+                let _ = tx.try_send(GstCommand::SetCaptureSource(CaptureSourceConfig::Screen {
+                    screen_index: *screen_index,
+                }));
             }
             state.scenes_dirty = true;
             state.scenes_last_changed = std::time::Instant::now();

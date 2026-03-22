@@ -372,19 +372,16 @@ impl ApplicationHandler for AppManager {
         // Send initial capture command based on active scene
         {
             let state = self.state.lock().unwrap();
-            if let Some(scene_id) = state.active_scene_id {
-                if let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id) {
-                    if let Some(&src_id) = scene.sources.first() {
-                        if let Some(source) = state.sources.iter().find(|s| s.id == src_id) {
-                            let crate::scene::SourceProperties::Display { screen_index } =
-                                source.properties;
-                            if let Some(ref tx) = state.command_tx {
-                                let _ = tx.try_send(gstreamer::GstCommand::SetCaptureSource(
-                                    gstreamer::CaptureSourceConfig::Screen { screen_index },
-                                ));
-                            }
-                        }
-                    }
+            if let Some(scene_id) = state.active_scene_id
+                && let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id)
+                && let Some(&src_id) = scene.sources.first()
+                && let Some(source) = state.sources.iter().find(|s| s.id == src_id)
+            {
+                let crate::scene::SourceProperties::Display { screen_index } = source.properties;
+                if let Some(ref tx) = state.command_tx {
+                    let _ = tx.try_send(gstreamer::GstCommand::SetCaptureSource(
+                        gstreamer::CaptureSourceConfig::Screen { screen_index },
+                    ));
                 }
             }
         }

@@ -43,9 +43,18 @@ pub enum GstCommand {
     },
     StopRecording,
     UpdateEncoder(EncoderConfig),
-    SetAudioDevice { source: AudioSourceKind, device_uid: String },
-    SetAudioVolume { source: AudioSourceKind, volume: f32 },
-    SetAudioMuted { source: AudioSourceKind, muted: bool },
+    SetAudioDevice {
+        source: AudioSourceKind,
+        device_uid: String,
+    },
+    SetAudioVolume {
+        source: AudioSourceKind,
+        volume: f32,
+    },
+    SetAudioMuted {
+        source: AudioSourceKind,
+        muted: bool,
+    },
     Shutdown,
 }
 

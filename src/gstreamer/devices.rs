@@ -61,8 +61,11 @@ mod tests {
 
     #[test]
     fn loopback_detection() {
-        let is_loopback =
-            |name: &str| LOOPBACK_DEVICE_NAMES.iter().any(|known| name.contains(known));
+        let is_loopback = |name: &str| {
+            LOOPBACK_DEVICE_NAMES
+                .iter()
+                .any(|known| name.contains(known))
+        };
 
         assert!(is_loopback("BlackHole 2ch"));
         assert!(is_loopback("Soundflower (2ch)"));

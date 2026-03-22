@@ -92,81 +92,6 @@ fn build_encode_chain(
     Ok((pipeline, appsrc, "parser".to_string()))
 }
 
-/// Build a pipeline for RTMP streaming.
-///
-/// Pipeline: appsrc → videoconvert → vtenc_h264 → h264parse → flvmux → rtmpsink
-pub fn build_stream_pipeline(
-    config: &EncoderConfig,
-    rtmp_url: &str,
-) -> Result<(gstreamer::Pipeline, AppSrc)> {
-    let (pipeline, appsrc, last_name) = build_encode_chain(config, "encode-stream-pipeline")?;
-
-    let mux = gstreamer::ElementFactory::make("flvmux")
-        .name("stream-mux")
-        .property_from_str("streamable", "true")
-        .build()
-        .context("Failed to create flvmux")?;
-
-    let sink = gstreamer::ElementFactory::make("rtmpsink")
-        .name("stream-sink")
-        .property("location", rtmp_url)
-        .build()
-        .context("Failed to create rtmpsink")?;
-
-    pipeline
-        .add_many([&mux, &sink])
-        .context("Failed to add stream output elements")?;
-
-    let last = pipeline
-        .by_name(&last_name)
-        .expect("parser element exists");
-    gstreamer::Element::link_many([&last, &mux, &sink])
-        .context("Failed to link stream output")?;
-
-    Ok((pipeline, appsrc))
-}
-
-/// Build a pipeline for file recording.
-///
-/// Pipeline: appsrc → videoconvert → vtenc_h264 → h264parse → mux → filesink
-pub fn build_record_pipeline(
-    config: &EncoderConfig,
-    path: &Path,
-    format: RecordingFormat,
-) -> Result<(gstreamer::Pipeline, AppSrc)> {
-    let (pipeline, appsrc, last_name) = build_encode_chain(config, "encode-record-pipeline")?;
-
-    let mux = match format {
-        RecordingFormat::Mkv => gstreamer::ElementFactory::make("matroskamux")
-            .name("record-mux")
-            .build()
-            .context("Failed to create matroskamux")?,
-        RecordingFormat::Mp4 => gstreamer::ElementFactory::make("mp4mux")
-            .name("record-mux")
-            .property_from_str("fragment-duration", "1000")
-            .build()
-            .context("Failed to create mp4mux")?,
-    };
-
-    let sink = gstreamer::ElementFactory::make("filesink")
-        .name("record-sink")
-        .property("location", path.to_str().unwrap_or("recording.mkv"))
-        .build()
-        .context("Failed to create filesink")?;
-
-    pipeline
-        .add_many([&mux, &sink])
-        .context("Failed to add record output elements")?;
-
-    let last = pipeline
-        .by_name(&last_name)
-        .expect("parser element exists");
-    gstreamer::Element::link_many([&last, &mux, &sink])
-        .context("Failed to link record output")?;
-
-    Ok((pipeline, appsrc))
-}
-
 /// Build a streaming pipeline with mixed audio.
 ///
 /// Video: appsrc → videoconvert → vtenc_h264 → h264parse → flvmux (video pad)
@@ -487,47 +412,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_stream_pipeline_creates_valid_pipeline() {
-        gstreamer::init().unwrap();
-        let config = EncoderConfig::default();
-        let result = build_stream_pipeline(&config, "rtmp://localhost/test/key");
-        match result {
-            Ok((pipeline, appsrc)) => {
-                assert!(pipeline.name().starts_with("encode"));
-                drop(appsrc);
-                let _ = pipeline.set_state(gstreamer::State::Null);
-            }
-            Err(e) => {
-                eprintln!("Skipping encode pipeline test (missing plugins): {e}");
-            }
-        }
-    }
-
-    #[test]
-    fn build_record_pipeline_creates_valid_pipeline() {
-        gstreamer::init().unwrap();
-        let config = EncoderConfig::default();
-        let path = std::path::PathBuf::from("/tmp/test_recording.mkv");
-        let result = build_record_pipeline(&config, &path, RecordingFormat::Mkv);
-        match result {
-            Ok((pipeline, appsrc)) => {
-                assert!(pipeline.name().starts_with("encode"));
-                drop(appsrc);
-                let _ = pipeline.set_state(gstreamer::State::Null);
-            }
-            Err(e) => {
-                eprintln!("Skipping record pipeline test (missing plugins): {e}");
-            }
-        }
-    }
-
-    #[test]
     fn build_stream_with_audio_creates_valid_pipeline() {
         gstreamer::init().unwrap();
         let vc = EncoderConfig::default();
         let ac = AudioEncoderConfig::default();
-        let result =
-            build_stream_pipeline_with_audio(&vc, &ac, "rtmp://localhost/test", false);
+        let result = build_stream_pipeline_with_audio(&vc, &ac, "rtmp://localhost/test", false);
         match result {
             Ok(handles) => {
                 assert!(handles.pipeline.name().starts_with("encode"));
@@ -544,8 +433,7 @@ mod tests {
         let vc = EncoderConfig::default();
         let ac = AudioEncoderConfig::default();
         let path = std::path::PathBuf::from("/tmp/test_audio_record.mkv");
-        let result =
-            build_record_pipeline_with_audio(&vc, &ac, &path, RecordingFormat::Mkv, false);
+        let result = build_record_pipeline_with_audio(&vc, &ac, &path, RecordingFormat::Mkv, false);
         match result {
             Ok(handles) => {
                 assert!(handles.pipeline.name().starts_with("encode"));

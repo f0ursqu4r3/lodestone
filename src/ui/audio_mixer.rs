@@ -57,13 +57,13 @@ fn draw_channel_strip(
         let slider = egui::Slider::new(&mut volume, 0.0..=1.0)
             .vertical()
             .show_value(false);
-        if ui.add(slider).changed() {
-            if let Some(ref tx) = state.command_tx {
-                let _ = tx.try_send(GstCommand::SetAudioVolume {
-                    source: kind,
-                    volume,
-                });
-            }
+        if ui.add(slider).changed()
+            && let Some(ref tx) = state.command_tx
+        {
+            let _ = tx.try_send(GstCommand::SetAudioVolume {
+                source: kind,
+                volume,
+            });
         }
         ui.memory_mut(|m| m.data.insert_temp(vol_id, volume));
 
@@ -75,12 +75,11 @@ fn draw_channel_strip(
 
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(vu_width, vu_height), egui::Sense::hover());
-        ui.painter().rect_filled(rect, 0.0, egui::Color32::DARK_GRAY);
+        ui.painter()
+            .rect_filled(rect, 0.0, egui::Color32::DARK_GRAY);
 
-        let fill_rect = egui::Rect::from_min_max(
-            egui::pos2(rect.min.x, rect.max.y - filled_height),
-            rect.max,
-        );
+        let fill_rect =
+            egui::Rect::from_min_max(egui::pos2(rect.min.x, rect.max.y - filled_height), rect.max);
         let vu_color = if peak_db > -6.0 {
             egui::Color32::RED
         } else if peak_db > -18.0 {

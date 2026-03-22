@@ -101,36 +101,29 @@ impl GstThread {
     fn start_audio_capture(&mut self, kind: AudioSourceKind, device_uid: &str) {
         self.stop_audio_capture(kind);
 
-        match build_audio_capture_pipeline(
-            kind,
-            device_uid,
-            self.audio_encoder_config.sample_rate,
-        ) {
+        match build_audio_capture_pipeline(kind, device_uid, self.audio_encoder_config.sample_rate)
+        {
             Ok((pipeline, appsink, volume_name)) => {
                 log::info!("Starting {kind:?} audio pipeline for device '{device_uid}'");
-                match pipeline.set_state(gstreamer::State::Playing) {
-                    Err(e) => {
-                        // Check the bus for more detailed error info
-                        if let Some(bus) = pipeline.bus() {
-                            if let Some(msg) = bus.timed_pop_filtered(
-                                gstreamer::ClockTime::from_mseconds(100),
-                                &[gstreamer::MessageType::Error],
-                            ) {
-                                if let gstreamer::MessageView::Error(err) = msg.view() {
-                                    log::error!("Audio pipeline error detail: {}", err.error());
-                                    if let Some(debug) = err.debug() {
-                                        log::error!("Audio pipeline debug: {debug}");
-                                    }
-                                }
-                            }
+                if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
+                    // Check the bus for more detailed error info
+                    if let Some(bus) = pipeline.bus()
+                        && let Some(msg) = bus.timed_pop_filtered(
+                            gstreamer::ClockTime::from_mseconds(100),
+                            &[gstreamer::MessageType::Error],
+                        )
+                        && let gstreamer::MessageView::Error(err) = msg.view()
+                    {
+                        log::error!("Audio pipeline error detail: {}", err.error());
+                        if let Some(debug) = err.debug() {
+                            log::error!("Audio pipeline debug: {debug}");
                         }
-                        let _ = pipeline.set_state(gstreamer::State::Null);
-                        let _ = self.channels.error_tx.send(GstError::AudioCaptureFailure {
-                            message: format!("Failed to start {kind:?} audio capture: {e}"),
-                        });
-                        return;
                     }
-                    Ok(_) => {}
+                    let _ = pipeline.set_state(gstreamer::State::Null);
+                    let _ = self.channels.error_tx.send(GstError::AudioCaptureFailure {
+                        message: format!("Failed to start {kind:?} audio capture: {e}"),
+                    });
+                    return;
                 }
                 match kind {
                     AudioSourceKind::Mic => {
@@ -148,12 +141,9 @@ impl GstThread {
                 log::info!("{kind:?} audio capture started for device {device_uid}");
             }
             Err(e) => {
-                let _ =
-                    self.channels
-                        .error_tx
-                        .send(GstError::AudioCaptureFailure {
-                            message: format!("{e}"),
-                        });
+                let _ = self.channels.error_tx.send(GstError::AudioCaptureFailure {
+                    message: format!("{e}"),
+                });
             }
         }
     }
@@ -264,10 +254,10 @@ impl GstThread {
                     AudioSourceKind::Mic => (&self.mic_pipeline, &self.mic_volume_name),
                     AudioSourceKind::System => (&self.system_pipeline, &self.system_volume_name),
                 };
-                if let (Some(pipeline), Some(name)) = (pipeline, vol_name) {
-                    if let Some(element) = pipeline.by_name(name) {
-                        element.set_property("volume", volume as f64);
-                    }
+                if let (Some(pipeline), Some(name)) = (pipeline, vol_name)
+                    && let Some(element) = pipeline.by_name(name)
+                {
+                    element.set_property("volume", volume as f64);
                 }
             }
             GstCommand::SetAudioMuted { source, muted } => {
@@ -275,10 +265,10 @@ impl GstThread {
                     AudioSourceKind::Mic => (&self.mic_pipeline, &self.mic_volume_name),
                     AudioSourceKind::System => (&self.system_pipeline, &self.system_volume_name),
                 };
-                if let (Some(pipeline), Some(name)) = (pipeline, vol_name) {
-                    if let Some(element) = pipeline.by_name(name) {
-                        element.set_property("mute", muted);
-                    }
+                if let (Some(pipeline), Some(name)) = (pipeline, vol_name)
+                    && let Some(element) = pipeline.by_name(name)
+                {
+                    element.set_property("mute", muted);
                 }
             }
             GstCommand::Shutdown => {
@@ -336,33 +326,24 @@ impl GstThread {
         let bus = pipeline.bus()?;
         let mut result = None;
         while let Some(msg) = bus.pop() {
-            if let gstreamer::MessageView::Element(elem) = msg.view() {
-                if let Some(structure) = elem.structure() {
-                    if structure.name().as_str() == "level" {
-                        let peak = structure
-                            .get::<gstreamer::glib::ValueArray>("peak")
-                            .ok()
-                            .and_then(|arr| {
-                                arr.as_slice()
-                                    .first()
-                                    .and_then(|v| v.get::<f64>().ok())
-                            })
-                            .unwrap_or(-60.0) as f32;
-                        let rms = structure
-                            .get::<gstreamer::glib::ValueArray>("rms")
-                            .ok()
-                            .and_then(|arr| {
-                                arr.as_slice()
-                                    .first()
-                                    .and_then(|v| v.get::<f64>().ok())
-                            })
-                            .unwrap_or(-60.0) as f32;
-                        result = Some(crate::gstreamer::types::AudioLevels {
-                            peak_db: peak,
-                            rms_db: rms,
-                        });
-                    }
-                }
+            if let gstreamer::MessageView::Element(elem) = msg.view()
+                && let Some(structure) = elem.structure()
+                && structure.name().as_str() == "level"
+            {
+                let peak = structure
+                    .get::<gstreamer::glib::ValueArray>("peak")
+                    .ok()
+                    .and_then(|arr| arr.as_slice().first().and_then(|v| v.get::<f64>().ok()))
+                    .unwrap_or(-60.0) as f32;
+                let rms = structure
+                    .get::<gstreamer::glib::ValueArray>("rms")
+                    .ok()
+                    .and_then(|arr| arr.as_slice().first().and_then(|v| v.get::<f64>().ok()))
+                    .unwrap_or(-60.0) as f32;
+                result = Some(crate::gstreamer::types::AudioLevels {
+                    peak_db: peak,
+                    rms_db: rms,
+                });
             }
         }
         result
@@ -389,17 +370,16 @@ impl GstThread {
         record_appsrc: Option<&AppSrc>,
         pts: gstreamer::ClockTime,
     ) {
-        if let Some(sample) = appsink.try_pull_sample(gstreamer::ClockTime::from_mseconds(0)) {
-            if let Some(buffer) = sample.buffer()
-                && let Ok(map) = buffer.map_readable()
-            {
-                let data = map.as_slice();
-                if let Some(appsrc) = stream_appsrc {
-                    Self::push_to_encode(appsrc, data, pts);
-                }
-                if let Some(appsrc) = record_appsrc {
-                    Self::push_to_encode(appsrc, data, pts);
-                }
+        if let Some(sample) = appsink.try_pull_sample(gstreamer::ClockTime::from_mseconds(0))
+            && let Some(buffer) = sample.buffer()
+            && let Ok(map) = buffer.map_readable()
+        {
+            let data = map.as_slice();
+            if let Some(appsrc) = stream_appsrc {
+                Self::push_to_encode(appsrc, data, pts);
+            }
+            if let Some(appsrc) = record_appsrc {
+                Self::push_to_encode(appsrc, data, pts);
             }
         }
     }
@@ -444,8 +424,7 @@ impl GstThread {
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
             }
 
-            let pts =
-                gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);
+            let pts = gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);
 
             // Pull frame from capture, forward to preview and encode pipelines
             if let Some(appsink) = &self.capture_appsink
@@ -483,10 +462,7 @@ impl GstThread {
 
             // Forward mic audio to encode pipelines
             if let Some(ref appsink) = self.mic_appsink {
-                let stream_appsrc = self
-                    .stream_handles
-                    .as_ref()
-                    .map(|h| &h.audio_appsrc_mic);
+                let stream_appsrc = self.stream_handles.as_ref().map(|h| &h.audio_appsrc_mic);
                 let record_appsrc = self.record_handles.as_ref().map(|h| &h.mic_appsrc);
                 Self::forward_audio(appsink, stream_appsrc, record_appsrc, pts);
             }

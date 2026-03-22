@@ -85,18 +85,18 @@ pub fn build_audio_capture_pipeline(
     let pipeline = gstreamer::Pipeline::with_name(name);
 
     let src = gstreamer::ElementFactory::make("osxaudiosrc")
-        .name(&format!("{name}-src"))
+        .name(format!("{name}-src"))
         .property("unique-id", device_uid)
         .build()
         .context(format!("Failed to create osxaudiosrc for {name}"))?;
 
     let convert = gstreamer::ElementFactory::make("audioconvert")
-        .name(&format!("{name}-convert"))
+        .name(format!("{name}-convert"))
         .build()
         .context("Failed to create audioconvert")?;
 
     let resample = gstreamer::ElementFactory::make("audioresample")
-        .name(&format!("{name}-resample"))
+        .name(format!("{name}-resample"))
         .build()
         .context("Failed to create audioresample")?;
 
@@ -107,7 +107,7 @@ pub fn build_audio_capture_pipeline(
         .context("Failed to create volume")?;
 
     let level = gstreamer::ElementFactory::make("level")
-        .name(&format!("{name}-level"))
+        .name(format!("{name}-level"))
         .property("interval", 50_000_000u64) // 50ms in nanoseconds
         .property("post-messages", true)
         .build()
@@ -120,18 +120,32 @@ pub fn build_audio_capture_pipeline(
         .build();
 
     let appsink = AppSink::builder()
-        .name(&format!("{name}-sink"))
+        .name(format!("{name}-sink"))
         .caps(&caps)
         .max_buffers(4)
         .drop(true)
         .build();
 
     pipeline
-        .add_many([&src, &convert, &resample, &volume, &level, appsink.upcast_ref()])
+        .add_many([
+            &src,
+            &convert,
+            &resample,
+            &volume,
+            &level,
+            appsink.upcast_ref(),
+        ])
         .context("Failed to add audio capture elements")?;
 
-    gstreamer::Element::link_many([&src, &convert, &resample, &volume, &level, appsink.upcast_ref()])
-        .context("Failed to link audio capture elements")?;
+    gstreamer::Element::link_many([
+        &src,
+        &convert,
+        &resample,
+        &volume,
+        &level,
+        appsink.upcast_ref(),
+    ])
+    .context("Failed to link audio capture elements")?;
 
     Ok((pipeline, appsink, volume_name))
 }

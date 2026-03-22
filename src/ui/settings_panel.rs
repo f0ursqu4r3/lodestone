@@ -54,7 +54,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
 
     if ui.button("Save").clicked() {
         // Persist the edit buffer back into settings
-        state.settings.active_profile = edit.stream_key.clone();
+        state.settings.stream.stream_key = edit.stream_key.clone();
         let path = settings_path();
         if let Err(e) = state.settings.save_to(&path) {
             log::error!("Failed to save settings: {e}");
@@ -76,7 +76,7 @@ struct SettingsEdit {
 impl SettingsEdit {
     fn from_settings(settings: &AppSettings) -> Self {
         Self {
-            stream_key: settings.active_profile.clone(),
+            stream_key: settings.stream.stream_key.clone(),
             dest_idx: 0,
             width: 1920,
             height: 1080,

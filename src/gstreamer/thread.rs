@@ -144,6 +144,11 @@ impl GstThread {
             GstCommand::UpdateEncoder(config) => {
                 self.encoder_config = config;
             }
+            GstCommand::SetAudioDevice { .. }
+            | GstCommand::SetAudioVolume { .. }
+            | GstCommand::SetAudioMuted { .. } => {
+                // Audio command handling will be implemented in a later task.
+            }
             GstCommand::Shutdown => {
                 self.stop_pipeline(PipelineKind::Stream);
                 self.stop_pipeline(PipelineKind::Record);

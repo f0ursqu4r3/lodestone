@@ -5,9 +5,12 @@ pub mod error;
 pub mod thread;
 pub mod types;
 
+#[allow(unused_imports)]
 pub use commands::{
-    GstChannels, GstCommand, RecordingFormat, StreamConfig, StreamDestination, create_channels,
+    AudioEncoderConfig, AudioSourceKind, GstChannels, GstCommand, RecordingFormat, StreamConfig,
+    StreamDestination, create_channels,
 };
 pub use error::GstError;
 pub use thread::spawn_gstreamer_thread;
-pub use types::RgbaFrame;
+#[allow(unused_imports)]
+pub use types::{AudioDevice, AudioLevelUpdate, AudioLevels, RgbaFrame};

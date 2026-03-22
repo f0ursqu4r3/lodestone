@@ -1470,6 +1470,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "gstreamer-audio"
+version = "0.23.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e7ec7e0374298897e669db7c79544bc44df12011985e7dd5f38644edaf2caf4"
+dependencies = [
+ "cfg-if",
+ "glib 0.20.12",
+ "gstreamer",
+ "gstreamer-audio-sys",
+ "gstreamer-base",
+ "libc",
+ "once_cell",
+ "smallvec",
+]
+
+[[package]]
+name = "gstreamer-audio-sys"
+version = "0.23.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b5f3e09e7c04ec91d78c2a6ca78d50b574b9ed49fdf5e72f3693adca4306a87"
+dependencies = [
+ "glib-sys 0.20.10",
+ "gobject-sys 0.20.10",
+ "gstreamer-base-sys",
+ "gstreamer-sys",
+ "libc",
+ "system-deps 7.0.7",
+]
+
+[[package]]
 name = "gstreamer-base"
 version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2050,6 +2080,7 @@ dependencies = [
  "env_logger",
  "gstreamer",
  "gstreamer-app",
+ "gstreamer-audio",
  "gstreamer-video",
  "log",
  "muda",

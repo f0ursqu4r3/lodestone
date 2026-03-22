@@ -3,7 +3,32 @@ use std::path::PathBuf;
 use tokio::sync::{mpsc, watch};
 
 use super::error::GstError;
-use super::types::{PipelineStats, RgbaFrame};
+use super::types::{AudioDevice, AudioLevelUpdate, PipelineStats, RgbaFrame};
+
+/// Identifies which audio source a command targets.
+#[derive(Debug, Clone, Copy)]
+pub enum AudioSourceKind {
+    Mic,
+    System,
+}
+
+/// Audio encoder settings.
+#[derive(Debug, Clone)]
+pub struct AudioEncoderConfig {
+    pub bitrate_kbps: u32,
+    pub sample_rate: u32,
+    pub channels: u32,
+}
+
+impl Default for AudioEncoderConfig {
+    fn default() -> Self {
+        Self {
+            bitrate_kbps: 128,
+            sample_rate: 48000,
+            channels: 2,
+        }
+    }
+}
 
 /// Commands sent from the UI thread to the GStreamer thread.
 #[derive(Debug)]
@@ -18,6 +43,9 @@ pub enum GstCommand {
     },
     StopRecording,
     UpdateEncoder(EncoderConfig),
+    SetAudioDevice { source: AudioSourceKind, device_uid: String },
+    SetAudioVolume { source: AudioSourceKind, volume: f32 },
+    SetAudioMuted { source: AudioSourceKind, muted: bool },
     Shutdown,
 }
 
@@ -87,6 +115,8 @@ pub struct GstChannels {
     #[allow(dead_code)]
     pub stats_rx: watch::Receiver<PipelineStats>,
     pub error_rx: mpsc::UnboundedReceiver<GstError>,
+    pub audio_level_rx: watch::Receiver<AudioLevelUpdate>,
+    pub devices_rx: watch::Receiver<Vec<AudioDevice>>,
 }
 
 /// Internal channel handles held by the GStreamer thread.
@@ -96,6 +126,8 @@ pub(crate) struct GstThreadChannels {
     #[allow(dead_code)]
     pub stats_tx: watch::Sender<PipelineStats>,
     pub error_tx: mpsc::UnboundedSender<GstError>,
+    pub audio_level_tx: watch::Sender<AudioLevelUpdate>,
+    pub devices_tx: watch::Sender<Vec<AudioDevice>>,
 }
 
 /// Create all channels and return both ends.
@@ -104,12 +136,16 @@ pub fn create_channels() -> (GstChannels, GstThreadChannels) {
     let (frame_tx, frame_rx) = mpsc::channel(2);
     let (stats_tx, stats_rx) = watch::channel(PipelineStats::default());
     let (error_tx, error_rx) = mpsc::unbounded_channel();
+    let (audio_level_tx, audio_level_rx) = watch::channel(AudioLevelUpdate::default());
+    let (devices_tx, devices_rx) = watch::channel(Vec::new());
 
     let main_channels = GstChannels {
         command_tx,
         frame_rx,
         stats_rx,
         error_rx,
+        audio_level_rx,
+        devices_rx,
     };
 
     let thread_channels = GstThreadChannels {
@@ -117,6 +153,8 @@ pub fn create_channels() -> (GstChannels, GstThreadChannels) {
         frame_tx,
         stats_tx,
         error_tx,
+        audio_level_tx,
+        devices_tx,
     };
 
     (main_channels, thread_channels)

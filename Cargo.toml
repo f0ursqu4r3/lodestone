@@ -24,6 +24,7 @@ bytemuck = { version = "1", features = ["derive"] }
 muda = "0.17.1"
 gstreamer = "0.23"
 gstreamer-app = "0.23"
+gstreamer-audio = "0.23"
 gstreamer-video = "0.23"
 
 [dev-dependencies]

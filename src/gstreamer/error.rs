@@ -16,6 +16,8 @@ pub enum GstError {
     },
     /// macOS Screen Recording permission denied.
     PermissionDenied { message: String },
+    /// Audio capture device failed (mic unplugged, permission denied).
+    AudioCaptureFailure { message: String },
 }
 
 impl std::fmt::Display for GstError {
@@ -28,6 +30,9 @@ impl std::fmt::Display for GstError {
                 write!(f, "Pipeline state {from} -> {to}: {message}")
             }
             Self::PermissionDenied { message } => write!(f, "Permission denied: {message}"),
+            Self::AudioCaptureFailure { message } => {
+                write!(f, "Audio capture failed: {message}")
+            }
         }
     }
 }

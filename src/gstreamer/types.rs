@@ -26,3 +26,25 @@ impl Default for PipelineStats {
         }
     }
 }
+
+/// Audio level data from the GStreamer `level` element.
+#[derive(Debug, Clone, Default)]
+pub struct AudioLevelUpdate {
+    pub mic: Option<AudioLevels>,
+    pub system: Option<AudioLevels>,
+}
+
+/// Peak and RMS levels for a single audio source.
+#[derive(Debug, Clone)]
+pub struct AudioLevels {
+    pub peak_db: f32,
+    pub rms_db: f32,
+}
+
+/// An audio input device discovered by the DeviceMonitor.
+#[derive(Debug, Clone)]
+pub struct AudioDevice {
+    pub uid: String,
+    pub name: String,
+    pub is_loopback: bool,
+}

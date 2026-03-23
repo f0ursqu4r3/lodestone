@@ -363,11 +363,16 @@ fn draw_snap_guides(
 // ── Public Entry Point ──────────────────────────────────────────────────────
 
 /// Handle source selection, transform handles, dragging, snapping, and context
-/// menus in the preview viewport.
+/// menus in the preview panel.
+///
+/// - `viewport_rect`: the letterboxed preview area (used for coordinate mapping)
+/// - `panel_rect`: the full preview panel area (used for interaction hit testing —
+///   handles and sources may extend beyond the letterboxed viewport)
 pub fn draw_transform_handles(
     ui: &mut egui::Ui,
     state: &mut AppState,
     viewport_rect: Rect,
+    panel_rect: Rect,
     canvas_size: Vec2,
 ) {
     use crate::scene::SourceId;
@@ -401,7 +406,7 @@ pub fn draw_transform_handles(
 
     // Only process selection on a fresh click (not drag continuation).
     if let Some(mouse_pos) = pointer {
-        if primary_clicked && viewport_rect.contains(mouse_pos) {
+        if primary_clicked && panel_rect.contains(mouse_pos) {
             // Check if we clicked a handle on the selected source first — don't re-select.
             let clicked_handle = state.selected_source_id.and_then(|sel_id| {
                 state.sources.iter().find(|s| s.id == sel_id).and_then(|s| {
@@ -422,7 +427,7 @@ pub fn draw_transform_handles(
         }
 
         // Right-click context menu: find source under cursor for context actions.
-        if secondary_clicked && viewport_rect.contains(mouse_pos) {
+        if secondary_clicked && panel_rect.contains(mouse_pos) {
             let hit = active_scene_sources
                 .iter()
                 .find(|(_, rect)| rect.contains(mouse_pos))
@@ -454,7 +459,7 @@ pub fn draw_transform_handles(
     // Open on right-click over a source.
     if let Some(mouse_pos) = pointer
         && secondary_clicked
-        && viewport_rect.contains(mouse_pos)
+        && panel_rect.contains(mouse_pos)
         && state.selected_source_id.is_some()
     {
         ctx_state.open = true;
@@ -521,7 +526,7 @@ pub fn draw_transform_handles(
     if let Some(mouse_pos) = pointer {
         match &drag_mode {
             DragMode::None => {
-                if primary_down && viewport_rect.contains(mouse_pos) {
+                if primary_down && panel_rect.contains(mouse_pos) {
                     if let Some(handle) = hit_test_handles(mouse_pos, screen_rect) {
                         drag_mode = DragMode::Resize {
                             handle,

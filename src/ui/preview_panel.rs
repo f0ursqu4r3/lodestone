@@ -152,7 +152,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
 
     // Transform handles for selected source
     let canvas_size = egui::Vec2::new(1920.0, 1080.0); // TODO: read from settings when virtual canvas is implemented
-    crate::ui::transform_handles::draw_transform_handles(ui, state, preview_rect, canvas_size);
+    crate::ui::transform_handles::draw_transform_handles(ui, state, preview_rect, panel_rect, canvas_size);
 
     // Allocate the space so egui knows it's used
     ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());

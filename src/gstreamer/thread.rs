@@ -1,6 +1,7 @@
 use gstreamer::prelude::*;
 use gstreamer_app::{AppSink, AppSrc};
 use log;
+use std::collections::HashMap;
 use std::thread::JoinHandle;
 
 use super::capture::{build_audio_capture_pipeline, build_capture_pipeline};
@@ -21,11 +22,17 @@ enum PipelineKind {
     Record,
 }
 
+/// Per-source capture pipeline and its appsink.
+struct CaptureHandle {
+    pipeline: gstreamer::Pipeline,
+    appsink: AppSink,
+}
+
 /// State held by the GStreamer thread.
 struct GstThread {
     channels: GstThreadChannels,
-    capture_pipeline: Option<gstreamer::Pipeline>,
-    capture_appsink: Option<AppSink>,
+    /// Active capture pipelines keyed by source id.
+    captures: HashMap<SourceId, CaptureHandle>,
     // Encode pipeline handles
     stream_handles: Option<StreamPipelineHandles>,
     record_handles: Option<RecordPipelineHandles>,
@@ -46,8 +53,7 @@ impl GstThread {
     fn new(channels: GstThreadChannels) -> Self {
         Self {
             channels,
-            capture_pipeline: None,
-            capture_appsink: None,
+            captures: HashMap::new(),
             stream_handles: None,
             record_handles: None,
             mic_pipeline: None,
@@ -62,40 +68,33 @@ impl GstThread {
         }
     }
 
-    /// Start capturing from the given source.
-    fn start_capture(&mut self, source: &CaptureSourceConfig) {
-        self.stop_capture();
-
+    /// Start capturing from the given source, keyed by source_id.
+    fn add_capture_source(&mut self, source_id: SourceId, config: &CaptureSourceConfig) {
+        self.remove_capture_source(source_id);
         match build_capture_pipeline(
-            source,
+            config,
             self.encoder_config.width,
             self.encoder_config.height,
             self.encoder_config.fps,
         ) {
             Ok((pipeline, appsink)) => {
                 if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
-                    let _ = self.channels.error_tx.send(GstError::CaptureFailure {
-                        message: format!("Failed to start capture: {e}"),
-                    });
+                    log::error!("Failed to start capture for source {source_id:?}: {e}");
                     return;
                 }
-                self.capture_pipeline = Some(pipeline);
-                self.capture_appsink = Some(appsink);
-                log::info!("Capture pipeline started");
+                self.captures.insert(source_id, CaptureHandle { pipeline, appsink });
+                log::info!("Capture pipeline started for source {source_id:?}");
             }
-            Err(e) => {
-                let _ = self.channels.error_tx.send(GstError::CaptureFailure {
-                    message: format!("{e}"),
-                });
-            }
+            Err(e) => log::error!("Failed to build capture pipeline for source {source_id:?}: {e}"),
         }
     }
 
-    fn stop_capture(&mut self) {
-        if let Some(pipeline) = self.capture_pipeline.take() {
-            let _ = pipeline.set_state(gstreamer::State::Null);
+    /// Stop and remove the capture pipeline for the given source_id.
+    fn remove_capture_source(&mut self, source_id: SourceId) {
+        if let Some(handle) = self.captures.remove(&source_id) {
+            let _ = handle.pipeline.set_state(gstreamer::State::Null);
+            log::info!("Capture pipeline stopped for source {source_id:?}");
         }
-        self.capture_appsink = None;
     }
 
     /// Start audio capture for the given source kind and device.
@@ -185,7 +184,8 @@ impl GstThread {
     fn handle_command(&mut self, cmd: GstCommand) -> bool {
         match cmd {
             GstCommand::SetCaptureSource(source) => {
-                self.start_capture(&source);
+                // Backwards-compat: route through add_capture_source with SourceId(0).
+                self.add_capture_source(SourceId(0), &source);
             }
             GstCommand::StartStream(config) => {
                 let url = format!("{}/{}", config.destination.rtmp_url(), config.stream_key);
@@ -273,25 +273,26 @@ impl GstThread {
                 }
             }
             GstCommand::StopCapture => {
-                self.stop_capture();
-                log::info!("Capture stopped");
+                // Stop all active captures.
+                for (_, handle) in self.captures.drain() {
+                    let _ = handle.pipeline.set_state(gstreamer::State::Null);
+                }
+                log::info!("All captures stopped");
             }
             GstCommand::AddCaptureSource { source_id, config } => {
-                // Placeholder: per-source pipeline management is wired in Task 4.
-                log::info!("AddCaptureSource {source_id:?} — deferring to Task 4");
-                self.start_capture(&config);
+                self.add_capture_source(source_id, &config);
             }
             GstCommand::RemoveCaptureSource { source_id } => {
-                // Placeholder: per-source pipeline management is wired in Task 4.
-                log::info!("RemoveCaptureSource {source_id:?} — deferring to Task 4");
-                self.stop_capture();
+                self.remove_capture_source(source_id);
             }
             GstCommand::Shutdown => {
                 self.stop_pipeline(PipelineKind::Stream);
                 self.stop_pipeline(PipelineKind::Record);
                 self.stop_audio_capture(AudioSourceKind::Mic);
                 self.stop_audio_capture(AudioSourceKind::System);
-                self.stop_capture();
+                for (_, handle) in self.captures.drain() {
+                    let _ = handle.pipeline.set_state(gstreamer::State::Null);
+                }
                 return true;
             }
         }
@@ -431,7 +432,9 @@ impl GstThread {
                     self.stop_pipeline(PipelineKind::Record);
                     self.stop_audio_capture(AudioSourceKind::Mic);
                     self.stop_audio_capture(AudioSourceKind::System);
-                    self.stop_capture();
+                    for (_, handle) in self.captures.drain() {
+                        let _ = handle.pipeline.set_state(gstreamer::State::Null);
+                    }
                     return;
                 }
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
@@ -439,42 +442,39 @@ impl GstThread {
 
             let pts = gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);
 
-            // Pull frame from capture, forward to preview and encode pipelines
-            if let Some(appsink) = &self.capture_appsink
-                && let Some(sample) =
-                    appsink.try_pull_sample(gstreamer::ClockTime::from_mseconds(0))
-            {
-                let (width, height) = sample
-                    .caps()
-                    .and_then(|caps| gstreamer_video::VideoInfo::from_caps(caps).ok())
-                    .map(|info| (info.width(), info.height()))
-                    .unwrap_or((self.encoder_config.width, self.encoder_config.height));
-
-                if let Some(buffer) = sample.buffer()
-                    && let Ok(map) = buffer.map_readable()
+            // Pull frames from all active capture pipelines and update latest_frames map.
+            for (&source_id, handle) in self.captures.iter() {
+                if let Some(sample) =
+                    handle.appsink.try_pull_sample(gstreamer::ClockTime::from_mseconds(0))
                 {
-                    let data = map.as_slice();
+                    let (width, height) = sample
+                        .caps()
+                        .and_then(|caps| gstreamer_video::VideoInfo::from_caps(caps).ok())
+                        .map(|info| (info.width(), info.height()))
+                        .unwrap_or((self.encoder_config.width, self.encoder_config.height));
 
-                    // Send to preview — temporary: all frames keyed under SourceId(0)
-                    // until per-source capture is wired in Task 4.
-                    let frame = RgbaFrame {
-                        data: data.to_vec(),
-                        width,
-                        height,
-                    };
-                    self.channels
-                        .latest_frames
-                        .lock()
-                        .unwrap()
-                        .insert(SourceId(0), frame);
+                    if let Some(buffer) = sample.buffer()
+                        && let Ok(map) = buffer.map_readable()
+                    {
+                        let frame = RgbaFrame {
+                            data: map.as_slice().to_vec(),
+                            width,
+                            height,
+                        };
+                        if let Ok(mut frames) = self.channels.latest_frames.lock() {
+                            frames.insert(source_id, frame);
+                        }
+                    }
+                }
+            }
 
-                    // Feed active encode pipelines (video)
-                    if let Some(ref handles) = self.stream_handles {
-                        Self::push_to_encode(&handles.video_appsrc, data, pts);
-                    }
-                    if let Some(ref handles) = self.record_handles {
-                        Self::push_to_encode(&handles.video_appsrc, data, pts);
-                    }
+            // Forward composited frames to active encode pipelines.
+            while let Ok(frame) = self.channels.composited_frame_rx.try_recv() {
+                if let Some(ref handles) = self.stream_handles {
+                    Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
+                }
+                if let Some(ref handles) = self.record_handles {
+                    Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
                 }
             }
 
@@ -544,8 +544,7 @@ mod tests {
     fn gst_thread_new_has_defaults() {
         let (_main_ch, thread_ch) = create_channels();
         let thread = GstThread::new(thread_ch);
-        assert!(thread.capture_pipeline.is_none());
-        assert!(thread.capture_appsink.is_none());
+        assert!(thread.captures.is_empty());
         assert!(thread.stream_handles.is_none());
         assert!(thread.record_handles.is_none());
         assert!(thread.mic_pipeline.is_none());
@@ -627,5 +626,25 @@ mod tests {
         // Should not panic when no audio is capturing
         thread.stop_audio_capture(AudioSourceKind::Mic);
         thread.stop_audio_capture(AudioSourceKind::System);
+    }
+
+    #[test]
+    fn add_and_remove_capture_source_commands() {
+        use crate::gstreamer::commands::GstCommand;
+        use crate::scene::SourceId;
+        let (main_ch, _thread_ch) = create_channels();
+        main_ch
+            .command_tx
+            .try_send(GstCommand::AddCaptureSource {
+                source_id: SourceId(1),
+                config: CaptureSourceConfig::Screen { screen_index: 0 },
+            })
+            .unwrap();
+        main_ch
+            .command_tx
+            .try_send(GstCommand::RemoveCaptureSource {
+                source_id: SourceId(1),
+            })
+            .unwrap();
     }
 }

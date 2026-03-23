@@ -362,13 +362,89 @@ fn draw_snap_guides(
 
 // ── Public Entry Point ──────────────────────────────────────────────────────
 
-/// Draw transform handles and process drag interactions for the selected source.
+/// Handle source selection, transform handles, dragging, snapping, and context
+/// menus in the preview viewport.
 pub fn draw_transform_handles(
     ui: &mut egui::Ui,
     state: &mut AppState,
     viewport_rect: Rect,
     canvas_size: Vec2,
 ) {
+    use crate::scene::SourceId;
+
+    let pointer = ui.input(|i| i.pointer.hover_pos());
+    let primary_clicked = ui.input(|i| i.pointer.primary_clicked());
+    let primary_down = ui.input(|i| i.pointer.primary_down());
+    let primary_released = ui.input(|i| i.pointer.primary_released());
+    let shift_held = ui.input(|i| i.modifiers.shift);
+    let secondary_clicked = ui.input(|i| i.pointer.secondary_clicked());
+
+    // ── Click-to-select / deselect ──
+    // Collect visible source rects for hit testing (top-to-bottom draw order,
+    // reversed so topmost source wins).
+    let active_scene_sources: Vec<(SourceId, Rect)> = state
+        .active_scene_id
+        .and_then(|sid| state.scenes.iter().find(|s| s.id == sid))
+        .map(|scene| {
+            scene
+                .sources
+                .iter()
+                .rev() // topmost source first
+                .filter_map(|&src_id| {
+                    state.sources.iter().find(|s| s.id == src_id && s.visible).map(|s| {
+                        (src_id, transform_to_screen_rect(&s.transform, viewport_rect, canvas_size))
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Only process selection on a fresh click (not drag continuation).
+    if let Some(mouse_pos) = pointer {
+        if primary_clicked && viewport_rect.contains(mouse_pos) {
+            // Check if we clicked a handle on the selected source first — don't re-select.
+            let clicked_handle = state.selected_source_id.and_then(|sel_id| {
+                state.sources.iter().find(|s| s.id == sel_id).and_then(|s| {
+                    let r = transform_to_screen_rect(&s.transform, viewport_rect, canvas_size);
+                    hit_test_handles(mouse_pos, r)
+                })
+            });
+
+            if clicked_handle.is_none() {
+                // Find topmost source under the cursor.
+                let hit = active_scene_sources
+                    .iter()
+                    .find(|(_, rect)| rect.contains(mouse_pos))
+                    .map(|(id, _)| *id);
+
+                state.selected_source_id = hit; // None = deselect
+            }
+        }
+
+        // Right-click context menu: find source under cursor for context actions.
+        if secondary_clicked && viewport_rect.contains(mouse_pos) {
+            let hit = active_scene_sources
+                .iter()
+                .find(|(_, rect)| rect.contains(mouse_pos))
+                .map(|(id, _)| *id);
+            if let Some(hit_id) = hit {
+                state.selected_source_id = Some(hit_id);
+            }
+        }
+    }
+
+    // ── Context menu for right-click in preview ──
+    // Interact with the full viewport for right-click.
+    let viewport_response = ui.interact(
+        viewport_rect,
+        egui::Id::new("preview_context_menu"),
+        egui::Sense::click(),
+    );
+    if let Some(selected_id) = state.selected_source_id {
+        show_source_context_menu(ui, &viewport_response, state, selected_id, canvas_size);
+    }
+
+    // ── Handles + dragging for selected source ──
     let Some(selected_id) = state.selected_source_id else {
         return;
     };
@@ -383,11 +459,6 @@ pub fn draw_transform_handles(
     // Drag state from egui memory
     let drag_id = egui::Id::new(("transform_drag", selected_id.0));
     let mut drag_mode: DragMode = ui.memory(|m| m.data.get_temp(drag_id).unwrap_or_default());
-
-    let pointer = ui.input(|i| i.pointer.hover_pos());
-    let primary_down = ui.input(|i| i.pointer.primary_down());
-    let primary_released = ui.input(|i| i.pointer.primary_released());
-    let shift_held = ui.input(|i| i.modifiers.shift);
 
     if let Some(mouse_pos) = pointer {
         match &drag_mode {
@@ -445,7 +516,6 @@ pub fn draw_transform_handles(
         if is_dragging && state.settings.general.snap_to_grid {
             let grid = state.settings.general.snap_grid_size;
 
-            // Clone other source transforms to avoid borrow conflict.
             let other_transforms: Vec<Transform> = state
                 .sources
                 .iter()
@@ -458,7 +528,6 @@ pub fn draw_transform_handles(
                 snap_transform(&mut s.transform, canvas_size, grid, &other_refs);
             }
 
-            // Draw snap guide lines.
             if let Some(s) = state.sources.iter().find(|s| s.id == selected_id) {
                 draw_snap_guides(
                     ui.painter(),
@@ -478,10 +547,6 @@ pub fn draw_transform_handles(
     }
 
     ui.memory_mut(|m| m.data.insert_temp(drag_id, drag_mode));
-
-    // Context menu on the source rect (right-click).
-    let response = ui.interact(screen_rect, egui::Id::new(("source_ctx", selected_id.0)), egui::Sense::click());
-    show_source_context_menu(ui, &response, state, selected_id, canvas_size);
 }
 
 // ── Source Context Menu ────────────────────────────────────────────────────

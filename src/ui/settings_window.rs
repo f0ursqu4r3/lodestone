@@ -7,21 +7,13 @@ use egui::{
 
 use crate::gstreamer::{AudioSourceKind, GstCommand, StreamDestination};
 use crate::settings::{
-    AdvancedSettings, AppearanceSettings, GeneralSettings, HotkeySettings, StreamSettings,
-    VideoSettings,
+    AdvancedSettings, GeneralSettings, HotkeySettings, StreamSettings, VideoSettings,
 };
 use crate::state::AppState;
-
-// ── Catppuccin Mocha palette ──────────────────────────────────────────────────
-
-const ACCENT: Color32 = Color32::from_rgb(0x7c, 0x6c, 0xf0);
-const TEXT: Color32 = Color32::from_rgb(0xcd, 0xd6, 0xf4);
-const SUBTEXT: Color32 = Color32::from_rgb(0xa6, 0xad, 0xc8);
-const MUTED: Color32 = Color32::from_rgb(0x6c, 0x70, 0x86);
-const SURFACE: Color32 = Color32::from_rgb(0x31, 0x32, 0x44);
-const SECTION_HEADER: Color32 = Color32::from_rgb(0x58, 0x5b, 0x70);
-const SIDEBAR_BG: Color32 = Color32::from_rgb(0x18, 0x18, 0x25);
-const CONTENT_BG: Color32 = Color32::from_rgb(0x1e, 0x1e, 0x2e);
+use crate::ui::theme::{
+    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY,
+    TEXT_SECONDARY, color_to_hex, parse_hex_color,
+};
 
 // ── Category enum ─────────────────────────────────────────────────────────────
 
@@ -90,21 +82,23 @@ pub fn render_native(ctx: &egui::Context, state: &mut AppState) {
         .data_mut(|d| d.get_temp::<SettingsCategory>(settings_id))
         .unwrap_or(SettingsCategory::General);
 
+    let accent = parse_hex_color(&state.settings.appearance.accent_color);
+
     // Sidebar panel
     egui::SidePanel::left("settings_sidebar")
         .exact_width(190.0)
         .resizable(false)
-        .frame(egui::Frame::NONE.fill(SIDEBAR_BG))
+        .frame(egui::Frame::NONE.fill(BG_BASE))
         .show(ctx, |ui| {
             ui.add_space(12.0);
-            render_sidebar(ui, &mut active);
+            render_sidebar(ui, &mut active, accent);
         });
 
     // Content panel
     egui::CentralPanel::default()
         .frame(
             egui::Frame::NONE
-                .fill(CONTENT_BG)
+                .fill(BG_SURFACE)
                 .inner_margin(egui::Margin::same(24)),
         )
         .show(ctx, |ui| {
@@ -129,7 +123,7 @@ pub fn render_native(ctx: &egui::Context, state: &mut AppState) {
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory) {
+fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory, accent: Color32) {
     ui.add_space(16.0);
 
     for group in SIDEBAR_GROUPS {
@@ -139,7 +133,7 @@ fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory) {
             ui.label(
                 egui::RichText::new(group.title)
                     .size(10.0)
-                    .color(MUTED)
+                    .color(TEXT_MUTED)
                     .strong(),
             );
         });
@@ -159,18 +153,18 @@ fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory) {
             // Background on hover or active
             if is_active {
                 ui.painter()
-                    .rect_filled(rect, CornerRadius::same(4), SURFACE);
+                    .rect_filled(rect, CornerRadius::same(4), BG_ELEVATED);
                 // Accent bar on the left edge
                 ui.painter().rect_filled(
                     Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())),
                     CornerRadius::same(2),
-                    ACCENT,
+                    accent,
                 );
             } else if hovered {
                 ui.painter().rect_filled(
                     rect,
                     CornerRadius::same(4),
-                    Color32::from_rgba_premultiplied(0x31, 0x32, 0x44, 0x80),
+                    Color32::from_rgba_premultiplied(0x22, 0x22, 0x2c, 0x80),
                 );
             }
 
@@ -179,7 +173,11 @@ fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory) {
             }
 
             // Label
-            let text_color = if is_active { TEXT } else { SUBTEXT };
+            let text_color = if is_active {
+                TEXT_PRIMARY
+            } else {
+                TEXT_SECONDARY
+            };
             let galley = ui.painter().layout_no_wrap(
                 cat.label().to_string(),
                 egui::FontId::proportional(13.0),
@@ -203,7 +201,7 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
         ui.label(
             egui::RichText::new(category.label())
                 .size(20.0)
-                .color(TEXT)
+                .color(TEXT_PRIMARY)
                 .strong(),
         );
     });
@@ -219,7 +217,7 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
                 SettingsCategory::Audio => draw_audio(ui, state),
                 SettingsCategory::Video => draw_video(ui, &mut state.settings.video),
                 SettingsCategory::Hotkeys => draw_hotkeys(ui, &mut state.settings.hotkeys),
-                SettingsCategory::Appearance => draw_appearance(ui, &mut state.settings.appearance),
+                SettingsCategory::Appearance => draw_appearance(ui, state),
                 SettingsCategory::Advanced => draw_advanced(ui, &mut state.settings.advanced),
             }
         })
@@ -235,14 +233,14 @@ fn section_header(ui: &mut Ui, label: &str) {
     ui.label(
         egui::RichText::new(label)
             .size(11.0)
-            .color(SECTION_HEADER)
+            .color(TEXT_MUTED)
             .strong(),
     );
     ui.add_space(4.0);
 }
 
 fn labeled_row(ui: &mut Ui, label: &str) {
-    ui.label(egui::RichText::new(label).size(13.0).color(TEXT));
+    ui.label(egui::RichText::new(label).size(13.0).color(TEXT_PRIMARY));
 }
 
 // ── Category: General ─────────────────────────────────────────────────────────
@@ -722,7 +720,7 @@ fn draw_hotkeys(ui: &mut Ui, settings: &mut HotkeySettings) -> bool {
 
 // ── Category: Appearance ──────────────────────────────────────────────────────
 
-fn draw_appearance(ui: &mut Ui, settings: &mut AppearanceSettings) -> bool {
+fn draw_appearance(ui: &mut Ui, state: &mut AppState) -> bool {
     let mut changed = false;
 
     section_header(ui, "THEME");
@@ -731,12 +729,16 @@ fn draw_appearance(ui: &mut Ui, settings: &mut AppearanceSettings) -> bool {
         labeled_row(ui, "Theme");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("theme_combo")
-                .selected_text(&settings.theme)
+                .selected_text(&state.settings.appearance.theme)
                 .show_ui(ui, |ui| {
                     let mut c = false;
                     for t in &["dark", "light"] {
                         c |= ui
-                            .selectable_value(&mut settings.theme, t.to_string(), *t)
+                            .selectable_value(
+                                &mut state.settings.appearance.theme,
+                                t.to_string(),
+                                *t,
+                            )
                             .changed();
                     }
                     c
@@ -754,7 +756,7 @@ fn draw_appearance(ui: &mut Ui, settings: &mut AppearanceSettings) -> bool {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             changed |= ui
                 .add(
-                    egui::DragValue::new(&mut settings.font_size)
+                    egui::DragValue::new(&mut state.settings.appearance.font_size)
                         .range(8.0..=24.0)
                         .speed(0.25)
                         .suffix(" px"),
@@ -763,43 +765,52 @@ fn draw_appearance(ui: &mut Ui, settings: &mut AppearanceSettings) -> bool {
         });
     });
 
-    section_header(ui, "ACCENT COLOR");
+    // ── Accent Color ──
+    ui.add_space(16.0);
+    ui.label(
+        egui::RichText::new("Accent Color")
+            .color(TEXT_PRIMARY)
+            .size(13.0),
+    );
+    ui.add_space(8.0);
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Accent");
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            // Parse hex to egui Color32 for the color picker
-            let color = parse_hex_color(&settings.accent_color);
-            let mut rgb = [
-                color.r() as f32 / 255.0,
-                color.g() as f32 / 255.0,
-                color.b() as f32 / 255.0,
-            ];
-            if ui.color_edit_button_rgb(&mut rgb).changed() {
-                let r = (rgb[0] * 255.0) as u8;
-                let g = (rgb[1] * 255.0) as u8;
-                let b = (rgb[2] * 255.0) as u8;
-                settings.accent_color = format!("#{r:02x}{g:02x}{b:02x}");
-                changed = true;
-            }
-        });
+        // Color swatch preview
+        let accent = parse_hex_color(&state.settings.appearance.accent_color);
+        let (swatch_rect, _) =
+            ui.allocate_exact_size(egui::Vec2::new(24.0, 24.0), egui::Sense::hover());
+        ui.painter().rect_filled(swatch_rect, 4.0, accent);
+        ui.painter().rect_stroke(
+            swatch_rect,
+            4.0,
+            egui::Stroke::new(1.0, BORDER),
+            StrokeKind::Outside,
+        );
+
+        ui.add_space(8.0);
+
+        // Hex input
+        let mut hex = state.settings.appearance.accent_color.clone();
+        let response = ui.add(
+            egui::TextEdit::singleline(&mut hex)
+                .desired_width(80.0)
+                .font(egui::TextStyle::Monospace),
+        );
+        if response.changed() {
+            state.settings.appearance.accent_color = hex;
+            state.settings_dirty = true;
+        }
+
+        ui.add_space(8.0);
+
+        // Reset to default
+        if ui.button("Reset").clicked() {
+            state.settings.appearance.accent_color = color_to_hex(DEFAULT_ACCENT);
+            state.settings_dirty = true;
+        }
     });
 
     changed
-}
-
-fn parse_hex_color(hex: &str) -> Color32 {
-    let hex = hex.trim_start_matches('#');
-    if hex.len() >= 6
-        && let (Ok(r), Ok(g), Ok(b)) = (
-            u8::from_str_radix(&hex[0..2], 16),
-            u8::from_str_radix(&hex[2..4], 16),
-            u8::from_str_radix(&hex[4..6], 16),
-        )
-    {
-        return Color32::from_rgb(r, g, b);
-    }
-    ACCENT
 }
 
 // ── Category: Advanced ────────────────────────────────────────────────────────
@@ -878,7 +889,7 @@ fn toggle_switch(on: &mut bool) -> impl Widget + '_ {
             let anim_id = response.id.with("toggle_anim");
             let t = ui.ctx().animate_bool_with_time(anim_id, *on, 0.15);
 
-            let bg_color = if *on { ACCENT } else { SURFACE };
+            let bg_color = if *on { DEFAULT_ACCENT } else { BG_ELEVATED };
 
             let knob_radius = 7.0;
             let knob_x = egui::lerp(
@@ -896,7 +907,7 @@ fn toggle_switch(on: &mut bool) -> impl Widget + '_ {
                 ui.painter().rect_stroke(
                     rect,
                     CornerRadius::same(10),
-                    Stroke::new(1.0, MUTED),
+                    Stroke::new(1.0, TEXT_MUTED),
                     StrokeKind::Outside,
                 );
             }

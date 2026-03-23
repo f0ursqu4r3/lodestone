@@ -1,5 +1,5 @@
 use crate::gstreamer::{GstCommand, GstError};
-use crate::scene::{Scene, SceneId, Source};
+use crate::scene::{Scene, SceneId, Source, SourceId};
 use crate::settings::AppSettings;
 
 #[derive(Debug, Clone)]
@@ -32,6 +32,7 @@ pub struct AppState {
     pub scenes: Vec<Scene>,
     pub sources: Vec<Source>,
     pub active_scene_id: Option<SceneId>,
+    pub selected_source_id: Option<SourceId>,
     pub audio_levels: crate::gstreamer::AudioLevelUpdate,
     pub available_audio_devices: Vec<crate::gstreamer::AudioDevice>,
     pub stream_status: StreamStatus,
@@ -55,6 +56,7 @@ impl Default for AppState {
             scenes: Vec::new(),
             sources: Vec::new(),
             active_scene_id: None,
+            selected_source_id: None,
             audio_levels: crate::gstreamer::AudioLevelUpdate::default(),
             available_audio_devices: Vec::new(),
             stream_status: StreamStatus::Offline,

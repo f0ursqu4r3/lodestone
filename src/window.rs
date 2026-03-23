@@ -98,23 +98,27 @@ impl WindowState {
         }
     }
 
+    /// Render the window contents. Returns detach requests and whether the
+    /// settings button was clicked.
     pub fn render(
         &mut self,
         gpu: &SharedGpuState,
         state: &mut AppState,
-    ) -> Result<Vec<DetachRequest>> {
+    ) -> Result<(Vec<DetachRequest>, bool)> {
         let raw_input = self.egui_state.take_egui_input(self.window);
 
         let layout = &self.layout;
         let is_main = self.is_main;
         let mut pending_actions = Vec::new();
+        let mut open_settings = false;
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            // Detached single-panel windows skip the menu bar — the OS window
-            // title bar acts as the header.
+            // Detached single-panel windows skip the menu bar and toolbar.
             let available_rect = if is_main {
-                let (menu_actions, rect) = crate::ui::layout::render::render_menu_bar(ctx, layout);
+                let (menu_actions, _rect) = crate::ui::layout::render::render_menu_bar(ctx, layout);
                 pending_actions = menu_actions;
-                rect
+                // Draw the toolbar (always visible on the main window).
+                open_settings = crate::ui::toolbar::draw(ctx, state);
+                ctx.available_rect()
             } else {
                 ctx.available_rect()
             };
@@ -478,7 +482,7 @@ impl WindowState {
         self.egui_state
             .handle_platform_output(self.window, full_output.platform_output);
 
-        Ok(detach_requests)
+        Ok((detach_requests, open_settings))
     }
 
     /// Render the settings window content.

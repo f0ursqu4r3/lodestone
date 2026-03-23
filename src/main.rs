@@ -503,18 +503,26 @@ impl ApplicationHandler for AppManager {
                     } else {
                         // Normal render path
                         let mut app_state = self.state.lock().unwrap();
-                        let layout_changed = match win.render(gpu, &mut app_state) {
-                            Ok(detach_requests) => {
-                                let changed = !detach_requests.is_empty();
-                                self.pending_detaches.extend(detach_requests);
-                                changed
-                            }
-                            Err(e) => {
-                                log::error!("Render error: {e}");
-                                false
-                            }
-                        };
+                        let (layout_changed, toolbar_settings) =
+                            match win.render(gpu, &mut app_state) {
+                                Ok((detach_requests, open_settings)) => {
+                                    let changed = !detach_requests.is_empty();
+                                    self.pending_detaches.extend(detach_requests);
+                                    (changed, open_settings)
+                                }
+                                Err(e) => {
+                                    log::error!("Render error: {e}");
+                                    (false, false)
+                                }
+                            };
                         drop(app_state);
+                        if toolbar_settings {
+                            if self.settings_window_id.is_some() {
+                                self.close_settings_window();
+                            } else {
+                                self.pending_settings_window = true;
+                            }
+                        }
                         if layout_changed {
                             self.save_layout();
                         }

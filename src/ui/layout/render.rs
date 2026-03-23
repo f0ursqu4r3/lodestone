@@ -6,27 +6,19 @@
 use super::interactions::{collect_dividers, drop_zone_highlight_rect, hit_test_drop_zone};
 use super::tree::{DockLayout, DropZone, GroupId, NodeId, PanelType, SplitDirection};
 
-// ---------------------------------------------------------------------------
-// Theme constants
-// ---------------------------------------------------------------------------
+use crate::ui::theme::{
+    ADD_BUTTON_WIDTH, BG_ELEVATED, BG_PANEL, BG_SURFACE, BORDER, DEFAULT_ACCENT, DOCK_GRIP_WIDTH,
+    FLOATING_HEADER_HEIGHT, FLOATING_MIN_SIZE, PANEL_PADDING, TAB_BAR_HEIGHT, TEXT_PRIMARY,
+    TEXT_SECONDARY,
+};
 
-const TAB_BAR_BG: egui::Color32 = egui::Color32::from_rgb(0x1e, 0x1e, 0x2e);
-const TAB_ACTIVE_BG: egui::Color32 = egui::Color32::from_rgb(0x2a, 0x2a, 0x3e);
-const TAB_HOVER_BG: egui::Color32 = egui::Color32::from_rgb(0x2e, 0x2e, 0x3e);
-const TAB_ACCENT: egui::Color32 = egui::Color32::from_rgb(0x7c, 0x6c, 0xf0);
-const CONTENT_BG: egui::Color32 = egui::Color32::from_rgb(0x18, 0x18, 0x25);
-const DROP_ZONE_TINT: egui::Color32 =
-    egui::Color32::from_rgba_premultiplied(0x7c, 0x6c, 0xf0, 0x40);
-const TEXT_DIM: egui::Color32 = egui::Color32::from_gray(0xa0);
-const TEXT_BRIGHT: egui::Color32 = egui::Color32::from_gray(0xe0);
-const DIVIDER_COLOR: egui::Color32 = egui::Color32::from_gray(60);
-const TAB_BAR_HEIGHT: f32 = 28.0;
-const PANEL_PADDING: f32 = 6.0;
-const ADD_BUTTON_WIDTH: f32 = 28.0;
-const DOCK_GRIP_WIDTH: f32 = 28.0;
-const FLOATING_HEADER_HEIGHT: f32 = 28.0;
-const FLOATING_BORDER: egui::Color32 = egui::Color32::from_gray(50);
-const FLOATING_MIN_SIZE: egui::Vec2 = egui::vec2(200.0, 100.0);
+/// Drop-zone highlight: accent at ~15% opacity.
+const DROP_ZONE_TINT: egui::Color32 = egui::Color32::from_rgba_premultiplied(
+    DEFAULT_ACCENT.r(),
+    DEFAULT_ACCENT.g(),
+    DEFAULT_ACCENT.b(),
+    38,
+);
 
 // ---------------------------------------------------------------------------
 // LayoutAction
@@ -104,6 +96,9 @@ pub const DOCKABLE_TYPES: &[PanelType] = &[
     PanelType::SceneEditor,
     PanelType::AudioMixer,
     PanelType::StreamControls,
+    PanelType::Sources,
+    PanelType::Scenes,
+    PanelType::Properties,
 ];
 
 // ---------------------------------------------------------------------------
@@ -221,7 +216,7 @@ pub fn render_layout(
                 .map(|g| g.active_tab_entry().panel_type.display_name())
                 .unwrap_or("Group");
             let font = egui::FontId::proportional(13.0);
-            let galley = ghost_painter.layout_no_wrap(group_name.to_string(), font, TEXT_BRIGHT);
+            let galley = ghost_painter.layout_no_wrap(group_name.to_string(), font, TEXT_PRIMARY);
             let text_rect =
                 egui::Rect::from_min_size(pointer_pos + egui::vec2(12.0, -8.0), galley.size())
                     .expand(4.0);
@@ -230,7 +225,7 @@ pub fn render_layout(
                 4.0,
                 egui::Color32::from_rgba_premultiplied(0x1e, 0x1e, 0x2e, 0xd0),
             );
-            ghost_painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, TEXT_BRIGHT);
+            ghost_painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, TEXT_PRIMARY);
 
             // Show drop zone overlays on all groups (excluding the dragged group)
             let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;
@@ -318,7 +313,7 @@ fn render_dividers(
                 )
             }
         };
-        painter.rect_filled(line_rect, 0.0, DIVIDER_COLOR);
+        painter.rect_filled(line_rect, 0.0, BORDER);
 
         // Invisible Area for drag interaction
         let area_id = egui::Id::new(("divider_area", div.node_id.0));
@@ -379,7 +374,7 @@ fn render_drag_overlay(
         let painter = ctx.layer_painter(ghost_layer);
         let text = drag.panel_type.display_name();
         let font = egui::FontId::proportional(13.0);
-        let galley = painter.layout_no_wrap(text.to_string(), font, TEXT_BRIGHT);
+        let galley = painter.layout_no_wrap(text.to_string(), font, TEXT_PRIMARY);
         let text_rect =
             egui::Rect::from_min_size(pointer_pos + egui::vec2(12.0, -8.0), galley.size())
                 .expand(4.0);
@@ -388,7 +383,7 @@ fn render_drag_overlay(
             4.0,
             egui::Color32::from_rgba_premultiplied(0x1e, 0x1e, 0x2e, 0xd0),
         );
-        painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, TEXT_BRIGHT);
+        painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, TEXT_PRIMARY);
 
         // Drop zone overlays on grid groups
         let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;
@@ -472,7 +467,7 @@ fn render_tab_bar(
         tctx.order,
         egui::Id::new(("tab_bar_bg", group_id.0)),
     ));
-    painter.rect_filled(tab_bar_rect, 0.0, TAB_BAR_BG);
+    painter.rect_filled(tab_bar_rect, 0.0, BG_SURFACE);
 
     let tab_count = group.tabs.len();
     let max_tab_width = 160.0_f32;
@@ -507,12 +502,10 @@ fn render_tab_bar(
                 let response = ui.allocate_response(tab_rect.size(), egui::Sense::click_and_drag());
 
                 // Background
-                let bg = if is_active {
-                    TAB_ACTIVE_BG
-                } else if response.hovered() {
-                    TAB_HOVER_BG
+                let bg = if is_active || response.hovered() {
+                    BG_ELEVATED
                 } else {
-                    TAB_BAR_BG
+                    BG_SURFACE
                 };
                 painter.rect_filled(tab_rect, 0.0, bg);
 
@@ -522,11 +515,15 @@ fn render_tab_bar(
                         egui::pos2(tab_rect.min.x, tab_rect.max.y - 2.0),
                         egui::vec2(tab_width, 2.0),
                     );
-                    painter.rect_filled(accent_rect, 0.0, TAB_ACCENT);
+                    painter.rect_filled(accent_rect, 0.0, DEFAULT_ACCENT);
                 }
 
                 // Label — truncate with ellipsis when too wide
-                let text_color = if is_active { TEXT_BRIGHT } else { TEXT_DIM };
+                let text_color = if is_active {
+                    TEXT_PRIMARY
+                } else {
+                    TEXT_SECONDARY
+                };
                 let label_pos = egui::pos2(tab_rect.min.x + 8.0, tab_rect.center().y - 6.0);
                 let available_text_width = (tab_width - 28.0).max(10.0);
                 let font = egui::FontId::proportional(12.0);
@@ -566,7 +563,11 @@ fn render_tab_bar(
                 let mut close_clicked = false;
 
                 if response.hovered() {
-                    let close_color = if close_hovered { TEXT_BRIGHT } else { TEXT_DIM };
+                    let close_color = if close_hovered {
+                        TEXT_PRIMARY
+                    } else {
+                        TEXT_SECONDARY
+                    };
 
                     let s = 3.5;
                     painter.line_segment(
@@ -691,14 +692,18 @@ fn render_tab_bar(
     // Paint the "+" on the tab bar painter (not inside the Area)
     let plus_hovered = plus_response.hovered();
     if plus_hovered {
-        painter.rect_filled(plus_rect, 0.0, TAB_HOVER_BG);
+        painter.rect_filled(plus_rect, 0.0, BG_ELEVATED);
     }
     painter.text(
         plus_rect.center(),
         egui::Align2::CENTER_CENTER,
         "+",
         egui::FontId::proportional(14.0),
-        if plus_hovered { TEXT_BRIGHT } else { TEXT_DIM },
+        if plus_hovered {
+            TEXT_PRIMARY
+        } else {
+            TEXT_SECONDARY
+        },
     );
 
     // Toggle popup on click, using manual state to avoid same-frame close
@@ -755,7 +760,7 @@ fn render_tab_bar(
         egui::vec2(DOCK_GRIP_WIDTH, TAB_BAR_HEIGHT),
     );
     // Paint grip dots (2x3 grid)
-    paint_grip_dots(&painter, dock_rect.center(), TEXT_DIM);
+    paint_grip_dots(&painter, dock_rect.center(), TEXT_SECONDARY);
     // Drag + context menu interaction via a tightly-sized Area
     let grip_area_resp = egui::Area::new(egui::Id::new(("grip_area", gid.0)))
         .fixed_pos(dock_rect.min)
@@ -836,7 +841,7 @@ fn render_content(
         .order(order)
         .sense(egui::Sense::hover())
         .show(ctx, |ui| {
-            ui.painter().rect_filled(content_rect, 0.0, CONTENT_BG);
+            ui.painter().rect_filled(content_rect, 0.0, BG_PANEL);
 
             ui.set_min_size(content_rect.size());
             ui.set_max_size(content_rect.size());
@@ -908,7 +913,7 @@ fn render_floating_chrome(
     border_painter.rect_stroke(
         outer_rect,
         0.0,
-        egui::Stroke::new(1.0, FLOATING_BORDER),
+        egui::Stroke::new(1.0, BORDER),
         egui::StrokeKind::Inside,
     );
 
@@ -920,7 +925,7 @@ fn render_floating_chrome(
         egui::Id::new(("floating_chrome_bar", group_id.0)),
     );
     let chrome_painter = ctx.layer_painter(chrome_layer);
-    chrome_painter.rect_filled(chrome_rect, 0.0, TAB_BAR_BG);
+    chrome_painter.rect_filled(chrome_rect, 0.0, BG_SURFACE);
 
     let button_size = 20.0;
     let button_margin = 4.0;
@@ -945,9 +950,9 @@ fn render_floating_chrome(
 
     // Draw collapse icon — chevron down (expanded) or right (collapsed)
     let collapse_color = if collapse_resp.hovered() {
-        TEXT_BRIGHT
+        TEXT_PRIMARY
     } else {
-        TEXT_DIM
+        TEXT_SECONDARY
     };
     let s = 4.0;
     if is_collapsed {
@@ -1006,9 +1011,9 @@ fn render_floating_chrome(
         .inner;
 
     let close_color = if close_resp.hovered() {
-        TEXT_BRIGHT
+        TEXT_PRIMARY
     } else {
-        TEXT_DIM
+        TEXT_SECONDARY
     };
     let xs = 3.5;
     chrome_painter.line_segment(
@@ -1036,7 +1041,7 @@ fn render_floating_chrome(
         egui::Align2::CENTER_CENTER,
         active_name,
         egui::FontId::proportional(12.0),
-        TEXT_DIM,
+        TEXT_SECONDARY,
     );
 
     // --- Title bar drag (move floating container) ---

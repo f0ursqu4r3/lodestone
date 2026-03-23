@@ -12,15 +12,15 @@ use crate::ui::theme::{
 };
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, vec2};
 
-/// Return a short text label for a given source type (egui's default font lacks emoji).
+/// Return a Phosphor icon for a given source type.
 fn source_icon(source_type: &SourceType) -> &'static str {
     match source_type {
-        SourceType::Display => "D",
-        SourceType::Camera => "C",
-        SourceType::Image => "I",
-        SourceType::Browser => "B",
-        SourceType::Audio => "A",
-        SourceType::Window => "W",
+        SourceType::Display => egui_phosphor::regular::MONITOR,
+        SourceType::Camera => egui_phosphor::regular::VIDEO_CAMERA,
+        SourceType::Image => egui_phosphor::regular::IMAGE,
+        SourceType::Browser => egui_phosphor::regular::BROWSER,
+        SourceType::Audio => egui_phosphor::regular::SPEAKER_HIGH,
+        SourceType::Window => egui_phosphor::regular::APP_WINDOW,
     }
 }
 
@@ -44,7 +44,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let has_selection = state.selected_source_id.is_some();
             ui.add_enabled_ui(has_selection, |ui| {
                 if ui
-                    .button("\u{2212}")
+                    .button(egui_phosphor::regular::MINUS)
                     .on_hover_text("Remove source")
                     .clicked()
                     && let Some(src_id) = state.selected_source_id
@@ -54,7 +54,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             });
 
             // Add display source
-            if ui.button("+").on_hover_text("Add display source").clicked() {
+            if ui.button(egui_phosphor::regular::PLUS).on_hover_text("Add display source").clicked() {
                 add_display_source(state, &cmd_tx, active_id);
             }
         });
@@ -151,7 +151,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 let right_x = row_rect.right() - 4.0;
 
                 // Visibility toggle eye icon.
-                let eye_text = if is_visible { "V" } else { "-" };
+                let eye_text = if is_visible {
+                    egui_phosphor::regular::EYE
+                } else {
+                    egui_phosphor::regular::EYE_SLASH
+                };
                 let eye_width = 16.0;
                 let eye_rect = Rect::from_center_size(
                     egui::pos2(right_x - eye_width / 2.0, center_y),
@@ -204,12 +208,12 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(idx > 0, |ui| {
-                    if ui.button("\u{2191}").on_hover_text("Move up").clicked() {
+                    if ui.button(egui_phosphor::regular::ARROW_UP).on_hover_text("Move up").clicked() {
                         move_up = Some(selected_id);
                     }
                 });
                 ui.add_enabled_ui(idx + 1 < source_count, |ui| {
-                    if ui.button("\u{2193}").on_hover_text("Move down").clicked() {
+                    if ui.button(egui_phosphor::regular::ARROW_DOWN).on_hover_text("Move down").clicked() {
                         move_down = Some(selected_id);
                     }
                 });

@@ -202,7 +202,7 @@ fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hov
     painter.text(
         thumb_rect.center(),
         egui::Align2::CENTER_CENTER,
-        "+",
+        egui_phosphor::regular::PLUS,
         egui::FontId::proportional(18.0),
         icon_color,
     );

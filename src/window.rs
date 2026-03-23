@@ -70,6 +70,10 @@ impl WindowState {
         egui_ctx.style_mut(|style| {
             style.spacing.button_padding = crate::ui::theme::BTN_PADDING;
         });
+        // Register Phosphor icon font so icon constants render as glyphs.
+        let mut fonts = egui::FontDefinitions::default();
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+        egui_ctx.set_fonts(fonts);
         let max_tex = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),

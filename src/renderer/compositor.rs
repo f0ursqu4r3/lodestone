@@ -99,10 +99,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 /// Per-source compositor uniforms uploaded to group(1) binding(0).
 ///
-/// Layout (32 bytes):
+/// Layout (48 bytes, std140-aligned to match WGSL):
 /// - rect:     [f32; 4] — normalized x, y, w, h in 0..1 canvas space
 /// - opacity:  f32
-/// - _padding: [f32; 3] — align to 16 bytes
+/// - _pad_align: [f32; 3] — implicit gap so `_padding` starts at offset 32 (vec3 alignment)
+/// - _padding: [f32; 3] — matches shader `vec3<f32>` padding field
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct SourceUniforms {
@@ -110,7 +111,12 @@ pub struct SourceUniforms {
     pub rect: [f32; 4],
     /// Alpha opacity clamped to [0.0, 1.0].
     pub opacity: f32,
+    /// Alignment gap: WGSL vec3<f32> requires 16-byte alignment, so 12 bytes of
+    /// padding are needed after the f32 `opacity` field (offset 20 → 32).
+    pub _pad_align: [f32; 3],
     pub _padding: [f32; 3],
+    /// Struct-level alignment pad: WGSL struct size rounds up to 16-byte multiple (44 → 48).
+    pub _pad_end: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -534,7 +540,9 @@ impl Compositor {
             let uniforms = SourceUniforms {
                 rect: [t.x / cw, t.y / ch, t.width / cw, t.height / ch],
                 opacity: source.opacity.clamp(0.0, 1.0),
+                _pad_align: [0.0; 3],
                 _padding: [0.0; 3],
+                _pad_end: 0.0,
             };
             queue.write_buffer(&layer.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
@@ -644,8 +652,8 @@ mod tests {
     use std::mem::size_of;
 
     #[test]
-    fn source_uniforms_is_32_bytes() {
-        assert_eq!(size_of::<SourceUniforms>(), 32);
+    fn source_uniforms_is_48_bytes() {
+        assert_eq!(size_of::<SourceUniforms>(), 48);
     }
 
     /// Verify that the coordinate normalization math is correct.
@@ -675,10 +683,12 @@ mod tests {
         let u = SourceUniforms {
             rect: [0.0, 0.0, 1.0, 1.0],
             opacity: 1.0,
+            _pad_align: [0.0; 3],
             _padding: [0.0; 3],
+            _pad_end: 0.0,
         };
         let bytes = bytemuck::bytes_of(&u);
-        assert_eq!(bytes.len(), 32);
+        assert_eq!(bytes.len(), 48);
     }
 
     #[test]

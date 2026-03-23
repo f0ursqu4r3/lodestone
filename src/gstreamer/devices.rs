@@ -57,20 +57,17 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
     for i in 0..window_list.len() {
         // Each entry is a CFDictionary; get it as a raw CFType and downcast.
         let entry: CFType = unsafe { CFType::wrap_under_get_rule(*window_list.get(i).unwrap()) };
-        let dict: CFDictionary<CFString, CFType> = unsafe {
-            CFDictionary::wrap_under_get_rule(entry.as_CFTypeRef() as *const _)
-        };
+        let dict: CFDictionary<CFString, CFType> =
+            unsafe { CFDictionary::wrap_under_get_rule(entry.as_CFTypeRef() as *const _) };
 
         // Extract owner PID and skip our own windows.
-        let owner_pid = dict
-            .find(&key_owner_pid)
-            .and_then(|v| unsafe {
-                CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_i64()
-            });
-        if let Some(pid) = owner_pid {
-            if pid as u32 == own_pid {
-                continue;
-            }
+        let owner_pid = dict.find(&key_owner_pid).and_then(|v| unsafe {
+            CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_i64()
+        });
+        if let Some(pid) = owner_pid
+            && pid as u32 == own_pid
+        {
+            continue;
         }
 
         // Extract window ID.
@@ -97,14 +94,15 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
         // Extract owner name.
         let owner_name = dict
             .find(&key_owner)
-            .map(|v| unsafe { CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_string() })
+            .map(|v| unsafe {
+                CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_string()
+            })
             .unwrap_or_default();
 
         // Filter out very small windows by checking bounds dictionary.
         if let Some(bounds_val) = dict.find(&key_bounds) {
-            let bounds_dict: CFDictionary<CFString, CFType> = unsafe {
-                CFDictionary::wrap_under_get_rule(bounds_val.as_CFTypeRef() as *const _)
-            };
+            let bounds_dict: CFDictionary<CFString, CFType> =
+                unsafe { CFDictionary::wrap_under_get_rule(bounds_val.as_CFTypeRef() as *const _) };
             let width_key = CFString::new("Width");
             let height_key = CFString::new("Height");
 

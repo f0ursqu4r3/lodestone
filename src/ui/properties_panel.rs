@@ -177,8 +177,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     .on_hover_text("Refresh window list")
                     .clicked()
                 {
-                    state.available_windows =
-                        crate::gstreamer::devices::enumerate_windows();
+                    state.available_windows = crate::gstreamer::devices::enumerate_windows();
                 }
             });
 
@@ -222,22 +221,20 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 device_name.clone()
             };
 
-            egui::ComboBox::from_id_salt(
-                egui::Id::new("props_camera_combo").with(selected_id.0),
-            )
-            .selected_text(&selected_label)
-            .width(ui.available_width() - 8.0)
-            .show_ui(ui, |ui| {
-                for cam in &cameras {
-                    if ui
-                        .selectable_label(*device_index == cam.device_index, &cam.name)
-                        .clicked()
-                    {
-                        *device_index = cam.device_index;
-                        *device_name = cam.name.clone();
+            egui::ComboBox::from_id_salt(egui::Id::new("props_camera_combo").with(selected_id.0))
+                .selected_text(&selected_label)
+                .width(ui.available_width() - 8.0)
+                .show_ui(ui, |ui| {
+                    for cam in &cameras {
+                        if ui
+                            .selectable_label(*device_index == cam.device_index, &cam.name)
+                            .clicked()
+                        {
+                            *device_index = cam.device_index;
+                            *device_name = cam.name.clone();
+                        }
                     }
-                }
-            });
+                });
 
             if *device_index != prev_device_index {
                 // Stop old capture, start new one.

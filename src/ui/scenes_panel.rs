@@ -73,7 +73,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         let is_hovered = response.hovered();
 
                         // Thumbnail background.
-                        painter.rect_filled(thumb_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
+                        painter.rect_filled(
+                            thumb_rect,
+                            CornerRadius::same(RADIUS_SM as u8),
+                            BG_ELEVATED,
+                        );
 
                         // Border: active = TEXT_PRIMARY, hovered = TEXT_MUTED, default = BORDER.
                         let border_color = if is_active {
@@ -241,13 +245,19 @@ fn apply_scene_diff(
         if let Some(source) = sources.iter().find(|s| s.id == src_id) {
             let config = match &source.properties {
                 crate::scene::SourceProperties::Display { screen_index } => {
-                    CaptureSourceConfig::Screen { screen_index: *screen_index }
+                    CaptureSourceConfig::Screen {
+                        screen_index: *screen_index,
+                    }
                 }
                 crate::scene::SourceProperties::Window { window_id, .. } => {
-                    CaptureSourceConfig::Window { window_id: *window_id }
+                    CaptureSourceConfig::Window {
+                        window_id: *window_id,
+                    }
                 }
                 crate::scene::SourceProperties::Camera { device_index, .. } => {
-                    CaptureSourceConfig::Camera { device_index: *device_index }
+                    CaptureSourceConfig::Camera {
+                        device_index: *device_index,
+                    }
                 }
             };
             let _ = tx.try_send(GstCommand::AddCaptureSource {
@@ -316,13 +326,19 @@ fn send_capture_for_scene(
         if let Some(source) = sources.iter().find(|s| s.id == src_id) {
             let config = match &source.properties {
                 crate::scene::SourceProperties::Display { screen_index } => {
-                    CaptureSourceConfig::Screen { screen_index: *screen_index }
+                    CaptureSourceConfig::Screen {
+                        screen_index: *screen_index,
+                    }
                 }
                 crate::scene::SourceProperties::Window { window_id, .. } => {
-                    CaptureSourceConfig::Window { window_id: *window_id }
+                    CaptureSourceConfig::Window {
+                        window_id: *window_id,
+                    }
                 }
                 crate::scene::SourceProperties::Camera { device_index, .. } => {
-                    CaptureSourceConfig::Camera { device_index: *device_index }
+                    CaptureSourceConfig::Camera {
+                        device_index: *device_index,
+                    }
                 }
             };
             let _ = tx.try_send(GstCommand::AddCaptureSource {

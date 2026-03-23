@@ -60,6 +60,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
             let popup_id = ui.make_persistent_id("add_source_menu");
             if add_response.clicked() {
+                #[allow(deprecated)]
                 ui.memory_mut(|m: &mut egui::Memory| m.toggle_popup(popup_id));
             }
 
@@ -133,8 +134,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
                 // Selection highlight background.
                 if is_selected {
-                    ui.painter()
-                        .rect_filled(row_rect, CornerRadius::same(RADIUS_SM as u8), selected_bg);
+                    ui.painter().rect_filled(
+                        row_rect,
+                        CornerRadius::same(RADIUS_SM as u8),
+                        selected_bg,
+                    );
                 }
 
                 // Handle click for selection.
@@ -236,12 +240,20 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(idx > 0, |ui| {
-                    if ui.button(egui_phosphor::regular::ARROW_UP).on_hover_text("Move up").clicked() {
+                    if ui
+                        .button(egui_phosphor::regular::ARROW_UP)
+                        .on_hover_text("Move up")
+                        .clicked()
+                    {
                         move_up = Some(selected_id);
                     }
                 });
                 ui.add_enabled_ui(idx + 1 < source_count, |ui| {
-                    if ui.button(egui_phosphor::regular::ARROW_DOWN).on_hover_text("Move down").clicked() {
+                    if ui
+                        .button(egui_phosphor::regular::ARROW_DOWN)
+                        .on_hover_text("Move down")
+                        .clicked()
+                    {
                         move_down = Some(selected_id);
                     }
                 });

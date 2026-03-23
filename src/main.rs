@@ -158,17 +158,16 @@ impl AppManager {
         if let Err(e) = ::gstreamer::init() {
             log::error!("Failed to initialize GStreamer on main thread: {e}");
         }
-        let available_cameras =
-            match crate::gstreamer::devices::enumerate_cameras() {
-                Ok(cams) => {
-                    log::info!("Found {} camera(s)", cams.len());
-                    cams
-                }
-                Err(e) => {
-                    log::warn!("Failed to enumerate cameras: {e}");
-                    Vec::new()
-                }
-            };
+        let available_cameras = match crate::gstreamer::devices::enumerate_cameras() {
+            Ok(cams) => {
+                log::info!("Found {} camera(s)", cams.len());
+                cams
+            }
+            Err(e) => {
+                log::warn!("Failed to enumerate cameras: {e}");
+                Vec::new()
+            }
+        };
 
         use crate::scene::SceneCollection;
         let scenes_path = settings::scenes_path();
@@ -389,13 +388,19 @@ impl ApplicationHandler for AppManager {
                     if let Some(source) = state.sources.iter().find(|s| s.id == src_id) {
                         let config = match &source.properties {
                             crate::scene::SourceProperties::Display { screen_index } => {
-                                gstreamer::CaptureSourceConfig::Screen { screen_index: *screen_index }
+                                gstreamer::CaptureSourceConfig::Screen {
+                                    screen_index: *screen_index,
+                                }
                             }
                             crate::scene::SourceProperties::Window { window_id, .. } => {
-                                gstreamer::CaptureSourceConfig::Window { window_id: *window_id }
+                                gstreamer::CaptureSourceConfig::Window {
+                                    window_id: *window_id,
+                                }
                             }
                             crate::scene::SourceProperties::Camera { device_index, .. } => {
-                                gstreamer::CaptureSourceConfig::Camera { device_index: *device_index }
+                                gstreamer::CaptureSourceConfig::Camera {
+                                    device_index: *device_index,
+                                }
                             }
                         };
                         if let Some(ref tx) = state.command_tx {

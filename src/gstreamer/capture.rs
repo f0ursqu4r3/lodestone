@@ -186,21 +186,11 @@ pub fn build_window_capture_pipeline(
         .build();
 
     pipeline
-        .add_many([
-            appsrc.upcast_ref(),
-            &convert,
-            &scale,
-            appsink.upcast_ref(),
-        ])
+        .add_many([appsrc.upcast_ref(), &convert, &scale, appsink.upcast_ref()])
         .context("Failed to add elements to window capture pipeline")?;
 
-    gstreamer::Element::link_many([
-        appsrc.upcast_ref(),
-        &convert,
-        &scale,
-        appsink.upcast_ref(),
-    ])
-    .context("Failed to link window capture pipeline elements")?;
+    gstreamer::Element::link_many([appsrc.upcast_ref(), &convert, &scale, appsink.upcast_ref()])
+        .context("Failed to link window capture pipeline elements")?;
 
     Ok((pipeline, appsink, appsrc))
 }

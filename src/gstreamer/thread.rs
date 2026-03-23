@@ -2,8 +2,8 @@ use gstreamer::prelude::*;
 use gstreamer_app::{AppSink, AppSrc};
 use log;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
 use super::capture::{build_audio_capture_pipeline, build_capture_pipeline};
@@ -161,8 +161,7 @@ impl GstThread {
 
                     match grab_window_frame(window_id) {
                         Some((rgba_data, _w, _h)) => {
-                            let mut buffer =
-                                gstreamer::Buffer::with_size(rgba_data.len()).unwrap();
+                            let mut buffer = gstreamer::Buffer::with_size(rgba_data.len()).unwrap();
                             {
                                 let buf_ref = buffer.get_mut().unwrap();
                                 let mut map = buf_ref.map_writable().unwrap();

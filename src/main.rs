@@ -154,6 +154,22 @@ impl AppManager {
         let (main_channels, thread_channels) = gstreamer::create_channels();
         let gst_handle = gstreamer::spawn_gstreamer_thread(thread_channels);
 
+        // Enumerate cameras on the main thread (gstreamer::init is idempotent).
+        if let Err(e) = ::gstreamer::init() {
+            log::error!("Failed to initialize GStreamer on main thread: {e}");
+        }
+        let available_cameras =
+            match crate::gstreamer::devices::enumerate_cameras() {
+                Ok(cams) => {
+                    log::info!("Found {} camera(s)", cams.len());
+                    cams
+                }
+                Err(e) => {
+                    log::warn!("Failed to enumerate cameras: {e}");
+                    Vec::new()
+                }
+            };
+
         use crate::scene::SceneCollection;
         let scenes_path = settings::scenes_path();
         let collection = SceneCollection::load_from(&scenes_path);
@@ -168,6 +184,7 @@ impl AppManager {
             next_scene_id: collection.next_scene_id,
             next_source_id: collection.next_source_id,
             command_tx: Some(main_channels.command_tx.clone()),
+            available_cameras,
             ..AppState::default()
         };
 

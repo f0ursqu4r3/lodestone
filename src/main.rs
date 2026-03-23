@@ -1,4 +1,5 @@
 mod gstreamer;
+mod image_source;
 mod renderer;
 mod scene;
 mod settings;

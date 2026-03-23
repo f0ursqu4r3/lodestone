@@ -3,6 +3,7 @@
 //! Shows transform, opacity, and source-specific settings for whichever source
 //! is selected in the Sources panel (`state.selected_source_id`).
 
+use crate::gstreamer::{CaptureSourceConfig, GstCommand};
 use crate::scene::{SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
@@ -118,6 +119,139 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 });
 
             if *screen_index != prev_index {
+                changed = true;
+            }
+        }
+        SourceType::Window => {
+            section_label(ui, "SOURCE");
+            ui.add_space(4.0);
+
+            // Clone to avoid borrow conflicts.
+            let windows = state.available_windows.clone();
+            let cmd_tx = state.command_tx.clone();
+
+            let source = &mut state.sources[source_idx];
+            let SourceProperties::Window {
+                ref mut window_id,
+                ref mut window_title,
+                ref mut owner_name,
+            } = source.properties
+            else {
+                return;
+            };
+
+            let prev_window_id = *window_id;
+            let selected_label = if owner_name.is_empty() && window_title.is_empty() {
+                "Select a window...".to_string()
+            } else {
+                format!("{owner_name} \u{2014} {window_title}")
+            };
+
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt(
+                    egui::Id::new("props_window_combo").with(selected_id.0),
+                )
+                .selected_text(&selected_label)
+                .width(ui.available_width() - 32.0)
+                .show_ui(ui, |ui| {
+                    for win in &windows {
+                        let label = format!("{} \u{2014} {}", win.owner_name, win.title);
+                        if ui
+                            .selectable_label(*window_id == win.window_id, &label)
+                            .clicked()
+                        {
+                            *window_id = win.window_id;
+                            *window_title = win.title.clone();
+                            *owner_name = win.owner_name.clone();
+                        }
+                    }
+                });
+
+                // Refresh button to re-enumerate windows.
+                if ui
+                    .button(
+                        egui::RichText::new(egui_phosphor::regular::ARROW_CLOCKWISE)
+                            .size(14.0)
+                            .color(TEXT_SECONDARY),
+                    )
+                    .on_hover_text("Refresh window list")
+                    .clicked()
+                {
+                    state.available_windows =
+                        crate::gstreamer::devices::enumerate_windows();
+                }
+            });
+
+            if *window_id != prev_window_id && *window_id != 0 {
+                // Stop old capture, start new one.
+                if let Some(ref tx) = cmd_tx {
+                    let _ = tx.try_send(GstCommand::RemoveCaptureSource {
+                        source_id: selected_id,
+                    });
+                    let _ = tx.try_send(GstCommand::AddCaptureSource {
+                        source_id: selected_id,
+                        config: CaptureSourceConfig::Window {
+                            window_id: *window_id,
+                        },
+                    });
+                }
+                changed = true;
+            }
+        }
+        SourceType::Camera => {
+            section_label(ui, "SOURCE");
+            ui.add_space(4.0);
+
+            // Clone to avoid borrow conflicts.
+            let cameras = state.available_cameras.clone();
+            let cmd_tx = state.command_tx.clone();
+
+            let source = &mut state.sources[source_idx];
+            let SourceProperties::Camera {
+                ref mut device_index,
+                ref mut device_name,
+            } = source.properties
+            else {
+                return;
+            };
+
+            let prev_device_index = *device_index;
+            let selected_label = if device_name.is_empty() {
+                "Select a camera...".to_string()
+            } else {
+                device_name.clone()
+            };
+
+            egui::ComboBox::from_id_salt(
+                egui::Id::new("props_camera_combo").with(selected_id.0),
+            )
+            .selected_text(&selected_label)
+            .width(ui.available_width() - 8.0)
+            .show_ui(ui, |ui| {
+                for cam in &cameras {
+                    if ui
+                        .selectable_label(*device_index == cam.device_index, &cam.name)
+                        .clicked()
+                    {
+                        *device_index = cam.device_index;
+                        *device_name = cam.name.clone();
+                    }
+                }
+            });
+
+            if *device_index != prev_device_index {
+                // Stop old capture, start new one.
+                if let Some(ref tx) = cmd_tx {
+                    let _ = tx.try_send(GstCommand::RemoveCaptureSource {
+                        source_id: selected_id,
+                    });
+                    let _ = tx.try_send(GstCommand::AddCaptureSource {
+                        source_id: selected_id,
+                        config: CaptureSourceConfig::Camera {
+                            device_index: *device_index,
+                        },
+                    });
+                }
                 changed = true;
             }
         }

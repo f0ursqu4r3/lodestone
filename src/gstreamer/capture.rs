@@ -27,6 +27,12 @@ pub fn build_capture_pipeline(
                 .build()
                 .context("Failed to create avfvideosrc — is GStreamer installed?")?
         }
+        CaptureSourceConfig::Window { .. } => {
+            anyhow::bail!("Window capture built separately");
+        }
+        CaptureSourceConfig::Camera { .. } => {
+            todo!("Camera capture pipeline not yet implemented");
+        }
     };
 
     let convert = gstreamer::ElementFactory::make("videoconvert")

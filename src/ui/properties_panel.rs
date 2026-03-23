@@ -100,7 +100,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let source = &mut state.sources[source_idx];
             let SourceProperties::Display {
                 ref mut screen_index,
-            } = source.properties;
+            } = source.properties
+            else {
+                return;
+            };
 
             let prev_index = *screen_index;
             let selected_label = format!("Monitor {}", *screen_index);

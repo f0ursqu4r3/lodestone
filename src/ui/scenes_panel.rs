@@ -239,10 +239,20 @@ fn apply_scene_diff(
 
     for &src_id in new_ids.difference(&old_ids) {
         if let Some(source) = sources.iter().find(|s| s.id == src_id) {
-            let crate::scene::SourceProperties::Display { screen_index } = source.properties;
+            let config = match &source.properties {
+                crate::scene::SourceProperties::Display { screen_index } => {
+                    CaptureSourceConfig::Screen { screen_index: *screen_index }
+                }
+                crate::scene::SourceProperties::Window { window_id, .. } => {
+                    CaptureSourceConfig::Window { window_id: *window_id }
+                }
+                crate::scene::SourceProperties::Camera { device_index, .. } => {
+                    CaptureSourceConfig::Camera { device_index: *device_index }
+                }
+            };
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id: src_id,
-                config: CaptureSourceConfig::Screen { screen_index },
+                config,
             });
         }
     }
@@ -304,10 +314,20 @@ fn send_capture_for_scene(
     let mut any_started = false;
     for &src_id in &scene.sources {
         if let Some(source) = sources.iter().find(|s| s.id == src_id) {
-            let crate::scene::SourceProperties::Display { screen_index } = source.properties;
+            let config = match &source.properties {
+                crate::scene::SourceProperties::Display { screen_index } => {
+                    CaptureSourceConfig::Screen { screen_index: *screen_index }
+                }
+                crate::scene::SourceProperties::Window { window_id, .. } => {
+                    CaptureSourceConfig::Window { window_id: *window_id }
+                }
+                crate::scene::SourceProperties::Camera { device_index, .. } => {
+                    CaptureSourceConfig::Camera { device_index: *device_index }
+                }
+            };
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id: src_id,
-                config: CaptureSourceConfig::Screen { screen_index },
+                config,
             });
             any_started = true;
         }

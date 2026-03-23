@@ -4,7 +4,6 @@ pub mod audio_mixer;
 pub mod layout;
 pub mod preview_panel;
 pub mod properties_panel;
-pub mod scene_editor;
 pub mod scenes_panel;
 pub mod settings_window;
 pub mod sources_panel;

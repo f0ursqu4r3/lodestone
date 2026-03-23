@@ -135,6 +135,83 @@ pub struct SourceLayer {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: parse a "WxH" resolution string
+// ---------------------------------------------------------------------------
+
+/// Parse a resolution string like `"1920x1080"` into `(width, height)`.
+///
+/// Returns `(1920, 1080)` if parsing fails.
+pub fn parse_resolution(s: &str) -> (u32, u32) {
+    let parts: Vec<&str> = s.split('x').collect();
+    let w = parts.first().and_then(|s| s.parse().ok()).unwrap_or(1920);
+    let h = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(1080);
+    (w, h)
+}
+
+// ---------------------------------------------------------------------------
+// Internal texture / buffer creation helpers
+// ---------------------------------------------------------------------------
+
+/// Canvas texture format used throughout the compositor.
+const CANVAS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+/// Create a texture suitable for use as a canvas or output target.
+fn create_render_texture(device: &Device, label: &str, width: u32, height: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: CANVAS_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
+}
+
+/// Create a readback buffer sized for the given dimensions (with 256-byte row alignment).
+fn create_readback_buffer(device: &Device, width: u32, height: u32) -> wgpu::Buffer {
+    let bytes_per_row_padded = ((width * 4) + 255) & !255;
+    let readback_size = (bytes_per_row_padded * height) as u64;
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("compositor_readback_buffer"),
+        size: readback_size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    })
+}
+
+/// Create a texture+sampler bind group using the shared texture bind group layout.
+fn create_texture_bind_group(
+    device: &Device,
+    label: &str,
+    layout: &wgpu::BindGroupLayout,
+    view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some(label),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Compositor
 // ---------------------------------------------------------------------------
 
@@ -142,14 +219,28 @@ pub struct SourceLayer {
 pub struct Compositor {
     canvas_texture: wgpu::Texture,
     canvas_view: wgpu::TextureView,
-    /// Canvas dimensions in pixels.
+    /// Base (canvas) resolution width in pixels.
     pub canvas_width: u32,
-    /// Canvas dimensions in pixels.
+    /// Base (canvas) resolution height in pixels.
     pub canvas_height: u32,
+
+    /// Output (scaled) resolution width in pixels.
+    pub output_width: u32,
+    /// Output (scaled) resolution height in pixels.
+    pub output_height: u32,
+
+    /// Output texture at `output_res` dimensions. Used for the scale pass and readback.
+    output_texture: wgpu::Texture,
+    output_texture_view: wgpu::TextureView,
+    /// Bind group for the scale pass: binds `canvas_texture_view` + sampler.
+    output_bind_group: wgpu::BindGroup,
 
     /// Compositor render pipeline (source → canvas).
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
+
+    /// Scale pass pipeline: fullscreen quad sampling canvas → output at Rgba8UnormSrgb.
+    scale_pipeline: wgpu::RenderPipeline,
 
     /// Layout for per-source uniform bind groups (group 1).
     uniform_bind_group_layout: wgpu::BindGroupLayout,
@@ -160,7 +251,7 @@ pub struct Compositor {
     /// Per-source GPU layer, keyed by SourceId.
     source_layers: HashMap<SourceId, SourceLayer>,
 
-    /// Readback buffer for CPU-side frame access.
+    /// Readback buffer for CPU-side frame access (sized for output resolution).
     readback_buffer: wgpu::Buffer,
 
     /// Arc-wrapped canvas bind group for the preview panel paint callback.
@@ -174,30 +265,28 @@ impl Compositor {
     ///
     /// `surface_format` is the swap-chain format used by the preview pipeline so
     /// its output can be composited directly onto the window surface.
+    ///
+    /// `base_res` is the internal canvas resolution (where sources are composited).
+    /// `output_res` is the final output resolution (for readback / encoding).
+    /// When they differ, a scale pass blits the canvas to the output texture.
     pub fn new(
         device: &Device,
         surface_format: TextureFormat,
-        canvas_width: u32,
-        canvas_height: u32,
+        base_res: (u32, u32),
+        output_res: (u32, u32),
     ) -> Self {
+        let (canvas_width, canvas_height) = base_res;
+        let (output_width, output_height) = output_res;
+
         // ---- Canvas texture ------------------------------------------------
-        let canvas_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("compositor_canvas"),
-            size: wgpu::Extent3d {
-                width: canvas_width,
-                height: canvas_height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
+        let canvas_texture =
+            create_render_texture(device, "compositor_canvas", canvas_width, canvas_height);
         let canvas_view = canvas_texture.create_view(&Default::default());
+
+        // ---- Output texture ------------------------------------------------
+        let output_texture =
+            create_render_texture(device, "compositor_output", output_width, output_height);
+        let output_texture_view = output_texture.create_view(&Default::default());
 
         // ---- Sampler -------------------------------------------------------
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -291,7 +380,7 @@ impl Compositor {
                 module: &compositor_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    format: CANVAS_FORMAT,
                     blend: Some(alpha_over_blend),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -310,36 +399,13 @@ impl Compositor {
             cache: None,
         });
 
-        // ---- Readback buffer -----------------------------------------------
-        let bytes_per_row_padded = ((canvas_width * 4) + 255) & !255;
-        let readback_size = (bytes_per_row_padded * canvas_height) as u64;
-        let readback_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("compositor_readback_buffer"),
-            size: readback_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        // ---- Readback buffer (sized for output resolution) -----------------
+        let readback_buffer = create_readback_buffer(device, output_width, output_height);
 
-        // ---- Canvas preview pipeline (for egui preview panel) -------------
+        // ---- Canvas preview shader -----------------------------------------
         let canvas_preview_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("canvas_preview_shader"),
             source: wgpu::ShaderSource::Wgsl(CANVAS_PREVIEW_SHADER.into()),
-        });
-
-        // Canvas bind group using the same texture bind group layout.
-        let canvas_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("canvas_preview_bind_group"),
-            layout: &texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&canvas_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
         });
 
         let canvas_pipeline_layout =
@@ -349,6 +415,7 @@ impl Compositor {
                 push_constant_ranges: &[],
             });
 
+        // ---- Canvas preview pipeline (targets surface_format for egui panel)
         let canvas_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("canvas_preview_pipeline"),
             layout: Some(&canvas_pipeline_layout),
@@ -381,13 +448,72 @@ impl Compositor {
             cache: None,
         });
 
+        // ---- Scale pass pipeline (targets Rgba8UnormSrgb for output texture)
+        // This is a separate pipeline because the preview pipeline targets
+        // surface_format which may differ from Rgba8UnormSrgb.
+        let scale_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("compositor_scale_pipeline"),
+            layout: Some(&canvas_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &canvas_preview_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &canvas_preview_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: CANVAS_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // ---- Bind groups ---------------------------------------------------
+        let canvas_bind_group = create_texture_bind_group(
+            device,
+            "canvas_preview_bind_group",
+            &texture_bind_group_layout,
+            &canvas_view,
+            &sampler,
+        );
+
+        // Scale pass bind group: samples canvas_texture → output_texture.
+        let output_bind_group = create_texture_bind_group(
+            device,
+            "compositor_output_bind_group",
+            &texture_bind_group_layout,
+            &canvas_view,
+            &sampler,
+        );
+
         Self {
             canvas_texture,
             canvas_view,
             canvas_width,
             canvas_height,
+            output_width,
+            output_height,
+            output_texture,
+            output_texture_view,
+            output_bind_group,
             pipeline,
             sampler,
+            scale_pipeline,
             uniform_bind_group_layout,
             texture_bind_group_layout,
             source_layers: HashMap::new(),
@@ -421,25 +547,18 @@ impl Compositor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format: CANVAS_FORMAT,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
             let texture_view = texture.create_view(&Default::default());
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("compositor_source_bg"),
-                layout: &self.texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
+            let bind_group = create_texture_bind_group(
+                device,
+                "compositor_source_bg",
+                &self.texture_bind_group_layout,
+                &texture_view,
+                &self.sampler,
+            );
             let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("compositor_source_uniform"),
                 size: std::mem::size_of::<SourceUniforms>() as u64,
@@ -569,11 +688,51 @@ impl Compositor {
         }
     }
 
-    /// Read back the composited canvas from the GPU, returning a CPU-side `RgbaFrame`.
+    /// Scale the canvas texture to the output texture via a fullscreen quad blit.
+    ///
+    /// This is a no-op when base and output resolutions are identical.
+    pub fn scale_to_output(&self, encoder: &mut wgpu::CommandEncoder) {
+        // Skip if resolutions match — readback will use canvas_texture directly.
+        if self.canvas_width == self.output_width && self.canvas_height == self.output_height {
+            return;
+        }
+
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("compositor_scale_pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.output_texture_view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        pass.set_pipeline(&self.scale_pipeline);
+        pass.set_bind_group(0, &self.output_bind_group, &[]);
+        pass.draw(0..4, 0..1);
+    }
+
+    /// Read back the composited output from the GPU, returning a CPU-side `RgbaFrame`.
+    ///
+    /// When base and output resolutions differ, reads from the scaled output texture.
+    /// When they are equal, reads directly from the canvas texture.
     ///
     /// This blocks until the GPU work is complete.
     pub fn readback(&self, device: &Device, queue: &Queue) -> RgbaFrame {
-        let bytes_per_row_padded = ((self.canvas_width * 4) + 255) & !255;
+        let (read_texture, read_width, read_height) =
+            if self.canvas_width == self.output_width && self.canvas_height == self.output_height {
+                (&self.canvas_texture, self.canvas_width, self.canvas_height)
+            } else {
+                (&self.output_texture, self.output_width, self.output_height)
+            };
+
+        let bytes_per_row_padded = ((read_width * 4) + 255) & !255;
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("compositor_readback_encoder"),
@@ -581,7 +740,7 @@ impl Compositor {
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.canvas_texture,
+                texture: read_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -591,12 +750,12 @@ impl Compositor {
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(bytes_per_row_padded),
-                    rows_per_image: Some(self.canvas_height),
+                    rows_per_image: Some(read_height),
                 },
             },
             wgpu::Extent3d {
-                width: self.canvas_width,
-                height: self.canvas_height,
+                width: read_width,
+                height: read_height,
                 depth_or_array_layers: 1,
             },
         );
@@ -614,10 +773,10 @@ impl Compositor {
             .expect("GPU poll failed during readback");
 
         let raw = slice.get_mapped_range();
-        let unpadded_bytes_per_row = (self.canvas_width * 4) as usize;
+        let unpadded_bytes_per_row = (read_width * 4) as usize;
         let padded = bytes_per_row_padded as usize;
-        let mut data = Vec::with_capacity(unpadded_bytes_per_row * self.canvas_height as usize);
-        for row in 0..self.canvas_height as usize {
+        let mut data = Vec::with_capacity(unpadded_bytes_per_row * read_height as usize);
+        for row in 0..read_height as usize {
             let start = row * padded;
             data.extend_from_slice(&raw[start..start + unpadded_bytes_per_row]);
         }
@@ -626,8 +785,65 @@ impl Compositor {
 
         RgbaFrame {
             data,
-            width: self.canvas_width,
-            height: self.canvas_height,
+            width: read_width,
+            height: read_height,
+        }
+    }
+
+    /// Recreate GPU resources after a resolution change.
+    ///
+    /// - If `base_res` changed: recreates canvas texture, canvas bind group, output bind group.
+    /// - If `output_res` changed: recreates output texture, readback buffer, output bind group.
+    pub fn resize(&mut self, device: &Device, base_res: (u32, u32), output_res: (u32, u32)) {
+        let (new_cw, new_ch) = base_res;
+        let (new_ow, new_oh) = output_res;
+
+        let canvas_changed = new_cw != self.canvas_width || new_ch != self.canvas_height;
+        let output_changed = new_ow != self.output_width || new_oh != self.output_height;
+
+        if !canvas_changed && !output_changed {
+            return;
+        }
+
+        if canvas_changed {
+            self.canvas_width = new_cw;
+            self.canvas_height = new_ch;
+
+            self.canvas_texture =
+                create_render_texture(device, "compositor_canvas", new_cw, new_ch);
+            self.canvas_view = self.canvas_texture.create_view(&Default::default());
+
+            // Recreate the preview bind group (points at canvas_view).
+            let canvas_bind_group = create_texture_bind_group(
+                device,
+                "canvas_preview_bind_group",
+                &self.texture_bind_group_layout,
+                &self.canvas_view,
+                &self.sampler,
+            );
+            self.canvas_bind_group = Arc::new(canvas_bind_group);
+        }
+
+        if output_changed {
+            self.output_width = new_ow;
+            self.output_height = new_oh;
+
+            self.output_texture =
+                create_render_texture(device, "compositor_output", new_ow, new_oh);
+            self.output_texture_view = self.output_texture.create_view(&Default::default());
+
+            self.readback_buffer = create_readback_buffer(device, new_ow, new_oh);
+        }
+
+        // Output bind group always references canvas_view, so recreate if either changed.
+        if canvas_changed || output_changed {
+            self.output_bind_group = create_texture_bind_group(
+                device,
+                "compositor_output_bind_group",
+                &self.texture_bind_group_layout,
+                &self.canvas_view,
+                &self.sampler,
+            );
         }
     }
 
@@ -658,7 +874,7 @@ mod tests {
 
     /// Verify that the coordinate normalization math is correct.
     ///
-    /// A source at pixel (480, 270) with size 960×540 on a 1920×1080 canvas
+    /// A source at pixel (480, 270) with size 960x540 on a 1920x1080 canvas
     /// should normalize to (0.25, 0.25, 0.5, 0.5).
     #[test]
     fn source_uniforms_normalizes_transform() {
@@ -701,5 +917,20 @@ mod tests {
         let opacity: f32 = -0.3;
         let clamped = opacity.clamp(0.0, 1.0);
         assert!((clamped - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_resolution_valid() {
+        assert_eq!(parse_resolution("1920x1080"), (1920, 1080));
+        assert_eq!(parse_resolution("1280x720"), (1280, 720));
+        assert_eq!(parse_resolution("3840x2160"), (3840, 2160));
+    }
+
+    #[test]
+    fn parse_resolution_fallback() {
+        assert_eq!(parse_resolution(""), (1920, 1080));
+        assert_eq!(parse_resolution("badxinput"), (1920, 1080));
+        assert_eq!(parse_resolution("1280x"), (1280, 1080));
+        assert_eq!(parse_resolution("x720"), (1920, 720));
     }
 }

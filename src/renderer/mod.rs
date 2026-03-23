@@ -69,8 +69,9 @@ impl SharedGpuState {
         let text_renderer = GlyphonRenderer::new();
         let widget_pipeline = WidgetPipeline::new(&device, format);
 
-        // Default canvas size: 1920x1080. Compositor starts with a black canvas.
-        let compositor = Compositor::new(&device, format, 1920, 1080);
+        // Default canvas size: 1920x1080 for both base and output resolution.
+        // Task 4 will wire these to user settings.
+        let compositor = Compositor::new(&device, format, (1920, 1080), (1920, 1080));
 
         Ok(Self {
             instance,

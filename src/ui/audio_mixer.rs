@@ -17,7 +17,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     let system_levels = state.audio_levels.system.clone();
     let has_loopback = state.available_audio_devices.iter().any(|d| d.is_loopback);
 
-    ui.horizontal(|ui| {
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
 
         // Mic channel
@@ -34,7 +34,6 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
             );
         } else {
             ui.vertical(|ui| {
-                ui.set_min_width(60.0);
                 ui.label(egui::RichText::new("SYSTEM").size(9.0).color(TEXT_MUTED));
                 ui.add_space(10.0);
                 ui.label(
@@ -58,10 +57,9 @@ fn draw_channel_strip(
     let peak_db = levels.map(|l| l.peak_db).unwrap_or(-60.0);
 
     ui.vertical(|ui| {
-        ui.set_min_width(60.0);
-
         // Source label: 9px uppercase TEXT_MUTED, centered
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.set_width(40.0);
             ui.label(egui::RichText::new(name).size(9.0).color(TEXT_MUTED));
 
             ui.add_space(4.0);

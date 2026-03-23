@@ -155,7 +155,7 @@ pub struct AppearanceSettings {
 impl Default for AppearanceSettings {
     fn default() -> Self {
         Self {
-            accent_color: "#7c6cf0".to_string(),
+            accent_color: "#e0e0e8".to_string(),
             font_size: 13.0,
             theme: "dark".to_string(),
         }

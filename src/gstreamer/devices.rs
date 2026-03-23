@@ -18,6 +18,130 @@ pub struct WindowInfo {
     pub owner_name: String,
 }
 
+/// Minimum window dimension (width or height) to filter out tiny/invisible windows.
+const MIN_WINDOW_DIMENSION: f64 = 50.0;
+
+/// Enumerate on-screen windows available for capture (macOS).
+///
+/// Uses CoreGraphics `CGWindowListCopyWindowInfo` to discover visible windows.
+/// Filters out windows with empty titles, windows owned by Lodestone itself,
+/// and windows that are too small to be useful capture targets.
+#[cfg(target_os = "macos")]
+pub fn enumerate_windows() -> Vec<WindowInfo> {
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
+    use core_graphics::window::{
+        copy_window_info, kCGNullWindowID, kCGWindowListExcludeDesktopElements,
+        kCGWindowListOptionOnScreenOnly,
+    };
+
+    let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+
+    let window_list = match copy_window_info(options, kCGNullWindowID) {
+        Some(list) => list,
+        None => return Vec::new(),
+    };
+
+    let own_pid = std::process::id();
+
+    let key_number = CFString::new("kCGWindowNumber");
+    let key_owner = CFString::new("kCGWindowOwnerName");
+    let key_name = CFString::new("kCGWindowName");
+    let key_owner_pid = CFString::new("kCGWindowOwnerPID");
+    let key_bounds = CFString::new("kCGWindowBounds");
+
+    let mut results = Vec::new();
+
+    for i in 0..window_list.len() {
+        // Each entry is a CFDictionary; get it as a raw CFType and downcast.
+        let entry: CFType = unsafe { CFType::wrap_under_get_rule(*window_list.get(i).unwrap()) };
+        let dict: CFDictionary<CFString, CFType> = unsafe {
+            CFDictionary::wrap_under_get_rule(entry.as_CFTypeRef() as *const _)
+        };
+
+        // Extract owner PID and skip our own windows.
+        let owner_pid = dict
+            .find(&key_owner_pid)
+            .and_then(|v| unsafe {
+                CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_i64()
+            });
+        if let Some(pid) = owner_pid {
+            if pid as u32 == own_pid {
+                continue;
+            }
+        }
+
+        // Extract window ID.
+        let window_id = match dict.find(&key_number).and_then(|v| unsafe {
+            CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_i64()
+        }) {
+            Some(id) if id > 0 => id as u32,
+            _ => continue,
+        };
+
+        // Extract title — skip windows with empty or missing titles.
+        let title = match dict.find(&key_name) {
+            Some(v) => {
+                let s = unsafe { CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _) };
+                let t = s.to_string();
+                if t.is_empty() {
+                    continue;
+                }
+                t
+            }
+            None => continue,
+        };
+
+        // Extract owner name.
+        let owner_name = dict
+            .find(&key_owner)
+            .map(|v| unsafe { CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_string() })
+            .unwrap_or_default();
+
+        // Filter out very small windows by checking bounds dictionary.
+        if let Some(bounds_val) = dict.find(&key_bounds) {
+            let bounds_dict: CFDictionary<CFString, CFType> = unsafe {
+                CFDictionary::wrap_under_get_rule(bounds_val.as_CFTypeRef() as *const _)
+            };
+            let width_key = CFString::new("Width");
+            let height_key = CFString::new("Height");
+
+            let width = bounds_dict
+                .find(&width_key)
+                .and_then(|v| unsafe {
+                    CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_f64()
+                })
+                .unwrap_or(0.0);
+            let height = bounds_dict
+                .find(&height_key)
+                .and_then(|v| unsafe {
+                    CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_f64()
+                })
+                .unwrap_or(0.0);
+
+            if width < MIN_WINDOW_DIMENSION || height < MIN_WINDOW_DIMENSION {
+                continue;
+            }
+        }
+
+        results.push(WindowInfo {
+            window_id,
+            title,
+            owner_name,
+        });
+    }
+
+    results
+}
+
+/// Fallback for non-macOS platforms — window enumeration is not yet supported.
+#[cfg(not(target_os = "macos"))]
+pub fn enumerate_windows() -> Vec<WindowInfo> {
+    Vec::new()
+}
+
 /// Name substrings that indicate a screen-capture source rather than a real camera.
 const SCREEN_CAPTURE_HINTS: &[&str] = &["Screen", "Capture screen", "Display"];
 
@@ -131,6 +255,15 @@ mod tests {
             Err(e) => {
                 eprintln!("Skipping camera enumeration test: {e}");
             }
+        }
+    }
+
+    #[test]
+    fn enumerate_windows_does_not_panic() {
+        let windows = enumerate_windows();
+        for w in &windows {
+            assert!(!w.title.is_empty());
+            assert!(w.window_id != 0);
         }
     }
 

@@ -370,13 +370,22 @@ impl ApplicationHandler for AppManager {
             {
                 for &src_id in &scene.sources {
                     if let Some(source) = state.sources.iter().find(|s| s.id == src_id) {
-                        let crate::scene::SourceProperties::Display { screen_index } =
-                            source.properties;
-                        if let Some(ref tx) = state.command_tx {
-                            let _ = tx.try_send(gstreamer::GstCommand::AddCaptureSource {
-                                source_id: src_id,
-                                config: gstreamer::CaptureSourceConfig::Screen { screen_index },
-                            });
+                        match &source.properties {
+                            crate::scene::SourceProperties::Display { screen_index } => {
+                                if let Some(ref tx) = state.command_tx {
+                                    let _ =
+                                        tx.try_send(gstreamer::GstCommand::AddCaptureSource {
+                                            source_id: src_id,
+                                            config: gstreamer::CaptureSourceConfig::Screen {
+                                                screen_index: *screen_index,
+                                            },
+                                        });
+                                }
+                            }
+                            crate::scene::SourceProperties::Image { .. } => {
+                                // Image sources don't use a capture pipeline;
+                                // frames are loaded via LoadImageFrame.
+                            }
                         }
                     }
                 }

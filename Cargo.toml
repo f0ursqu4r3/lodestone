@@ -27,6 +27,8 @@ gstreamer-app = "0.23"
 gstreamer-audio = "0.23"
 gstreamer-video = "0.23"
 egui-phosphor = "0.11.0"
+image = "0.25.10"
+rfd = "0.17.2"
 
 [dev-dependencies]
 tempfile = "3"

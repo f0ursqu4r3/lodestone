@@ -53,6 +53,7 @@ pub struct Transform {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SourceProperties {
     Display { screen_index: u32 },
+    Image { path: String },
 }
 
 impl Default for SourceProperties {

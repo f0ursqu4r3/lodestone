@@ -239,11 +239,19 @@ fn apply_scene_diff(
 
     for &src_id in new_ids.difference(&old_ids) {
         if let Some(source) = sources.iter().find(|s| s.id == src_id) {
-            let crate::scene::SourceProperties::Display { screen_index } = source.properties;
-            let _ = tx.try_send(GstCommand::AddCaptureSource {
-                source_id: src_id,
-                config: CaptureSourceConfig::Screen { screen_index },
-            });
+            match &source.properties {
+                crate::scene::SourceProperties::Display { screen_index } => {
+                    let _ = tx.try_send(GstCommand::AddCaptureSource {
+                        source_id: src_id,
+                        config: CaptureSourceConfig::Screen {
+                            screen_index: *screen_index,
+                        },
+                    });
+                }
+                crate::scene::SourceProperties::Image { .. } => {
+                    // Image sources don't use a capture pipeline.
+                }
+            }
         }
     }
 }
@@ -304,12 +312,20 @@ fn send_capture_for_scene(
     let mut any_started = false;
     for &src_id in &scene.sources {
         if let Some(source) = sources.iter().find(|s| s.id == src_id) {
-            let crate::scene::SourceProperties::Display { screen_index } = source.properties;
-            let _ = tx.try_send(GstCommand::AddCaptureSource {
-                source_id: src_id,
-                config: CaptureSourceConfig::Screen { screen_index },
-            });
-            any_started = true;
+            match &source.properties {
+                crate::scene::SourceProperties::Display { screen_index } => {
+                    let _ = tx.try_send(GstCommand::AddCaptureSource {
+                        source_id: src_id,
+                        config: CaptureSourceConfig::Screen {
+                            screen_index: *screen_index,
+                        },
+                    });
+                    any_started = true;
+                }
+                crate::scene::SourceProperties::Image { .. } => {
+                    // Image sources don't use a capture pipeline.
+                }
+            }
         }
     }
     if !any_started {

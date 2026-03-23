@@ -98,13 +98,15 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
             let monitor_count = state.monitor_count;
             let source = &mut state.sources[source_idx];
-            let SourceProperties::Display {
+            if let SourceProperties::Display {
                 ref mut screen_index,
-            } = source.properties;
-
-            let prev_index = *screen_index;
-            let selected_label = format!("Monitor {}", *screen_index);
-            egui::ComboBox::from_id_salt(egui::Id::new("props_monitor_combo").with(selected_id.0))
+            } = source.properties
+            {
+                let prev_index = *screen_index;
+                let selected_label = format!("Monitor {}", *screen_index);
+                egui::ComboBox::from_id_salt(
+                    egui::Id::new("props_monitor_combo").with(selected_id.0),
+                )
                 .selected_text(&selected_label)
                 .width(ui.available_width() - 8.0)
                 .show_ui(ui, |ui| {
@@ -114,8 +116,9 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     }
                 });
 
-            if *screen_index != prev_index {
-                changed = true;
+                if *screen_index != prev_index {
+                    changed = true;
+                }
             }
         }
         _ => {

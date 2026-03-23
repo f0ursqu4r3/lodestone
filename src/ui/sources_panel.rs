@@ -222,6 +222,15 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     state.scenes_last_changed = std::time::Instant::now();
                 }
 
+                // Source context menu (right-click) for quick transform actions.
+                crate::ui::transform_handles::show_source_context_menu(
+                    ui,
+                    &row_response,
+                    state,
+                    src_id,
+                    egui::Vec2::new(1920.0, 1080.0), // TODO: read from settings
+                );
+
                 // Separator line between items.
                 if idx + 1 < source_count {
                     let sep_y = row_rect.bottom();

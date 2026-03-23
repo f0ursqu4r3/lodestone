@@ -478,6 +478,109 @@ pub fn draw_transform_handles(
     }
 
     ui.memory_mut(|m| m.data.insert_temp(drag_id, drag_mode));
+
+    // Context menu on the source rect (right-click).
+    let response = ui.interact(screen_rect, egui::Id::new(("source_ctx", selected_id.0)), egui::Sense::click());
+    show_source_context_menu(ui, &response, state, selected_id, canvas_size);
+}
+
+// ── Source Context Menu ────────────────────────────────────────────────────
+
+/// Show a context menu with quick transform actions for the selected source.
+/// Can be called from both the preview panel and the sources panel.
+pub fn show_source_context_menu(
+    _ui: &mut egui::Ui,
+    response: &egui::Response,
+    state: &mut AppState,
+    source_id: crate::scene::SourceId,
+    canvas_size: Vec2,
+) {
+    response.context_menu(|ui| {
+        let cw = canvas_size.x;
+        let ch = canvas_size.y;
+
+        // Get current source dimensions for aspect ratio calculations.
+        let (src_w, src_h) = state
+            .sources
+            .iter()
+            .find(|s| s.id == source_id)
+            .map(|s| (s.transform.width, s.transform.height))
+            .unwrap_or((cw, ch));
+        let src_aspect = src_w / src_h.max(1.0);
+        let canvas_aspect = cw / ch.max(1.0);
+
+        ui.set_min_width(160.0);
+
+        if ui.button("Fit to Canvas").on_hover_text("Scale to fit inside canvas, preserving aspect ratio").clicked() {
+            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+                let (w, h) = if src_aspect > canvas_aspect {
+                    (cw, cw / src_aspect)
+                } else {
+                    (ch * src_aspect, ch)
+                };
+                s.transform.x = (cw - w) / 2.0;
+                s.transform.y = (ch - h) / 2.0;
+                s.transform.width = w;
+                s.transform.height = h;
+            }
+            mark_dirty(state);
+            ui.close();
+        }
+
+        if ui.button("Stretch to Canvas").on_hover_text("Fill entire canvas, ignoring aspect ratio").clicked() {
+            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+                s.transform.x = 0.0;
+                s.transform.y = 0.0;
+                s.transform.width = cw;
+                s.transform.height = ch;
+            }
+            mark_dirty(state);
+            ui.close();
+        }
+
+        if ui.button("Fill Canvas").on_hover_text("Scale to cover entire canvas, cropping overflow").clicked() {
+            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+                let (w, h) = if src_aspect > canvas_aspect {
+                    (ch * src_aspect, ch)
+                } else {
+                    (cw, cw / src_aspect)
+                };
+                s.transform.x = (cw - w) / 2.0;
+                s.transform.y = (ch - h) / 2.0;
+                s.transform.width = w;
+                s.transform.height = h;
+            }
+            mark_dirty(state);
+            ui.close();
+        }
+
+        ui.separator();
+
+        if ui.button("Center on Canvas").on_hover_text("Move to center without resizing").clicked() {
+            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+                s.transform.x = (cw - s.transform.width) / 2.0;
+                s.transform.y = (ch - s.transform.height) / 2.0;
+            }
+            mark_dirty(state);
+            ui.close();
+        }
+
+        if ui.button("Reset Transform").on_hover_text("Reset to default position and size").clicked() {
+            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+                s.transform.x = 0.0;
+                s.transform.y = 0.0;
+                s.transform.width = cw;
+                s.transform.height = ch;
+            }
+            mark_dirty(state);
+            ui.close();
+        }
+    });
+}
+
+fn mark_dirty(state: &mut AppState) {
+    state.scenes_dirty = true;
+    state.scenes_last_changed = std::time::Instant::now();
 }
 
 #[cfg(test)]

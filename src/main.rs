@@ -623,6 +623,50 @@ impl ApplicationHandler for AppManager {
             }
         }
 
+        // Compose active scene sources onto the canvas.
+        // upload_frame() (mut borrow) is finished above; compose() uses &self — no overlap.
+        if let Some(ref gpu) = self.gpu {
+            let app_state = self.state.lock().expect("lock AppState");
+            if let Some(active_scene_id) = app_state.active_scene_id {
+                // Resolve source IDs to Source references.
+                let source_ids: Vec<_> = app_state
+                    .scenes
+                    .iter()
+                    .find(|s| s.id == active_scene_id)
+                    .map(|s| s.sources.clone())
+                    .unwrap_or_default();
+
+                let resolved_sources: Vec<&crate::scene::Source> = source_ids
+                    .iter()
+                    .filter_map(|sid| app_state.sources.iter().find(|s| s.id == *sid))
+                    .collect();
+
+                let mut encoder = gpu.device.create_command_encoder(
+                    &egui_wgpu::wgpu::CommandEncoderDescriptor {
+                        label: Some("compositor_encoder"),
+                    },
+                );
+                gpu.compositor
+                    .compose(&gpu.queue, &mut encoder, &resolved_sources);
+                gpu.queue.submit(std::iter::once(encoder.finish()));
+
+                // Readback for encoding if streaming or recording.
+                let is_encoding = app_state.stream_status.is_live()
+                    || matches!(
+                        app_state.recording_status,
+                        crate::state::RecordingStatus::Recording { .. }
+                    );
+
+                if is_encoding {
+                    drop(app_state); // release lock before blocking readback
+                    let frame = gpu.compositor.readback(&gpu.device, &gpu.queue);
+                    if let Some(ref channels) = self.gst_channels {
+                        let _ = channels.composited_frame_tx.try_send(frame);
+                    }
+                }
+            }
+        }
+
         if let Some(ref mut channels) = self.gst_channels {
             // Poll GStreamer error channel
             while let Ok(err) = channels.error_rx.try_recv() {
@@ -709,6 +753,89 @@ impl ApplicationHandler for AppManager {
         for win in self.windows.values() {
             win.window.request_redraw();
         }
+    }
+}
+
+/// Compute the diff between two scenes' source lists.
+///
+/// Returns `(to_add, to_remove)` — source IDs that are in `new_scene` but not `old_scene`,
+/// and source IDs that are in `old_scene` but not `new_scene`, respectively.
+/// Sources present in both scenes are not included in either list.
+#[allow(dead_code)]
+fn diff_scene_sources(
+    old_scene: Option<&crate::scene::Scene>,
+    new_scene: Option<&crate::scene::Scene>,
+) -> (Vec<crate::scene::SourceId>, Vec<crate::scene::SourceId>) {
+    let old_ids: std::collections::HashSet<_> = old_scene
+        .map(|s| s.sources.iter().copied().collect())
+        .unwrap_or_default();
+    let new_ids: std::collections::HashSet<_> = new_scene
+        .map(|s| s.sources.iter().copied().collect())
+        .unwrap_or_default();
+
+    let to_add: Vec<_> = new_ids.difference(&old_ids).copied().collect();
+    let to_remove: Vec<_> = old_ids.difference(&new_ids).copied().collect();
+    (to_add, to_remove)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scene::{Scene, SceneId, SourceId};
+
+    #[test]
+    fn diff_empty_to_scene() {
+        let scene = Scene {
+            id: SceneId(1),
+            name: "S".into(),
+            sources: vec![SourceId(1), SourceId(2)],
+        };
+        let (to_add, to_remove) = diff_scene_sources(None, Some(&scene));
+        assert_eq!(to_add.len(), 2);
+        assert!(to_remove.is_empty());
+    }
+
+    #[test]
+    fn diff_scene_to_empty() {
+        let scene = Scene {
+            id: SceneId(1),
+            name: "S".into(),
+            sources: vec![SourceId(1)],
+        };
+        let (to_add, to_remove) = diff_scene_sources(Some(&scene), None);
+        assert!(to_add.is_empty());
+        assert_eq!(to_remove.len(), 1);
+    }
+
+    #[test]
+    fn diff_shared_sources_not_touched() {
+        let old = Scene {
+            id: SceneId(1),
+            name: "A".into(),
+            sources: vec![SourceId(1), SourceId(2)],
+        };
+        let new = Scene {
+            id: SceneId(2),
+            name: "B".into(),
+            sources: vec![SourceId(2), SourceId(3)],
+        };
+        let (to_add, to_remove) = diff_scene_sources(Some(&old), Some(&new));
+        assert!(to_add.contains(&SourceId(3)));
+        assert!(!to_add.contains(&SourceId(2)));
+        assert!(to_remove.contains(&SourceId(1)));
+        assert!(!to_remove.contains(&SourceId(2)));
+    }
+
+    #[test]
+    fn diff_identical_scenes() {
+        let scene = Scene {
+            id: SceneId(1),
+            name: "A".into(),
+            sources: vec![SourceId(1)],
+        };
+        let (to_add, to_remove) = diff_scene_sources(Some(&scene), Some(&scene));
+        assert!(to_add.is_empty());
+        assert!(to_remove.is_empty());
     }
 }
 

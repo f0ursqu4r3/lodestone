@@ -3,8 +3,46 @@ use crate::scene::{Scene, SceneId, Source, SourceId, SourceProperties, SourceTyp
 use crate::state::AppState;
 use crate::ui::layout::PanelId;
 
+/// Send `AddCaptureSource` / `RemoveCaptureSource` commands for the delta between two scenes.
+///
+/// Sources shared between `old_scene` and `new_scene` are untouched.  Sources only in
+/// `new_scene` get `AddCaptureSource`; sources only in `old_scene` get `RemoveCaptureSource`.
+fn apply_scene_diff(
+    cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
+    sources: &[Source],
+    old_scene: Option<&Scene>,
+    new_scene: Option<&Scene>,
+) {
+    let Some(tx) = cmd_tx else { return };
+
+    let old_ids: std::collections::HashSet<SourceId> = old_scene
+        .map(|s| s.sources.iter().copied().collect())
+        .unwrap_or_default();
+    let new_ids: std::collections::HashSet<SourceId> = new_scene
+        .map(|s| s.sources.iter().copied().collect())
+        .unwrap_or_default();
+
+    // Remove sources that are no longer in the active scene.
+    for &src_id in old_ids.difference(&new_ids) {
+        let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
+    }
+
+    // Add sources that are new in the active scene.
+    for &src_id in new_ids.difference(&old_ids) {
+        if let Some(source) = sources.iter().find(|s| s.id == src_id) {
+            let SourceProperties::Display { screen_index } = source.properties;
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id: src_id,
+                config: CaptureSourceConfig::Screen { screen_index },
+            });
+        }
+    }
+}
+
 /// Send the appropriate capture command for a scene's source, or `StopCapture`
 /// if the scene has no display source.
+///
+/// Used for initial scene setup (first run / scene delete fallback).
 fn send_capture_for_scene(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     sources: &[Source],
@@ -95,9 +133,22 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     }
 
     if let Some(new_id) = switch_to {
+        let old_scene = state
+            .active_scene_id
+            .and_then(|id| state.scenes.iter().find(|s| s.id == id))
+            .cloned();
+        let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
+
         state.active_scene_id = Some(new_id);
-        if let Some(scene) = state.scenes.iter().find(|s| s.id == new_id).cloned() {
-            send_capture_for_scene(&cmd_tx, &state.sources, &scene);
+
+        apply_scene_diff(
+            &cmd_tx,
+            &state.sources,
+            old_scene.as_ref(),
+            new_scene.as_ref(),
+        );
+
+        if let Some(ref scene) = new_scene {
             state.capture_active = !scene.sources.is_empty();
         }
         state.scenes_dirty = true;

@@ -153,6 +153,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
 
         state.active_scene_id = Some(new_id);
+        state.selected_source_id = None;
 
         apply_scene_diff(
             &cmd_tx,
@@ -307,7 +308,8 @@ fn delete_scene_by_id(
     // Remove the scene itself.
     state.scenes.retain(|s| s.id != scene_id);
 
-    // Select the first remaining scene.
+    // Select the first remaining scene, clear source selection.
+    state.selected_source_id = None;
     let first_scene = state.scenes.first().cloned();
     if let Some(ref scene) = first_scene {
         state.active_scene_id = Some(scene.id);

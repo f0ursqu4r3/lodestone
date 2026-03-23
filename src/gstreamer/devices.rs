@@ -3,6 +3,21 @@ use gstreamer::prelude::*;
 
 use super::types::AudioDevice;
 
+/// A camera device discovered via GStreamer DeviceMonitor.
+#[derive(Debug, Clone)]
+pub struct CameraDevice {
+    pub device_index: u32,
+    pub name: String,
+}
+
+/// A window available for capture, discovered via CoreGraphics.
+#[derive(Debug, Clone)]
+pub struct WindowInfo {
+    pub window_id: u32,
+    pub title: String,
+    pub owner_name: String,
+}
+
 /// Known virtual audio device names used for system audio loopback.
 const LOOPBACK_DEVICE_NAMES: &[&str] = &["BlackHole", "Soundflower", "Loopback"];
 

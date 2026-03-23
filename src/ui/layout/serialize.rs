@@ -392,15 +392,16 @@ mod tests {
         let toml_str = serialize_full_layout(&layout, &[]).unwrap();
         let (restored, _) = deserialize_full_layout(&toml_str).unwrap();
 
-        assert_eq!(restored.groups.len(), 3);
+        assert_eq!(restored.groups.len(), 5);
         let all_panels = restored.collect_all_panels();
-        assert_eq!(all_panels.len(), 4);
+        assert_eq!(all_panels.len(), 5);
 
         let types: Vec<PanelType> = all_panels.iter().map(|(_, t)| *t).collect();
-        assert!(types.contains(&PanelType::SceneEditor));
+        assert!(types.contains(&PanelType::Sources));
+        assert!(types.contains(&PanelType::Scenes));
         assert!(types.contains(&PanelType::Preview));
+        assert!(types.contains(&PanelType::Properties));
         assert!(types.contains(&PanelType::AudioMixer));
-        assert!(types.contains(&PanelType::StreamControls));
     }
 
     #[test]

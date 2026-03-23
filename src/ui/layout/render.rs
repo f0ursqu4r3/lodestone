@@ -104,6 +104,9 @@ pub const DOCKABLE_TYPES: &[PanelType] = &[
     PanelType::SceneEditor,
     PanelType::AudioMixer,
     PanelType::StreamControls,
+    PanelType::Sources,
+    PanelType::Scenes,
+    PanelType::Properties,
 ];
 
 // ---------------------------------------------------------------------------

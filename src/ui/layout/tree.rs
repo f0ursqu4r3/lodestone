@@ -10,12 +10,15 @@ const DEFAULT_FLOAT_SIZE: egui::Vec2 = egui::vec2(400.0, 300.0);
 // PanelType (unchanged)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum PanelType {
     Preview,
-    SceneEditor,
+    SceneEditor, // kept for backward compat with saved layouts
     AudioMixer,
     StreamControls,
+    Sources,
+    Scenes,
+    Properties,
 }
 
 impl PanelType {
@@ -23,8 +26,11 @@ impl PanelType {
         match self {
             Self::Preview => "Preview",
             Self::SceneEditor => "Scene Editor",
-            Self::AudioMixer => "Audio Mixer",
+            Self::AudioMixer => "Audio",
             Self::StreamControls => "Stream Controls",
+            Self::Sources => "Sources",
+            Self::Scenes => "Scenes",
+            Self::Properties => "Properties",
         }
     }
 }
@@ -364,7 +370,7 @@ impl DockLayout {
         }
     }
 
-    /// The default 4-panel layout per the spec.
+    /// The default 5-panel layout: left sidebar (Sources/Scenes), center Preview, right sidebar (Properties/Audio).
     pub fn default_layout() -> Self {
         let mut layout = Self {
             nodes: HashMap::new(),
@@ -375,63 +381,99 @@ impl DockLayout {
             drag: None,
         };
 
-        let scene_group = Group::new(PanelType::SceneEditor);
-        let scene_gid = scene_group.id;
-        layout.groups.insert(scene_gid, scene_group);
+        let sources_group = Group::new(PanelType::Sources);
+        let sources_gid = sources_group.id;
+        layout.groups.insert(sources_gid, sources_group);
+
+        let scenes_group = Group::new(PanelType::Scenes);
+        let scenes_gid = scenes_group.id;
+        layout.groups.insert(scenes_gid, scenes_group);
 
         let preview_group = Group::new(PanelType::Preview);
         let preview_gid = preview_group.id;
         layout.groups.insert(preview_gid, preview_group);
 
-        let mut right_group = Group::new(PanelType::AudioMixer);
-        let right_gid = right_group.id;
-        right_group.add_tab(PanelType::StreamControls);
-        right_group.active_tab = 0;
-        layout.groups.insert(right_gid, right_group);
+        let properties_group = Group::new(PanelType::Properties);
+        let properties_gid = properties_group.id;
+        layout.groups.insert(properties_gid, properties_group);
 
-        let scene_node = layout.alloc_node_id();
-        layout.nodes.insert(
-            scene_node,
-            SplitNode::Leaf {
-                group_id: scene_gid,
-            },
-        );
+        let audio_group = Group::new(PanelType::AudioMixer);
+        let audio_gid = audio_group.id;
+        layout.groups.insert(audio_gid, audio_group);
+
+        let sources_node = layout.alloc_node_id();
+        layout
+            .nodes
+            .insert(sources_node, SplitNode::Leaf { group_id: sources_gid });
+
+        let scenes_node = layout.alloc_node_id();
+        layout
+            .nodes
+            .insert(scenes_node, SplitNode::Leaf { group_id: scenes_gid });
 
         let preview_node = layout.alloc_node_id();
+        layout
+            .nodes
+            .insert(preview_node, SplitNode::Leaf { group_id: preview_gid });
+
+        let properties_node = layout.alloc_node_id();
         layout.nodes.insert(
-            preview_node,
+            properties_node,
             SplitNode::Leaf {
-                group_id: preview_gid,
+                group_id: properties_gid,
             },
         );
 
-        let right_node = layout.alloc_node_id();
+        let audio_node = layout.alloc_node_id();
+        layout
+            .nodes
+            .insert(audio_node, SplitNode::Leaf { group_id: audio_gid });
+
+        // Left sidebar: Sources on top, Scenes on bottom
+        let left_split = layout.alloc_node_id();
         layout.nodes.insert(
-            right_node,
-            SplitNode::Leaf {
-                group_id: right_gid,
+            left_split,
+            SplitNode::Split {
+                direction: SplitDirection::Horizontal,
+                ratio: 0.6,
+                first: sources_node,
+                second: scenes_node,
             },
         );
 
+        // Right sidebar bottom: Properties + Audio
         let right_split = layout.alloc_node_id();
         layout.nodes.insert(
             right_split,
             SplitNode::Split {
                 direction: SplitDirection::Horizontal,
-                ratio: 0.75,
-                first: preview_node,
-                second: right_node,
+                ratio: 0.6,
+                first: properties_node,
+                second: audio_node,
             },
         );
 
+        // Center-right: Preview on top, right sidebar on bottom
+        let center_right = layout.alloc_node_id();
+        layout.nodes.insert(
+            center_right,
+            SplitNode::Split {
+                direction: SplitDirection::Vertical,
+                ratio: 0.75,
+                first: preview_node,
+                second: right_split,
+            },
+        );
+
+        // Root: left sidebar | center-right
         let root = layout.alloc_node_id();
         layout.nodes.insert(
             root,
             SplitNode::Split {
                 direction: SplitDirection::Vertical,
                 ratio: 0.2,
-                first: scene_node,
-                second: right_split,
+                first: left_split,
+                second: center_right,
             },
         );
         layout.root = root;
@@ -846,16 +888,17 @@ mod tests {
     }
 
     #[test]
-    fn default_layout_has_3_groups_4_panels() {
+    fn default_layout_has_5_groups_5_panels() {
         let layout = DockLayout::default_layout();
-        assert_eq!(layout.groups.len(), 3);
+        assert_eq!(layout.groups.len(), 5);
         let all_panels = layout.collect_all_panels();
-        assert_eq!(all_panels.len(), 4);
+        assert_eq!(all_panels.len(), 5);
         let types: Vec<PanelType> = all_panels.iter().map(|(_, t)| *t).collect();
-        assert!(types.contains(&PanelType::SceneEditor));
+        assert!(types.contains(&PanelType::Sources));
+        assert!(types.contains(&PanelType::Scenes));
         assert!(types.contains(&PanelType::Preview));
+        assert!(types.contains(&PanelType::Properties));
         assert!(types.contains(&PanelType::AudioMixer));
-        assert!(types.contains(&PanelType::StreamControls));
     }
 
     #[test]
@@ -863,7 +906,7 @@ mod tests {
         let layout = DockLayout::default_layout();
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
         let groups = layout.collect_groups_with_rects(rect);
-        assert_eq!(groups.len(), 3);
+        assert_eq!(groups.len(), 5);
     }
 
     #[test]

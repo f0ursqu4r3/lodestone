@@ -51,7 +51,9 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) -> bool {
                     // ── Settings gear ──
                     let gear_resp = ui.add(
                         egui::Button::new(
-                            RichText::new(egui_phosphor::regular::GEAR).size(16.0).color(TEXT_SECONDARY),
+                            RichText::new(egui_phosphor::regular::GEAR)
+                                .size(16.0)
+                                .color(TEXT_SECONDARY),
                         )
                         .frame(false),
                     );
@@ -121,10 +123,14 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     // "+" button to create a new scene.
-    let add_btn = egui::Button::new(RichText::new(egui_phosphor::regular::PLUS).size(12.0).color(TEXT_MUTED))
-        .fill(BG_BASE)
-        .corner_radius(RADIUS_LG)
-        .min_size(Vec2::new(24.0, 24.0));
+    let add_btn = egui::Button::new(
+        RichText::new(egui_phosphor::regular::PLUS)
+            .size(12.0)
+            .color(TEXT_MUTED),
+    )
+    .fill(BG_BASE)
+    .corner_radius(RADIUS_LG)
+    .min_size(Vec2::new(24.0, 24.0));
 
     if ui.add(add_btn).clicked() {
         let new_id = SceneId(state.next_scene_id);

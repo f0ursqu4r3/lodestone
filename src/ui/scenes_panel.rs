@@ -73,7 +73,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         let is_hovered = response.hovered();
 
                         // Thumbnail background.
-                        painter.rect_filled(thumb_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
+                        painter.rect_filled(
+                            thumb_rect,
+                            CornerRadius::same(RADIUS_SM as u8),
+                            BG_ELEVATED,
+                        );
 
                         // Border: active = TEXT_PRIMARY, hovered = TEXT_MUTED, default = BORDER.
                         let border_color = if is_active {

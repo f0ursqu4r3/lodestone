@@ -831,6 +831,7 @@ impl ApplicationHandler for AppManager {
         for win in self.windows.values() {
             win.window.request_redraw();
         }
+
     }
 }
 

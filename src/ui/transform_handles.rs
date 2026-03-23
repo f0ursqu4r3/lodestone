@@ -11,6 +11,8 @@ const EDGE_SIZE: f32 = 6.0;
 const CORNER_HIT_SIZE: f32 = 16.0;
 const EDGE_HIT_SIZE: f32 = 12.0;
 const MIN_SOURCE_SIZE: f32 = 10.0;
+/// How close (in canvas pixels) a value must be to a snap target to snap.
+const SNAP_THRESHOLD: f32 = 8.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum HandlePosition {
@@ -215,6 +217,149 @@ fn apply_resize(
     transform.height = h;
 }
 
+// ── Snapping ───────────────────────────────────────────────────────────────
+
+/// Snap a value to the nearest target if within threshold. Returns the snapped value.
+fn snap_value(value: f32, targets: &[f32], threshold: f32) -> f32 {
+    let mut best = value;
+    let mut best_dist = threshold;
+    for &t in targets {
+        let dist = (value - t).abs();
+        if dist < best_dist {
+            best = t;
+            best_dist = dist;
+        }
+    }
+    best
+}
+
+/// Apply snapping to a transform. Snaps edges to canvas boundaries, canvas center,
+/// grid lines, and other source edges.
+fn snap_transform(
+    transform: &mut Transform,
+    canvas_size: Vec2,
+    grid_size: f32,
+    other_sources: &[&Transform],
+) {
+    let mut x_targets = Vec::new();
+    let mut y_targets = Vec::new();
+
+    // Canvas edges and center.
+    x_targets.extend_from_slice(&[0.0, canvas_size.x, canvas_size.x / 2.0]);
+    y_targets.extend_from_slice(&[0.0, canvas_size.y, canvas_size.y / 2.0]);
+
+    // Grid lines.
+    if grid_size > 0.0 {
+        let mut gx = 0.0;
+        while gx <= canvas_size.x {
+            x_targets.push(gx);
+            gx += grid_size;
+        }
+        let mut gy = 0.0;
+        while gy <= canvas_size.y {
+            y_targets.push(gy);
+            gy += grid_size;
+        }
+    }
+
+    // Other source edges and centers.
+    for other in other_sources {
+        x_targets.extend_from_slice(&[other.x, other.x + other.width, other.x + other.width / 2.0]);
+        y_targets.extend_from_slice(&[other.y, other.y + other.height, other.y + other.height / 2.0]);
+    }
+
+    // Snap all four edges + center of the source.
+    let left = transform.x;
+    let right = transform.x + transform.width;
+    let center_x = transform.x + transform.width / 2.0;
+    let top = transform.y;
+    let bottom = transform.y + transform.height;
+    let center_y = transform.y + transform.height / 2.0;
+
+    // Find the best snap for X (check left edge, right edge, center).
+    let snap_left = snap_value(left, &x_targets, SNAP_THRESHOLD);
+    let snap_right = snap_value(right, &x_targets, SNAP_THRESHOLD);
+    let snap_cx = snap_value(center_x, &x_targets, SNAP_THRESHOLD);
+
+    let dx_left = (snap_left - left).abs();
+    let dx_right = (snap_right - right).abs();
+    let dx_cx = (snap_cx - center_x).abs();
+
+    if dx_left <= dx_right && dx_left <= dx_cx && dx_left < SNAP_THRESHOLD {
+        transform.x = snap_left;
+    } else if dx_right <= dx_cx && dx_right < SNAP_THRESHOLD {
+        transform.x = snap_right - transform.width;
+    } else if dx_cx < SNAP_THRESHOLD {
+        transform.x = snap_cx - transform.width / 2.0;
+    }
+
+    // Find the best snap for Y.
+    let snap_top = snap_value(top, &y_targets, SNAP_THRESHOLD);
+    let snap_bottom = snap_value(bottom, &y_targets, SNAP_THRESHOLD);
+    let snap_cy = snap_value(center_y, &y_targets, SNAP_THRESHOLD);
+
+    let dy_top = (snap_top - top).abs();
+    let dy_bottom = (snap_bottom - bottom).abs();
+    let dy_cy = (snap_cy - center_y).abs();
+
+    if dy_top <= dy_bottom && dy_top <= dy_cy && dy_top < SNAP_THRESHOLD {
+        transform.y = snap_top;
+    } else if dy_bottom <= dy_cy && dy_bottom < SNAP_THRESHOLD {
+        transform.y = snap_bottom - transform.height;
+    } else if dy_cy < SNAP_THRESHOLD {
+        transform.y = snap_cy - transform.height / 2.0;
+    }
+}
+
+// ── Snap Guide Lines ───────────────────────────────────────────────────────
+
+/// Draw visual guide lines when a source edge is snapped.
+fn draw_snap_guides(
+    painter: &egui::Painter,
+    transform: &Transform,
+    canvas_size: Vec2,
+    viewport: Rect,
+    other_sources: &[&Transform],
+) {
+    use crate::ui::theme::TEXT_MUTED;
+
+    let mut x_targets = vec![0.0, canvas_size.x, canvas_size.x / 2.0];
+    let mut y_targets = vec![0.0, canvas_size.y, canvas_size.y / 2.0];
+    for other in other_sources {
+        x_targets.extend_from_slice(&[other.x, other.x + other.width, other.x + other.width / 2.0]);
+        y_targets.extend_from_slice(&[other.y, other.y + other.height, other.y + other.height / 2.0]);
+    }
+
+    let edges_x = [transform.x, transform.x + transform.width, transform.x + transform.width / 2.0];
+    let edges_y = [transform.y, transform.y + transform.height, transform.y + transform.height / 2.0];
+
+    let guide_stroke = egui::Stroke::new(1.0, TEXT_MUTED);
+
+    for &ex in &edges_x {
+        for &tx in &x_targets {
+            if (ex - tx).abs() < 1.0 {
+                let screen_x = canvas_to_screen(Pos2::new(tx, 0.0), viewport, canvas_size).x;
+                painter.line_segment(
+                    [Pos2::new(screen_x, viewport.top()), Pos2::new(screen_x, viewport.bottom())],
+                    guide_stroke,
+                );
+            }
+        }
+    }
+
+    for &ey in &edges_y {
+        for &ty in &y_targets {
+            if (ey - ty).abs() < 1.0 {
+                let screen_y = canvas_to_screen(Pos2::new(0.0, ty), viewport, canvas_size).y;
+                painter.line_segment(
+                    [Pos2::new(viewport.left(), screen_y), Pos2::new(viewport.right(), screen_y)],
+                    guide_stroke,
+                );
+            }
+        }
+    }
+}
+
 // ── Public Entry Point ──────────────────────────────────────────────────────
 
 /// Draw transform handles and process drag interactions for the selected source.
@@ -295,7 +440,37 @@ pub fn draw_transform_handles(
             }
         }
 
-        if primary_released && !matches!(drag_mode, DragMode::None) {
+        // Apply snapping if enabled and actively dragging.
+        let is_dragging = !matches!(drag_mode, DragMode::None);
+        if is_dragging && state.settings.general.snap_to_grid {
+            let grid = state.settings.general.snap_grid_size;
+
+            // Clone other source transforms to avoid borrow conflict.
+            let other_transforms: Vec<Transform> = state
+                .sources
+                .iter()
+                .filter(|s| s.id != selected_id && s.visible)
+                .map(|s| s.transform)
+                .collect();
+            let other_refs: Vec<&Transform> = other_transforms.iter().collect();
+
+            if let Some(s) = state.sources.iter_mut().find(|s| s.id == selected_id) {
+                snap_transform(&mut s.transform, canvas_size, grid, &other_refs);
+            }
+
+            // Draw snap guide lines.
+            if let Some(s) = state.sources.iter().find(|s| s.id == selected_id) {
+                draw_snap_guides(
+                    ui.painter(),
+                    &s.transform,
+                    canvas_size,
+                    viewport_rect,
+                    &other_refs,
+                );
+            }
+        }
+
+        if primary_released && is_dragging {
             state.scenes_dirty = true;
             state.scenes_last_changed = std::time::Instant::now();
             drag_mode = DragMode::None;

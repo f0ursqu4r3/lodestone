@@ -53,6 +53,8 @@ pub struct GeneralSettings {
     pub check_for_updates: bool,
     pub launch_on_startup: bool,
     pub confirm_close_while_streaming: bool,
+    pub snap_to_grid: bool,
+    pub snap_grid_size: f32,
 }
 
 impl Default for GeneralSettings {
@@ -62,6 +64,8 @@ impl Default for GeneralSettings {
             check_for_updates: true,
             launch_on_startup: false,
             confirm_close_while_streaming: true,
+            snap_to_grid: true,
+            snap_grid_size: 10.0,
         }
     }
 }

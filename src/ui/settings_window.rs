@@ -265,6 +265,24 @@ fn draw_general(ui: &mut Ui, settings: &mut GeneralSettings) -> bool {
         &mut settings.confirm_close_while_streaming,
     );
 
+    section_header(ui, "EDITOR");
+
+    changed |= draw_toggle(ui, "Snap to grid", &mut settings.snap_to_grid);
+
+    ui.horizontal(|ui| {
+        labeled_row(ui, "Grid size (px)");
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let drag = ui.add(
+                egui::DragValue::new(&mut settings.snap_grid_size)
+                    .range(1.0..=100.0)
+                    .speed(1.0),
+            );
+            if drag.changed() {
+                changed = true;
+            }
+        });
+    });
+
     section_header(ui, "LANGUAGE");
 
     ui.horizontal(|ui| {

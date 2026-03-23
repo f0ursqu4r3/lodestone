@@ -505,6 +505,7 @@ pub fn draw_transform_handles(
         }
     }
 
+    let ctx_menu_open = ctx_state.open;
     ui.memory_mut(|m| m.data.insert_temp(ctx_state_id, ctx_state));
 
     // ── Handles + dragging for selected source ──
@@ -526,7 +527,7 @@ pub fn draw_transform_handles(
     if let Some(mouse_pos) = pointer {
         match &drag_mode {
             DragMode::None => {
-                if primary_down && panel_rect.contains(mouse_pos) {
+                if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open {
                     if let Some(handle) = hit_test_handles(mouse_pos, screen_rect) {
                         drag_mode = DragMode::Resize {
                             handle,

@@ -11,8 +11,8 @@ use crate::settings::{
 };
 use crate::state::AppState;
 use crate::ui::theme::{
-    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED,
-    TEXT_PRIMARY, TEXT_SECONDARY, color_to_hex, parse_hex_color,
+    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY,
+    TEXT_SECONDARY, color_to_hex, parse_hex_color,
 };
 
 // ── Category enum ─────────────────────────────────────────────────────────────

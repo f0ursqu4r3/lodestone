@@ -1,7 +1,7 @@
 //! Image source loading — decodes image files to RgbaFrame.
 
-use anyhow::Context;
 use crate::gstreamer::RgbaFrame;
+use anyhow::Context;
 
 /// Load an image file and convert to an RgbaFrame.
 pub fn load_image_source(path: &str) -> anyhow::Result<RgbaFrame> {
@@ -11,7 +11,11 @@ pub fn load_image_source(path: &str) -> anyhow::Result<RgbaFrame> {
     let width = img.width();
     let height = img.height();
     let data = img.into_raw();
-    Ok(RgbaFrame { data, width, height })
+    Ok(RgbaFrame {
+        data,
+        width,
+        height,
+    })
 }
 
 #[cfg(test)]

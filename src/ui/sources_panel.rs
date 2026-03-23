@@ -54,7 +54,9 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             });
 
             // Add source popup
-            let add_btn = ui.button(egui_phosphor::regular::PLUS).on_hover_text("Add source");
+            let add_btn = ui
+                .button(egui_phosphor::regular::PLUS)
+                .on_hover_text("Add source");
             let popup_id = ui.make_persistent_id("add_source_popup");
             if add_btn.clicked() {
                 #[allow(deprecated)]
@@ -62,15 +64,21 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             }
             let mut add_source: Option<SourceType> = None;
             #[allow(deprecated)]
-            egui::popup_below_widget(ui, popup_id, &add_btn, egui::PopupCloseBehavior::CloseOnClick, |ui| {
-                ui.set_min_width(120.0);
-                if ui.button("Display").clicked() {
-                    add_source = Some(SourceType::Display);
-                }
-                if ui.button("Image").clicked() {
-                    add_source = Some(SourceType::Image);
-                }
-            });
+            egui::popup_below_widget(
+                ui,
+                popup_id,
+                &add_btn,
+                egui::PopupCloseBehavior::CloseOnClick,
+                |ui| {
+                    ui.set_min_width(120.0);
+                    if ui.button("Display").clicked() {
+                        add_source = Some(SourceType::Display);
+                    }
+                    if ui.button("Image").clicked() {
+                        add_source = Some(SourceType::Image);
+                    }
+                },
+            );
             if let Some(source_type) = add_source {
                 match source_type {
                     SourceType::Display => add_display_source(state, &cmd_tx, active_id),
@@ -126,8 +134,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
                 // Selection highlight background.
                 if is_selected {
-                    ui.painter()
-                        .rect_filled(row_rect, CornerRadius::same(RADIUS_SM as u8), selected_bg);
+                    ui.painter().rect_filled(
+                        row_rect,
+                        CornerRadius::same(RADIUS_SM as u8),
+                        selected_bg,
+                    );
                 }
 
                 // Handle click for selection.
@@ -229,12 +240,20 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(idx > 0, |ui| {
-                    if ui.button(egui_phosphor::regular::ARROW_UP).on_hover_text("Move up").clicked() {
+                    if ui
+                        .button(egui_phosphor::regular::ARROW_UP)
+                        .on_hover_text("Move up")
+                        .clicked()
+                    {
                         move_up = Some(selected_id);
                     }
                 });
                 ui.add_enabled_ui(idx + 1 < source_count, |ui| {
-                    if ui.button(egui_phosphor::regular::ARROW_DOWN).on_hover_text("Move down").clicked() {
+                    if ui
+                        .button(egui_phosphor::regular::ARROW_DOWN)
+                        .on_hover_text("Move down")
+                        .clicked()
+                    {
                         move_down = Some(selected_id);
                     }
                 });
@@ -346,14 +365,17 @@ fn remove_source(
         .sources
         .iter()
         .find(|s| s.id == src_id)
-        .map(|s| matches!(s.source_type, SourceType::Display | SourceType::Window | SourceType::Camera))
+        .map(|s| {
+            matches!(
+                s.source_type,
+                SourceType::Display | SourceType::Window | SourceType::Camera
+            )
+        })
         .unwrap_or(false);
     // Remove from global sources list.
     state.sources.retain(|s| s.id != src_id);
     // Send GstCommand only for sources with capture pipelines.
-    if has_capture_pipeline
-        && let Some(tx) = cmd_tx
-    {
+    if has_capture_pipeline && let Some(tx) = cmd_tx {
         let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
     }
     // Clear selection if we just deleted the selected source.

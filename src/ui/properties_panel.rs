@@ -158,7 +158,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         .on_hover_text("Browse for image")
                         .clicked()
                         && let Some(picked) = rfd::FileDialog::new()
-                            .add_filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "webp", "tiff", "tif"])
+                            .add_filter(
+                                "Images",
+                                &["png", "jpg", "jpeg", "bmp", "gif", "webp", "tiff", "tif"],
+                            )
                             .pick_file()
                     {
                         let picked_str = picked.to_string_lossy().to_string();
@@ -174,7 +177,13 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                             .on_hover_text("Reload image")
                             .clicked()
                         {
-                            load_and_send_image(state, source_idx, src_id, &cmd_tx, current_path.clone());
+                            load_and_send_image(
+                                state,
+                                source_idx,
+                                src_id,
+                                &cmd_tx,
+                                current_path.clone(),
+                            );
                             changed = true;
                         }
                     });
@@ -230,10 +239,7 @@ fn load_and_send_image(
             source.transform.height = frame.height as f32;
             // Send the frame to GStreamer.
             if let Some(tx) = cmd_tx {
-                let _ = tx.try_send(GstCommand::LoadImageFrame {
-                    source_id,
-                    frame,
-                });
+                let _ = tx.try_send(GstCommand::LoadImageFrame { source_id, frame });
             }
         }
         Err(e) => {

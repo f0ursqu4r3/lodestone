@@ -374,13 +374,12 @@ impl ApplicationHandler for AppManager {
                         match &source.properties {
                             crate::scene::SourceProperties::Display { screen_index } => {
                                 if let Some(ref tx) = state.command_tx {
-                                    let _ =
-                                        tx.try_send(gstreamer::GstCommand::AddCaptureSource {
-                                            source_id: src_id,
-                                            config: gstreamer::CaptureSourceConfig::Screen {
-                                                screen_index: *screen_index,
-                                            },
-                                        });
+                                    let _ = tx.try_send(gstreamer::GstCommand::AddCaptureSource {
+                                        source_id: src_id,
+                                        config: gstreamer::CaptureSourceConfig::Screen {
+                                            screen_index: *screen_index,
+                                        },
+                                    });
                                 }
                             }
                             crate::scene::SourceProperties::Image { .. } => {

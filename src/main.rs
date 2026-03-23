@@ -635,6 +635,22 @@ impl ApplicationHandler for AppManager {
             }
         }
 
+        // Detect resolution changes from settings and resize compositor.
+        if let Some(ref mut gpu) = self.gpu {
+            let app_state = self.state.lock().expect("lock AppState");
+            let new_base = crate::renderer::compositor::parse_resolution(
+                &app_state.settings.video.base_resolution,
+            );
+            let new_output = crate::renderer::compositor::parse_resolution(
+                &app_state.settings.video.output_resolution,
+            );
+            if new_base != (gpu.compositor.canvas_width, gpu.compositor.canvas_height)
+                || new_output != (gpu.compositor.output_width, gpu.compositor.output_height)
+            {
+                gpu.compositor.resize(&gpu.device, new_base, new_output);
+            }
+        }
+
         // Compose active scene sources onto the canvas.
         // upload_frame() (mut borrow) is finished above; compose() uses &self — no overlap.
         if let Some(ref gpu) = self.gpu {
@@ -660,15 +676,20 @@ impl ApplicationHandler for AppManager {
                         });
                 gpu.compositor
                     .compose(&gpu.queue, &mut encoder, &resolved_sources);
-                gpu.queue.submit(std::iter::once(encoder.finish()));
 
-                // Readback for encoding if streaming or recording.
+                // Scale to output resolution when encoding.
                 let is_encoding = app_state.stream_status.is_live()
                     || matches!(
                         app_state.recording_status,
                         crate::state::RecordingStatus::Recording { .. }
                     );
+                if is_encoding {
+                    gpu.compositor.scale_to_output(&mut encoder);
+                }
 
+                gpu.queue.submit(std::iter::once(encoder.finish()));
+
+                // Readback for encoding if streaming or recording.
                 if is_encoding {
                     drop(app_state); // release lock before blocking readback
                     let frame = gpu.compositor.readback(&gpu.device, &gpu.queue);

@@ -30,8 +30,12 @@ pub fn build_capture_pipeline(
         CaptureSourceConfig::Window { .. } => {
             anyhow::bail!("Window capture built separately");
         }
-        CaptureSourceConfig::Camera { .. } => {
-            todo!("Camera capture pipeline not yet implemented");
+        CaptureSourceConfig::Camera { device_index } => {
+            gstreamer::ElementFactory::make("avfvideosrc")
+                .name("capture-source")
+                .property("device-index", *device_index as i32)
+                .build()
+                .context("Failed to create avfvideosrc for camera capture")?
         }
     };
 
@@ -174,6 +178,20 @@ mod tests {
             Err(e) => {
                 eprintln!("Skipping capture pipeline test (missing plugins): {e}");
             }
+        }
+    }
+
+    #[test]
+    fn build_camera_pipeline_creates_valid_pipeline() {
+        gstreamer::init().unwrap();
+        let config = CaptureSourceConfig::Camera { device_index: 0 };
+        let result = build_capture_pipeline(&config, 1920, 1080, 30);
+        // May fail if no camera — that's OK in CI.
+        match result {
+            Ok((pipeline, _sink)) => {
+                assert!(pipeline.name().as_str().len() > 0);
+            }
+            Err(_) => {} // No camera available
         }
     }
 

@@ -8,8 +8,8 @@ use egui::{self, Color32, RichText, Sense, Vec2};
 use crate::scene::{Scene, SceneId};
 use crate::state::{AppState, RecordingStatus, StreamStatus};
 use crate::ui::theme::{
-    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, GREEN_ONLINE, RADIUS_LG, RADIUS_SM, RED_LIVE,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, TOOLBAR_HEIGHT,
+    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, BTN_PADDING, BTN_PILL_PADDING, GREEN_ONLINE,
+    RADIUS_LG, RADIUS_SM, RED_LIVE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, TOOLBAR_HEIGHT,
 };
 
 /// Draw the toolbar. Returns `true` if the settings button was clicked.
@@ -27,6 +27,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) -> bool {
         .show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
+                ui.spacing_mut().button_padding = BTN_PADDING;
 
                 // ── App logo ──
                 ui.label(
@@ -88,6 +89,7 @@ fn divider(ui: &mut egui::Ui) {
 
 /// Scene quick-switcher: horizontal pill-style buttons.
 fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.spacing_mut().button_padding = BTN_PILL_PADDING;
     let active_id = state.active_scene_id;
 
     // Collect scene info to avoid borrow issues.

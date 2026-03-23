@@ -48,6 +48,13 @@ pub const DOCK_GRIP_WIDTH: f32 = 28.0;
 pub const FLOATING_HEADER_HEIGHT: f32 = 28.0;
 pub const FLOATING_MIN_SIZE: egui::Vec2 = egui::Vec2::new(200.0, 100.0);
 
+// ── Button Padding ──
+
+/// Inner padding for standard buttons (horizontal, vertical).
+pub const BTN_PADDING: egui::Vec2 = egui::Vec2::new(10.0, 4.0);
+/// Inner padding for pill-shaped buttons (scene switcher).
+pub const BTN_PILL_PADDING: egui::Vec2 = egui::Vec2::new(12.0, 4.0);
+
 // ── Border Radii ──
 
 /// Small radius for buttons, inputs, badges, overlays.

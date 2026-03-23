@@ -67,6 +67,9 @@ impl WindowState {
 
         let egui_ctx = egui::Context::default();
         egui_ctx.set_visuals(egui::Visuals::dark());
+        egui_ctx.style_mut(|style| {
+            style.spacing.button_padding = crate::ui::theme::BTN_PADDING;
+        });
         let max_tex = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),

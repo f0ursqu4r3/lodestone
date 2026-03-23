@@ -69,7 +69,7 @@ fn letterboxed_rect(panel: egui::Rect, preview_width: u32, preview_height: u32) 
     egui::Rect::from_center_size(center, egui::vec2(w, h))
 }
 
-pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
+pub fn draw(ui: &mut egui::Ui, _state: &mut AppState, _panel_id: PanelId) {
     let panel_rect = ui.available_rect_before_wrap();
 
     // Guard against degenerate panels
@@ -77,20 +77,16 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
         return;
     }
 
-    // Guard against uninitialized preview dimensions
-    if state.preview_width == 0 || state.preview_height == 0 {
-        ui.centered_and_justified(|ui| {
-            ui.label("No preview");
-        });
-        return;
-    }
+    // Use fixed preview dimensions (1920x1080); per-source dimensions tracked in Task 6.
+    let preview_width: u32 = 1920;
+    let preview_height: u32 = 1080;
 
     // Fill entire panel with black (letterbox bars)
     ui.painter()
         .rect_filled(panel_rect, 0.0, egui::Color32::BLACK);
 
     // Compute letterboxed rect and emit the paint callback
-    let preview_rect = letterboxed_rect(panel_rect, state.preview_width, state.preview_height);
+    let preview_rect = letterboxed_rect(panel_rect, preview_width, preview_height);
 
     ui.painter()
         .add(Callback::new_paint_callback(preview_rect, PreviewCallback));

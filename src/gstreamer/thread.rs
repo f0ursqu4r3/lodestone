@@ -7,6 +7,7 @@ use super::capture::{build_audio_capture_pipeline, build_capture_pipeline};
 use super::commands::{
     AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, GstCommand, GstThreadChannels,
 };
+use crate::scene::SourceId;
 use super::encode::{
     RecordPipelineHandles, StreamPipelineHandles, build_record_pipeline_with_audio,
     build_stream_pipeline_with_audio,
@@ -275,6 +276,16 @@ impl GstThread {
                 self.stop_capture();
                 log::info!("Capture stopped");
             }
+            GstCommand::AddCaptureSource { source_id, config } => {
+                // Placeholder: per-source pipeline management is wired in Task 4.
+                log::info!("AddCaptureSource {source_id:?} — deferring to Task 4");
+                self.start_capture(&config);
+            }
+            GstCommand::RemoveCaptureSource { source_id } => {
+                // Placeholder: per-source pipeline management is wired in Task 4.
+                log::info!("RemoveCaptureSource {source_id:?} — deferring to Task 4");
+                self.stop_capture();
+            }
             GstCommand::Shutdown => {
                 self.stop_pipeline(PipelineKind::Stream);
                 self.stop_pipeline(PipelineKind::Record);
@@ -444,13 +455,18 @@ impl GstThread {
                 {
                     let data = map.as_slice();
 
-                    // Send to preview
+                    // Send to preview — temporary: all frames keyed under SourceId(0)
+                    // until per-source capture is wired in Task 4.
                     let frame = RgbaFrame {
                         data: data.to_vec(),
                         width,
                         height,
                     };
-                    let _ = self.channels.frame_tx.try_send(frame);
+                    self.channels
+                        .latest_frames
+                        .lock()
+                        .unwrap()
+                        .insert(SourceId(0), frame);
 
                     // Feed active encode pipelines (video)
                     if let Some(ref handles) = self.stream_handles {

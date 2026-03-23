@@ -329,13 +329,6 @@ impl ApplicationHandler for AppManager {
         let gpu =
             pollster::block_on(SharedGpuState::new(window)).expect("initialize shared GPU state");
 
-        // Set preview dimensions on AppState
-        {
-            let mut app_state = self.state.lock().expect("lock AppState");
-            app_state.preview_width = gpu.preview_renderer.width;
-            app_state.preview_height = gpu.preview_renderer.height;
-        }
-
         let preview_resources = PreviewResources {
             pipeline: gpu.preview_renderer.pipeline(),
             bind_group: gpu.preview_renderer.bind_group(),
@@ -608,13 +601,17 @@ impl ApplicationHandler for AppManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        // Poll GStreamer frame channel and upload to preview texture
+        // Poll GStreamer latest frames and upload to preview texture.
+        // Temporary: drain the map and upload the first frame found (Task 6 will
+        // replace this with full compositor output).
         if let Some(ref mut channels) = self.gst_channels {
-            while let Ok(frame) = channels.frame_rx.try_recv() {
-                if let Some(ref gpu) = self.gpu {
-                    gpu.preview_renderer.upload_frame(&gpu.queue, &frame);
-                }
+            let mut frames = channels.latest_frames.lock().expect("lock latest_frames");
+            if let Some((_, frame)) = frames.drain().next()
+                && let Some(ref gpu) = self.gpu
+            {
+                gpu.preview_renderer.upload_frame(&gpu.queue, &frame);
             }
+            drop(frames);
 
             // Poll GStreamer error channel
             while let Ok(err) = channels.error_rx.try_recv() {

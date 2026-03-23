@@ -131,6 +131,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
                 source_type: SourceType::Display,
                 properties: SourceProperties::Display { screen_index: 0 },
                 transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
+                opacity: 1.0,
                 visible: true,
                 muted: false,
                 volume: 1.0,

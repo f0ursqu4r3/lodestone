@@ -23,6 +23,8 @@ pub struct Source {
     #[serde(default)]
     pub properties: SourceProperties,
     pub transform: Transform,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
     pub visible: bool,
     pub muted: bool,
     pub volume: f32,
@@ -58,6 +60,26 @@ impl Default for SourceProperties {
     }
 }
 
+impl Scene {
+    /// Move a source one position earlier (lower z-index / further back).
+    pub fn move_source_up(&mut self, source_id: SourceId) {
+        if let Some(pos) = self.sources.iter().position(|&id| id == source_id)
+            && pos > 0
+        {
+            self.sources.swap(pos, pos - 1);
+        }
+    }
+
+    /// Move a source one position later (higher z-index / further forward).
+    pub fn move_source_down(&mut self, source_id: SourceId) {
+        if let Some(pos) = self.sources.iter().position(|&id| id == source_id)
+            && pos + 1 < self.sources.len()
+        {
+            self.sources.swap(pos, pos + 1);
+        }
+    }
+}
+
 impl Transform {
     pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self {
@@ -85,6 +107,10 @@ fn default_next_id() -> u64 {
     1
 }
 
+fn default_opacity() -> f32 {
+    1.0
+}
+
 impl SceneCollection {
     pub fn default_collection() -> Self {
         let scene_id = SceneId(1);
@@ -101,6 +127,7 @@ impl SceneCollection {
                 source_type: SourceType::Display,
                 properties: SourceProperties::Display { screen_index: 0 },
                 transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
+                opacity: 1.0,
                 visible: true,
                 muted: false,
                 volume: 1.0,
@@ -136,6 +163,89 @@ mod tests {
     use super::*;
 
     #[test]
+    fn source_opacity_defaults_to_one() {
+        let toml_str = r#"
+            id = 1
+            name = "Test"
+            source_type = "Display"
+            visible = true
+            muted = false
+            volume = 1.0
+            [properties.Display]
+            screen_index = 0
+            [transform]
+            x = 0.0
+            y = 0.0
+            width = 1920.0
+            height = 1080.0
+        "#;
+        let source: Source = toml::from_str(toml_str).unwrap();
+        assert!((source.opacity - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn source_opacity_roundtrips() {
+        let source = Source {
+            id: SourceId(1),
+            name: "Test".into(),
+            source_type: SourceType::Display,
+            properties: SourceProperties::default(),
+            transform: Transform { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0 },
+            opacity: 0.5,
+            visible: true,
+            muted: false,
+            volume: 1.0,
+        };
+        let serialized = toml::to_string(&source).unwrap();
+        let deserialized: Source = toml::from_str(&serialized).unwrap();
+        assert!((deserialized.opacity - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn scene_move_source_up() {
+        let mut scene = Scene {
+            id: SceneId(1),
+            name: "Test".into(),
+            sources: vec![SourceId(1), SourceId(2), SourceId(3)],
+        };
+        scene.move_source_up(SourceId(2));
+        assert_eq!(scene.sources, vec![SourceId(2), SourceId(1), SourceId(3)]);
+    }
+
+    #[test]
+    fn scene_move_source_up_already_first() {
+        let mut scene = Scene {
+            id: SceneId(1),
+            name: "Test".into(),
+            sources: vec![SourceId(1), SourceId(2)],
+        };
+        scene.move_source_up(SourceId(1));
+        assert_eq!(scene.sources, vec![SourceId(1), SourceId(2)]);
+    }
+
+    #[test]
+    fn scene_move_source_down() {
+        let mut scene = Scene {
+            id: SceneId(1),
+            name: "Test".into(),
+            sources: vec![SourceId(1), SourceId(2), SourceId(3)],
+        };
+        scene.move_source_down(SourceId(1));
+        assert_eq!(scene.sources, vec![SourceId(2), SourceId(1), SourceId(3)]);
+    }
+
+    #[test]
+    fn scene_move_source_down_already_last() {
+        let mut scene = Scene {
+            id: SceneId(1),
+            name: "Test".into(),
+            sources: vec![SourceId(1), SourceId(2)],
+        };
+        scene.move_source_down(SourceId(2));
+        assert_eq!(scene.sources, vec![SourceId(1), SourceId(2)]);
+    }
+
+    #[test]
     fn scene_stores_source_ids() {
         let scene = Scene {
             id: SceneId(1),
@@ -161,6 +271,7 @@ mod tests {
             source_type: SourceType::Camera,
             properties: SourceProperties::default(),
             transform: Transform::new(0.0, 0.0, 640.0, 480.0),
+            opacity: 1.0,
             visible: true,
             muted: false,
             volume: 1.0,

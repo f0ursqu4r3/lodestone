@@ -24,8 +24,9 @@ enum HandlePosition {
     BottomRight,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 enum DragMode {
+    #[default]
     None,
     Move {
         start_mouse: Pos2,
@@ -37,12 +38,6 @@ enum DragMode {
         start_transform: Transform,
         aspect_ratio: f32,
     },
-}
-
-impl Default for DragMode {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 // ── Coordinate Mapping ──────────────────────────────────────────────────────
@@ -63,14 +58,23 @@ fn screen_to_canvas(screen_pos: Pos2, viewport: Rect, canvas_size: Vec2) -> Pos2
 
 fn transform_to_screen_rect(t: &Transform, viewport: Rect, canvas_size: Vec2) -> Rect {
     let min = canvas_to_screen(Pos2::new(t.x, t.y), viewport, canvas_size);
-    let max = canvas_to_screen(Pos2::new(t.x + t.width, t.y + t.height), viewport, canvas_size);
+    let max = canvas_to_screen(
+        Pos2::new(t.x + t.width, t.y + t.height),
+        viewport,
+        canvas_size,
+    );
     Rect::from_min_max(min, max)
 }
 
 // ── Handle Drawing ──────────────────────────────────────────────────────────
 
 fn corner_positions(r: Rect) -> [Pos2; 4] {
-    [r.left_top(), r.right_top(), r.left_bottom(), r.right_bottom()]
+    [
+        r.left_top(),
+        r.right_top(),
+        r.left_bottom(),
+        r.right_bottom(),
+    ]
 }
 
 fn edge_positions(r: Rect) -> [Pos2; 4] {

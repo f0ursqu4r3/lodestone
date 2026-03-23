@@ -12,15 +12,15 @@ use crate::ui::theme::{
 };
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, vec2};
 
-/// Return a text icon character for a given source type.
+/// Return a short text label for a given source type (egui's default font lacks emoji).
 fn source_icon(source_type: &SourceType) -> &'static str {
     match source_type {
-        SourceType::Display => "\u{1f5a5}", // 🖥
-        SourceType::Camera => "\u{1f4f7}",  // 📷
-        SourceType::Image => "\u{1f5bc}",   // 🖼
-        SourceType::Browser => "\u{1f310}", // 🌐
-        SourceType::Audio => "\u{1f3b5}",   // 🎵
-        SourceType::Window => "\u{1fa9f}",  // 🪟
+        SourceType::Display => "D",
+        SourceType::Camera => "C",
+        SourceType::Image => "I",
+        SourceType::Browser => "B",
+        SourceType::Audio => "A",
+        SourceType::Window => "W",
     }
 }
 
@@ -151,7 +151,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 let right_x = row_rect.right() - 4.0;
 
                 // Visibility toggle eye icon.
-                let eye_text = "\u{1f441}"; // 👁
+                let eye_text = if is_visible { "V" } else { "-" };
                 let eye_width = 16.0;
                 let eye_rect = Rect::from_center_size(
                     egui::pos2(right_x - eye_width / 2.0, center_y),

@@ -61,7 +61,7 @@ fn send_capture_for_scene(
     let _ = tx.try_send(GstCommand::StopCapture);
 }
 
-/// Draw the scene editor panel (scene list, source, and source properties).
+/// Draw the scene editor panel (scene list, sources, and per-source properties).
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     // Clone command_tx early so we can use it without borrowing state.
     let cmd_tx = state.command_tx.clone();
@@ -101,6 +101,12 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
             // Remove sources belonging to the deleted scene.
             if let Some(scene) = state.scenes.iter().find(|s| s.id == active_id) {
                 let src_ids: Vec<SourceId> = scene.sources.clone();
+                // Send RemoveCaptureSource for each source being deleted.
+                for &src_id in &src_ids {
+                    if let Some(ref tx) = cmd_tx {
+                        let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
+                    }
+                }
                 state.sources.retain(|s| !src_ids.contains(&s.id));
             }
 
@@ -157,172 +163,247 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
 
     ui.separator();
 
-    // ---- Sources section (one source per scene) ----
+    // ---- Sources section (all sources in the active scene) ----
     ui.heading("Sources");
 
     let Some(active_id) = state.active_scene_id else {
         return;
     };
 
-    // Find the single source id for the active scene (if any).
-    let source_id: Option<SourceId> = state
+    // "Add Display Source" button – always visible, adds to the scene's existing sources.
+    if ui.button("Add Display Source").clicked() {
+        let new_src_id = SourceId(state.next_source_id);
+        state.next_source_id += 1;
+        let source_count = state
+            .scenes
+            .iter()
+            .find(|s| s.id == active_id)
+            .map(|s| s.sources.len())
+            .unwrap_or(0);
+        let new_source = Source {
+            id: new_src_id,
+            name: format!("Display {}", source_count + 1),
+            source_type: SourceType::Display,
+            properties: SourceProperties::Display { screen_index: 0 },
+            transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
+            opacity: 1.0,
+            visible: true,
+            muted: false,
+            volume: 1.0,
+        };
+        state.sources.push(new_source);
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+            scene.sources.push(new_src_id);
+        }
+        if let Some(ref tx) = cmd_tx {
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id: new_src_id,
+                config: CaptureSourceConfig::Screen { screen_index: 0 },
+            });
+        }
+        state.capture_active = true;
+        state.scenes_dirty = true;
+        state.scenes_last_changed = std::time::Instant::now();
+    }
+
+    // Collect source IDs in the active scene — clone to avoid borrow conflicts.
+    let source_ids: Vec<SourceId> = state
         .scenes
         .iter()
         .find(|s| s.id == active_id)
-        .and_then(|s| s.sources.first().copied());
+        .map(|s| s.sources.clone())
+        .unwrap_or_default();
 
-    if source_id.is_none() {
-        // No source yet – offer to add one.
-        if ui.button("Add Display Source").clicked() {
-            let new_src_id = SourceId(state.next_source_id);
-            state.next_source_id += 1;
-            let new_source = Source {
-                id: new_src_id,
-                name: "Display".to_string(),
-                source_type: SourceType::Display,
-                properties: SourceProperties::Display { screen_index: 0 },
-                transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
-                opacity: 1.0,
-                visible: true,
-                muted: false,
-                volume: 1.0,
-            };
-            state.sources.push(new_source);
-            if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-                scene.sources.push(new_src_id);
-            }
-            if let Some(ref tx) = cmd_tx {
-                let _ = tx.try_send(GstCommand::SetCaptureSource(CaptureSourceConfig::Screen {
-                    screen_index: 0,
-                }));
-            }
-            state.capture_active = true;
-            state.scenes_dirty = true;
-            state.scenes_last_changed = std::time::Instant::now();
-        }
-        return;
-    }
-
-    let Some(src_id) = source_id else { return };
-
-    // Delete source button
-    if ui.button("Delete Source").clicked() {
-        // Remove from the scene's source list.
-        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-            scene.sources.retain(|&id| id != src_id);
-        }
-        // Remove from the global sources list.
-        state.sources.retain(|s| s.id != src_id);
-        if let Some(ref tx) = cmd_tx {
-            let _ = tx.try_send(GstCommand::StopCapture);
-        }
-        state.capture_active = false;
-        state.scenes_dirty = true;
-        state.scenes_last_changed = std::time::Instant::now();
+    if source_ids.is_empty() {
         return;
     }
 
     ui.separator();
 
-    // ---- Source properties ----
+    // Track any mutations requested during the loop.
+    let mut delete_source: Option<SourceId> = None;
+    let mut move_up_source: Option<SourceId> = None;
+    let mut move_down_source: Option<SourceId> = None;
+    let mut scenes_changed = false;
 
-    // Name
-    {
-        let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id) else {
-            return;
-        };
-        ui.label("Name");
-        ui.text_edit_singleline(&mut source.name);
-    }
+    let source_count = source_ids.len();
 
-    // Visible
-    {
-        let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id) else {
-            return;
-        };
-        if ui.checkbox(&mut source.visible, "Visible").changed() {
-            state.scenes_dirty = true;
-            state.scenes_last_changed = std::time::Instant::now();
-        }
-    }
+    for (idx, &src_id) in source_ids.iter().enumerate() {
+        // ---- Per-source row ----
+        ui.push_id(src_id.0, |ui| {
+            // Header row: visibility checkbox + name edit + move + delete
+            ui.horizontal(|ui| {
+                // Visibility toggle
+                if let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id)
+                    && ui.checkbox(&mut source.visible, "").changed()
+                {
+                    scenes_changed = true;
+                }
 
-    // Monitor selector
-    {
-        let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id) else {
-            return;
-        };
-        let SourceProperties::Display {
-            ref mut screen_index,
-        } = source.properties;
-        let prev_index = *screen_index;
-        let monitor_count = state.monitor_count;
-        let selected_label = format!("Monitor {}", *screen_index);
-        egui::ComboBox::from_label("Monitor")
-            .selected_text(&selected_label)
-            .show_ui(ui, |ui| {
-                for i in 0..monitor_count as u32 {
-                    let label = format!("Monitor {i}");
-                    ui.selectable_value(screen_index, i, label);
+                // Name edit
+                if let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id) {
+                    ui.add(egui::TextEdit::singleline(&mut source.name).desired_width(100.0));
+                }
+
+                // Move Up (disabled for first item)
+                ui.add_enabled_ui(idx > 0, |ui| {
+                    if ui.button("▲").clicked() {
+                        move_up_source = Some(src_id);
+                    }
+                });
+
+                // Move Down (disabled for last item)
+                ui.add_enabled_ui(idx + 1 < source_count, |ui| {
+                    if ui.button("▼").clicked() {
+                        move_down_source = Some(src_id);
+                    }
+                });
+
+                // Delete
+                if ui.button("✕").clicked() {
+                    delete_source = Some(src_id);
                 }
             });
 
-        if *screen_index != prev_index {
-            if let Some(ref tx) = cmd_tx {
-                let _ = tx.try_send(GstCommand::SetCaptureSource(CaptureSourceConfig::Screen {
-                    screen_index: *screen_index,
-                }));
+            // Opacity slider
+            if let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id) {
+                ui.horizontal(|ui| {
+                    ui.label("Opacity");
+                    if ui
+                        .add(egui::Slider::new(&mut source.opacity, 0.0..=1.0))
+                        .changed()
+                    {
+                        scenes_changed = true;
+                    }
+                });
             }
-            state.scenes_dirty = true;
-            state.scenes_last_changed = std::time::Instant::now();
-        }
+
+            // Monitor selector
+            {
+                let monitor_count = state.monitor_count;
+                if let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id) {
+                    let SourceProperties::Display {
+                        ref mut screen_index,
+                    } = source.properties;
+                    let prev_index = *screen_index;
+                    let selected_label = format!("Monitor {}", *screen_index);
+                    egui::ComboBox::from_id_salt(egui::Id::new("monitor_combo").with(src_id.0))
+                        .selected_text(&selected_label)
+                        .show_ui(ui, |ui| {
+                            for i in 0..monitor_count as u32 {
+                                let label = format!("Monitor {i}");
+                                ui.selectable_value(screen_index, i, label);
+                            }
+                        });
+
+                    if *screen_index != prev_index {
+                        let new_index = *screen_index;
+                        if let Some(ref tx) = cmd_tx {
+                            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                                source_id: src_id,
+                                config: CaptureSourceConfig::Screen {
+                                    screen_index: new_index,
+                                },
+                            });
+                        }
+                        scenes_changed = true;
+                    }
+                }
+            }
+
+            // Transform grid
+            ui.label("Transform");
+            if let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id) {
+                let mut any_changed = false;
+                egui::Grid::new(egui::Id::new("source_transform_grid").with(src_id.0))
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("X");
+                        if ui
+                            .add(egui::DragValue::new(&mut source.transform.x).speed(1.0))
+                            .changed()
+                        {
+                            any_changed = true;
+                        }
+                        ui.end_row();
+                        ui.label("Y");
+                        if ui
+                            .add(egui::DragValue::new(&mut source.transform.y).speed(1.0))
+                            .changed()
+                        {
+                            any_changed = true;
+                        }
+                        ui.end_row();
+                        ui.label("Width");
+                        if ui
+                            .add(egui::DragValue::new(&mut source.transform.width).speed(1.0))
+                            .changed()
+                        {
+                            any_changed = true;
+                        }
+                        ui.end_row();
+                        ui.label("Height");
+                        if ui
+                            .add(egui::DragValue::new(&mut source.transform.height).speed(1.0))
+                            .changed()
+                        {
+                            any_changed = true;
+                        }
+                        ui.end_row();
+                    });
+                if any_changed {
+                    scenes_changed = true;
+                }
+            }
+
+            // Visual separator between sources
+            if idx + 1 < source_count {
+                ui.separator();
+            }
+        });
     }
 
-    // Transform grid
-    ui.label("Transform");
-    {
-        let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id) else {
-            return;
-        };
-        let mut any_changed = false;
-        egui::Grid::new("source_transform_grid")
-            .num_columns(2)
-            .show(ui, |ui| {
-                ui.label("X");
-                if ui
-                    .add(egui::DragValue::new(&mut source.transform.x).speed(1.0))
-                    .changed()
-                {
-                    any_changed = true;
-                }
-                ui.end_row();
-                ui.label("Y");
-                if ui
-                    .add(egui::DragValue::new(&mut source.transform.y).speed(1.0))
-                    .changed()
-                {
-                    any_changed = true;
-                }
-                ui.end_row();
-                ui.label("Width");
-                if ui
-                    .add(egui::DragValue::new(&mut source.transform.width).speed(1.0))
-                    .changed()
-                {
-                    any_changed = true;
-                }
-                ui.end_row();
-                ui.label("Height");
-                if ui
-                    .add(egui::DragValue::new(&mut source.transform.height).speed(1.0))
-                    .changed()
-                {
-                    any_changed = true;
-                }
-                ui.end_row();
-            });
-        if any_changed {
-            state.scenes_dirty = true;
-            state.scenes_last_changed = std::time::Instant::now();
+    // Apply reorder mutations.
+    if let Some(src_id) = move_up_source {
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+            scene.move_source_up(src_id);
         }
+        scenes_changed = true;
+    }
+    if let Some(src_id) = move_down_source {
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+            scene.move_source_down(src_id);
+        }
+        scenes_changed = true;
+    }
+
+    // Apply delete mutation.
+    if let Some(src_id) = delete_source {
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+            scene.sources.retain(|&id| id != src_id);
+        }
+        state.sources.retain(|s| s.id != src_id);
+        if let Some(ref tx) = cmd_tx {
+            let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
+        }
+        // Update capture_active based on whether any sources remain.
+        let has_sources = state
+            .scenes
+            .iter()
+            .find(|s| s.id == active_id)
+            .map(|s| !s.sources.is_empty())
+            .unwrap_or(false);
+        if !has_sources
+            && let Some(ref tx) = cmd_tx
+        {
+            let _ = tx.try_send(GstCommand::StopCapture);
+        }
+        state.capture_active = has_sources;
+        scenes_changed = true;
+    }
+
+    if scenes_changed {
+        state.scenes_dirty = true;
+        state.scenes_last_changed = std::time::Instant::now();
     }
 }

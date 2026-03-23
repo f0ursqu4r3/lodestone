@@ -7,9 +7,9 @@ use super::interactions::{collect_dividers, drop_zone_highlight_rect, hit_test_d
 use super::tree::{DockLayout, DropZone, GroupId, NodeId, PanelType, SplitDirection};
 
 use crate::ui::theme::{
-    BG_ELEVATED, BG_PANEL, BG_SURFACE, BORDER, DEFAULT_ACCENT, TEXT_PRIMARY, TEXT_SECONDARY,
-    ADD_BUTTON_WIDTH, DOCK_GRIP_WIDTH, FLOATING_HEADER_HEIGHT, FLOATING_MIN_SIZE, PANEL_PADDING,
-    TAB_BAR_HEIGHT,
+    ADD_BUTTON_WIDTH, BG_ELEVATED, BG_PANEL, BG_SURFACE, BORDER, DEFAULT_ACCENT, DOCK_GRIP_WIDTH,
+    FLOATING_HEADER_HEIGHT, FLOATING_MIN_SIZE, PANEL_PADDING, TAB_BAR_HEIGHT, TEXT_PRIMARY,
+    TEXT_SECONDARY,
 };
 
 /// Drop-zone highlight: accent at ~15% opacity.
@@ -521,7 +521,11 @@ fn render_tab_bar(
                 }
 
                 // Label — truncate with ellipsis when too wide
-                let text_color = if is_active { TEXT_PRIMARY } else { TEXT_SECONDARY };
+                let text_color = if is_active {
+                    TEXT_PRIMARY
+                } else {
+                    TEXT_SECONDARY
+                };
                 let label_pos = egui::pos2(tab_rect.min.x + 8.0, tab_rect.center().y - 6.0);
                 let available_text_width = (tab_width - 28.0).max(10.0);
                 let font = egui::FontId::proportional(12.0);
@@ -561,7 +565,11 @@ fn render_tab_bar(
                 let mut close_clicked = false;
 
                 if response.hovered() {
-                    let close_color = if close_hovered { TEXT_PRIMARY } else { TEXT_SECONDARY };
+                    let close_color = if close_hovered {
+                        TEXT_PRIMARY
+                    } else {
+                        TEXT_SECONDARY
+                    };
 
                     let s = 3.5;
                     painter.line_segment(
@@ -693,7 +701,11 @@ fn render_tab_bar(
         egui::Align2::CENTER_CENTER,
         "+",
         egui::FontId::proportional(14.0),
-        if plus_hovered { TEXT_PRIMARY } else { TEXT_SECONDARY },
+        if plus_hovered {
+            TEXT_PRIMARY
+        } else {
+            TEXT_SECONDARY
+        },
     );
 
     // Toggle popup on click, using manual state to avoid same-frame close

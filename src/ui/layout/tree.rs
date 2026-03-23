@@ -402,19 +402,28 @@ impl DockLayout {
         layout.groups.insert(audio_gid, audio_group);
 
         let sources_node = layout.alloc_node_id();
-        layout
-            .nodes
-            .insert(sources_node, SplitNode::Leaf { group_id: sources_gid });
+        layout.nodes.insert(
+            sources_node,
+            SplitNode::Leaf {
+                group_id: sources_gid,
+            },
+        );
 
         let scenes_node = layout.alloc_node_id();
-        layout
-            .nodes
-            .insert(scenes_node, SplitNode::Leaf { group_id: scenes_gid });
+        layout.nodes.insert(
+            scenes_node,
+            SplitNode::Leaf {
+                group_id: scenes_gid,
+            },
+        );
 
         let preview_node = layout.alloc_node_id();
-        layout
-            .nodes
-            .insert(preview_node, SplitNode::Leaf { group_id: preview_gid });
+        layout.nodes.insert(
+            preview_node,
+            SplitNode::Leaf {
+                group_id: preview_gid,
+            },
+        );
 
         let properties_node = layout.alloc_node_id();
         layout.nodes.insert(
@@ -425,9 +434,12 @@ impl DockLayout {
         );
 
         let audio_node = layout.alloc_node_id();
-        layout
-            .nodes
-            .insert(audio_node, SplitNode::Leaf { group_id: audio_gid });
+        layout.nodes.insert(
+            audio_node,
+            SplitNode::Leaf {
+                group_id: audio_gid,
+            },
+        );
 
         // Left sidebar: Sources on top, Scenes on bottom
         let left_split = layout.alloc_node_id();

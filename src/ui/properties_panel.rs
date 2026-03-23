@@ -73,8 +73,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     {
         let source = &mut state.sources[source_idx];
         ui.horizontal(|ui| {
-            let slider = egui::Slider::new(&mut source.opacity, 0.0..=1.0)
-                .show_value(false);
+            let slider = egui::Slider::new(&mut source.opacity, 0.0..=1.0).show_value(false);
             if ui.add(slider).changed() {
                 changed = true;
             }
@@ -105,17 +104,15 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
             let prev_index = *screen_index;
             let selected_label = format!("Monitor {}", *screen_index);
-            egui::ComboBox::from_id_salt(
-                egui::Id::new("props_monitor_combo").with(selected_id.0),
-            )
-            .selected_text(&selected_label)
-            .width(ui.available_width() - 8.0)
-            .show_ui(ui, |ui| {
-                for i in 0..monitor_count as u32 {
-                    let label = format!("Monitor {i}");
-                    ui.selectable_value(screen_index, i, label);
-                }
-            });
+            egui::ComboBox::from_id_salt(egui::Id::new("props_monitor_combo").with(selected_id.0))
+                .selected_text(&selected_label)
+                .width(ui.available_width() - 8.0)
+                .show_ui(ui, |ui| {
+                    for i in 0..monitor_count as u32 {
+                        let label = format!("Monitor {i}");
+                        ui.selectable_value(screen_index, i, label);
+                    }
+                });
 
             if *screen_index != prev_index {
                 changed = true;
@@ -135,20 +132,12 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
 /// Render a section heading in the style: 9px uppercase `TEXT_MUTED` with letter spacing.
 fn section_label(ui: &mut egui::Ui, text: &str) {
-    ui.label(
-        egui::RichText::new(text)
-            .color(TEXT_MUTED)
-            .size(9.0),
-    );
+    ui.label(egui::RichText::new(text).color(TEXT_MUTED).size(9.0));
 }
 
 /// Render a labeled `DragValue` field and return whether the value changed.
 fn drag_field(ui: &mut egui::Ui, label: &str, value: &mut f32) -> bool {
-    ui.label(
-        egui::RichText::new(label)
-            .color(TEXT_MUTED)
-            .size(10.0),
-    );
+    ui.label(egui::RichText::new(label).color(TEXT_MUTED).size(10.0));
     ui.add(
         egui::DragValue::new(value)
             .speed(1.0)

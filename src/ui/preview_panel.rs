@@ -83,8 +83,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     let preview_height: u32 = 1080;
 
     // Fill entire panel with theme base color (letterbox bars)
-    ui.painter()
-        .rect_filled(panel_rect, 0.0, BG_BASE);
+    ui.painter().rect_filled(panel_rect, 0.0, BG_BASE);
 
     // Compute letterboxed rect and emit the paint callback
     let preview_rect = letterboxed_rect(panel_rect, preview_width, preview_height);
@@ -101,11 +100,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     if matches!(state.stream_status, StreamStatus::Live { .. }) {
         let badge_text = "LIVE";
         let font = egui::FontId::new(9.0, egui::FontFamily::Proportional);
-        let text_galley = painter.layout_no_wrap(
-            badge_text.to_string(),
-            font,
-            egui::Color32::WHITE,
-        );
+        let text_galley =
+            painter.layout_no_wrap(badge_text.to_string(), font, egui::Color32::WHITE);
         let text_size = text_galley.size();
         let badge_padding = egui::vec2(5.0, 3.0);
         let badge_size = text_size + badge_padding * 2.0;
@@ -130,22 +126,19 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
         let video = &state.settings.video;
         let resolution = &video.output_resolution;
         let fps = video.fps;
-        let overlay_text = format!("{}\u{00d7}{} \u{00b7} {}fps",
+        let overlay_text = format!(
+            "{}\u{00d7}{} \u{00b7} {}fps",
             resolution.split('x').next().unwrap_or("1920"),
             resolution.split('x').nth(1).unwrap_or("1080"),
             fps,
         );
         let font = egui::FontId::new(9.0, egui::FontFamily::Proportional);
-        let text_galley = painter.layout_no_wrap(
-            overlay_text,
-            font,
-            TEXT_MUTED,
-        );
+        let text_galley = painter.layout_no_wrap(overlay_text, font, TEXT_MUTED);
         let text_size = text_galley.size();
         let overlay_padding = egui::vec2(4.0, 2.0);
         let overlay_size = text_size + overlay_padding * 2.0;
-        let overlay_pos = preview_rect.right_bottom()
-            - egui::vec2(overlay_size.x + pad, overlay_size.y + pad);
+        let overlay_pos =
+            preview_rect.right_bottom() - egui::vec2(overlay_size.x + pad, overlay_size.y + pad);
         let overlay_rect = egui::Rect::from_min_size(overlay_pos, overlay_size);
 
         // Semi-transparent black background

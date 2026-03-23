@@ -73,11 +73,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         let is_hovered = response.hovered();
 
                         // Thumbnail background.
-                        painter.rect_filled(
-                            thumb_rect,
-                            CornerRadius::same(3),
-                            BG_ELEVATED,
-                        );
+                        painter.rect_filled(thumb_rect, CornerRadius::same(3), BG_ELEVATED);
 
                         // Border: active = TEXT_PRIMARY, hovered = TEXT_MUTED, default = BORDER.
                         let border_color = if is_active {
@@ -175,12 +171,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 }
 
 /// Draw the dashed-border "Add" card with a "+" icon and "Add" label.
-fn draw_add_card(
-    painter: &egui::Painter,
-    thumb_rect: Rect,
-    label_pos: Pos2,
-    hovered: bool,
-) {
+fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hovered: bool) {
     let border_color = if hovered { TEXT_MUTED } else { BORDER };
 
     // Draw dashed border as short segments along the rectangle edges.
@@ -201,10 +192,7 @@ fn draw_add_card(
         let mut d = 0.0;
         while d < total {
             let seg_end = (d + dash_len).min(total);
-            painter.line_segment(
-                [start + dir * d, start + dir * seg_end],
-                stroke,
-            );
+            painter.line_segment([start + dir * d, start + dir * seg_end], stroke);
             d = seg_end + gap_len;
         }
     }

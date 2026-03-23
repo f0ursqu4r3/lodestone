@@ -1,7 +1,9 @@
 use crate::gstreamer::{AudioSourceKind, GstCommand};
 use crate::state::AppState;
 use crate::ui::layout::PanelId;
-use crate::ui::theme::{BG_BASE, BG_PANEL, BORDER, RED_LIVE, TEXT_MUTED, VU_GREEN, VU_RED, VU_YELLOW};
+use crate::ui::theme::{
+    BG_BASE, BG_PANEL, BORDER, RED_LIVE, TEXT_MUTED, VU_GREEN, VU_RED, VU_YELLOW,
+};
 use egui::StrokeKind;
 
 /// Draw the audio mixer panel with per-source VU meters, faders, and mute controls.
@@ -33,13 +35,13 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
         } else {
             ui.vertical(|ui| {
                 ui.set_min_width(60.0);
-                ui.label(
-                    egui::RichText::new("SYSTEM")
-                        .size(9.0)
-                        .color(TEXT_MUTED),
-                );
+                ui.label(egui::RichText::new("SYSTEM").size(9.0).color(TEXT_MUTED));
                 ui.add_space(10.0);
-                ui.label(egui::RichText::new("Install\nBlackHole\nfor system\naudio").color(TEXT_MUTED).size(9.0));
+                ui.label(
+                    egui::RichText::new("Install\nBlackHole\nfor system\naudio")
+                        .color(TEXT_MUTED)
+                        .size(9.0),
+                );
             });
         }
     });
@@ -60,11 +62,7 @@ fn draw_channel_strip(
 
         // Source label: 9px uppercase TEXT_MUTED, centered
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            ui.label(
-                egui::RichText::new(name)
-                    .size(9.0)
-                    .color(TEXT_MUTED),
-            );
+            ui.label(egui::RichText::new(name).size(9.0).color(TEXT_MUTED));
 
             ui.add_space(4.0);
 

@@ -204,23 +204,23 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
         .corner_radius(4.0)
         .min_size(Vec2::new(64.0, 26.0));
 
-    if ui.add(btn).clicked() {
-        if let Some(ref tx) = state.command_tx {
-            if is_live {
-                let _ = tx.try_send(crate::gstreamer::GstCommand::StopStream);
-                state.stream_status = StreamStatus::Offline;
-            } else {
-                let config = crate::gstreamer::StreamConfig {
-                    destination: crate::gstreamer::StreamDestination::Twitch,
-                    stream_key: state.settings.stream.stream_key.clone(),
-                };
-                let _ = tx.try_send(crate::gstreamer::GstCommand::StartStream(config));
-                state.stream_status = StreamStatus::Live {
-                    uptime_secs: 0.0,
-                    bitrate_kbps: 0.0,
-                    dropped_frames: 0,
-                };
-            }
+    if ui.add(btn).clicked()
+        && let Some(ref tx) = state.command_tx
+    {
+        if is_live {
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StopStream);
+            state.stream_status = StreamStatus::Offline;
+        } else {
+            let config = crate::gstreamer::StreamConfig {
+                destination: crate::gstreamer::StreamDestination::Twitch,
+                stream_key: state.settings.stream.stream_key.clone(),
+            };
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StartStream(config));
+            state.stream_status = StreamStatus::Live {
+                uptime_secs: 0.0,
+                bitrate_kbps: 0.0,
+                dropped_frames: 0,
+            };
         }
     }
 
@@ -248,27 +248,27 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
         .corner_radius(4.0)
         .min_size(Vec2::new(64.0, 26.0));
 
-    if ui.add(btn).clicked() {
-        if let Some(ref tx) = state.command_tx {
-            if is_recording {
-                let _ = tx.try_send(crate::gstreamer::GstCommand::StopRecording);
-                state.recording_status = RecordingStatus::Idle;
-            } else {
-                let video_dir = dirs::video_dir()
-                    .or_else(dirs::home_dir)
-                    .unwrap_or_else(|| std::path::PathBuf::from("."));
-                let timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                let filename = format!("lodestone-{timestamp}.mkv");
-                let path = video_dir.join(filename);
-                let _ = tx.try_send(crate::gstreamer::GstCommand::StartRecording {
-                    path: path.clone(),
-                    format: crate::gstreamer::RecordingFormat::Mkv,
-                });
-                state.recording_status = RecordingStatus::Recording { path };
-            }
+    if ui.add(btn).clicked()
+        && let Some(ref tx) = state.command_tx
+    {
+        if is_recording {
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StopRecording);
+            state.recording_status = RecordingStatus::Idle;
+        } else {
+            let video_dir = dirs::video_dir()
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let filename = format!("lodestone-{timestamp}.mkv");
+            let path = video_dir.join(filename);
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StartRecording {
+                path: path.clone(),
+                format: crate::gstreamer::RecordingFormat::Mkv,
+            });
+            state.recording_status = RecordingStatus::Recording { path };
         }
     }
 }

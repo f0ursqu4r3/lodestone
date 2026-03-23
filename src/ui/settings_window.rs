@@ -11,9 +11,8 @@ use crate::settings::{
 };
 use crate::state::AppState;
 use crate::ui::theme::{
-    parse_hex_color, color_to_hex,
-    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER,
-    DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY,
+    TEXT_SECONDARY, color_to_hex, parse_hex_color,
 };
 
 // ── Category enum ─────────────────────────────────────────────────────────────
@@ -174,7 +173,11 @@ fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory, accent: Color32) {
             }
 
             // Label
-            let text_color = if is_active { TEXT_PRIMARY } else { TEXT_SECONDARY };
+            let text_color = if is_active {
+                TEXT_PRIMARY
+            } else {
+                TEXT_SECONDARY
+            };
             let galley = ui.painter().layout_no_wrap(
                 cat.label().to_string(),
                 egui::FontId::proportional(13.0),
@@ -764,7 +767,11 @@ fn draw_appearance(ui: &mut Ui, state: &mut AppState) -> bool {
 
     // ── Accent Color ──
     ui.add_space(16.0);
-    ui.label(egui::RichText::new("Accent Color").color(TEXT_PRIMARY).size(13.0));
+    ui.label(
+        egui::RichText::new("Accent Color")
+            .color(TEXT_PRIMARY)
+            .size(13.0),
+    );
     ui.add_space(8.0);
 
     ui.horizontal(|ui| {
@@ -772,10 +779,13 @@ fn draw_appearance(ui: &mut Ui, state: &mut AppState) -> bool {
         let accent = parse_hex_color(&state.settings.appearance.accent_color);
         let (swatch_rect, _) =
             ui.allocate_exact_size(egui::Vec2::new(24.0, 24.0), egui::Sense::hover());
-        ui.painter()
-            .rect_filled(swatch_rect, 4.0, accent);
-        ui.painter()
-            .rect_stroke(swatch_rect, 4.0, egui::Stroke::new(1.0, BORDER), StrokeKind::Outside);
+        ui.painter().rect_filled(swatch_rect, 4.0, accent);
+        ui.painter().rect_stroke(
+            swatch_rect,
+            4.0,
+            egui::Stroke::new(1.0, BORDER),
+            StrokeKind::Outside,
+        );
 
         ui.add_space(8.0);
 

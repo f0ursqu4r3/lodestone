@@ -15,6 +15,7 @@ pub const BG_PANEL: Color32 = Color32::from_rgb(0x16, 0x16, 0x1c);
 // ── Borders ──
 
 pub const BORDER: Color32 = Color32::from_rgb(0x2a, 0x2a, 0x34);
+#[allow(dead_code)]
 pub const BORDER_SUBTLE: Color32 = Color32::from_rgb(0x22, 0x22, 0x30);
 
 // ── Text ──
@@ -28,6 +29,7 @@ pub const TEXT_MUTED: Color32 = Color32::from_rgb(0x55, 0x55, 0x68);
 pub const RED_LIVE: Color32 = Color32::from_rgb(0xe7, 0x4c, 0x3c);
 pub const RED_GLOW: Color32 = Color32::from_rgba_premultiplied(0xe7, 0x4c, 0x3c, 0x40);
 pub const GREEN_ONLINE: Color32 = Color32::from_rgb(0x2e, 0xcc, 0x71);
+#[allow(dead_code)]
 pub const YELLOW_WARN: Color32 = Color32::from_rgb(0xf1, 0xc4, 0x0f);
 
 // ── VU Meter ──

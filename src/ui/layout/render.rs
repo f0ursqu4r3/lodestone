@@ -502,9 +502,7 @@ fn render_tab_bar(
                 let response = ui.allocate_response(tab_rect.size(), egui::Sense::click_and_drag());
 
                 // Background
-                let bg = if is_active {
-                    BG_ELEVATED
-                } else if response.hovered() {
+                let bg = if is_active || response.hovered() {
                     BG_ELEVATED
                 } else {
                     BG_SURFACE

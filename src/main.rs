@@ -177,6 +177,9 @@ impl AppManager {
         if !scenes_path.exists() {
             let _ = collection.save_to(&scenes_path);
         }
+        // Load persisted settings (stream key, encoder, resolution, etc.).
+        let saved_settings = settings::AppSettings::load_from(&settings::settings_path());
+
         let initial_state = AppState {
             scenes: collection.scenes,
             sources: collection.sources,
@@ -185,6 +188,7 @@ impl AppManager {
             next_source_id: collection.next_source_id,
             command_tx: Some(main_channels.command_tx.clone()),
             available_cameras,
+            settings: saved_settings,
             ..AppState::default()
         };
 

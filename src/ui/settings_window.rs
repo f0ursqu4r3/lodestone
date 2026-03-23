@@ -243,6 +243,24 @@ fn labeled_row(ui: &mut Ui, label: &str) {
     ui.label(egui::RichText::new(label).size(13.0).color(TEXT_PRIMARY));
 }
 
+/// Label a row as not yet implemented — gray text and disabled controls.
+fn labeled_row_unimplemented(ui: &mut Ui, label: &str) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).size(13.0).color(TEXT_MUTED));
+        ui.label(egui::RichText::new("(not yet implemented)").size(10.0).color(TEXT_MUTED).italics());
+    });
+}
+
+/// Draw a toggle that's grayed out / not implemented.
+fn draw_toggle_unimplemented(ui: &mut Ui, label: &str, _value: &mut bool) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).size(13.0).color(TEXT_MUTED));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(egui::RichText::new("not implemented").size(10.0).color(TEXT_MUTED).italics());
+        });
+    });
+}
+
 // ── Category: General ─────────────────────────────────────────────────────────
 
 fn draw_general(ui: &mut Ui, settings: &mut GeneralSettings) -> bool {
@@ -250,8 +268,8 @@ fn draw_general(ui: &mut Ui, settings: &mut GeneralSettings) -> bool {
 
     section_header(ui, "STARTUP");
 
-    changed |= draw_toggle(ui, "Launch on startup", &mut settings.launch_on_startup);
-    changed |= draw_toggle(
+    draw_toggle_unimplemented(ui, "Launch on startup", &mut settings.launch_on_startup);
+    draw_toggle_unimplemented(
         ui,
         "Check for updates automatically",
         &mut settings.check_for_updates,
@@ -259,7 +277,7 @@ fn draw_general(ui: &mut Ui, settings: &mut GeneralSettings) -> bool {
 
     section_header(ui, "BEHAVIOR");
 
-    changed |= draw_toggle(
+    draw_toggle_unimplemented(
         ui,
         "Confirm close while streaming",
         &mut settings.confirm_close_while_streaming,
@@ -286,7 +304,7 @@ fn draw_general(ui: &mut Ui, settings: &mut GeneralSettings) -> bool {
     section_header(ui, "LANGUAGE");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Language");
+        labeled_row_unimplemented(ui, "Language");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("language_combo")
                 .selected_text(&settings.language)
@@ -394,7 +412,7 @@ fn draw_stream(ui: &mut Ui, settings: &mut StreamSettings) -> bool {
     section_header(ui, "ENCODER");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Encoder");
+        labeled_row_unimplemented(ui, "Encoder");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("encoder_combo")
                 .selected_text(&settings.encoder)
@@ -414,7 +432,7 @@ fn draw_stream(ui: &mut Ui, settings: &mut StreamSettings) -> bool {
     });
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Bitrate (kbps)");
+        labeled_row_unimplemented(ui, "Bitrate (kbps)");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             changed |= ui
                 .add(egui::DragValue::new(&mut settings.bitrate_kbps).range(500..=50000))
@@ -425,7 +443,7 @@ fn draw_stream(ui: &mut Ui, settings: &mut StreamSettings) -> bool {
     section_header(ui, "RESOLUTION");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Width");
+        labeled_row_unimplemented(ui, "Width");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             changed |= ui
                 .add(egui::DragValue::new(&mut settings.width).range(320..=7680))
@@ -434,7 +452,7 @@ fn draw_stream(ui: &mut Ui, settings: &mut StreamSettings) -> bool {
     });
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Height");
+        labeled_row_unimplemented(ui, "Height");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             changed |= ui
                 .add(egui::DragValue::new(&mut settings.height).range(240..=4320))
@@ -443,7 +461,7 @@ fn draw_stream(ui: &mut Ui, settings: &mut StreamSettings) -> bool {
     });
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "FPS");
+        labeled_row_unimplemented(ui, "FPS");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("stream_fps")
                 .selected_text(format!("{}", settings.fps))
@@ -547,7 +565,7 @@ fn draw_audio(ui: &mut Ui, state: &mut AppState) -> bool {
     section_header(ui, "FORMAT");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Sample Rate");
+        labeled_row_unimplemented(ui, "Sample Rate");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("sample_rate")
                 .selected_text(format!("{} Hz", state.settings.audio.sample_rate))
@@ -571,7 +589,7 @@ fn draw_audio(ui: &mut Ui, state: &mut AppState) -> bool {
     });
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Monitoring");
+        labeled_row_unimplemented(ui, "Monitoring");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("monitoring")
                 .selected_text(&state.settings.audio.monitoring)
@@ -651,7 +669,7 @@ fn draw_video(ui: &mut Ui, settings: &mut VideoSettings) -> bool {
     section_header(ui, "FRAME RATE");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "FPS");
+        labeled_row_unimplemented(ui, "FPS");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("video_fps")
                 .selected_text(format!("{}", settings.fps))
@@ -673,7 +691,7 @@ fn draw_video(ui: &mut Ui, settings: &mut VideoSettings) -> bool {
     section_header(ui, "COLOR");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Color Space");
+        labeled_row_unimplemented(ui, "Color Space");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("color_space")
                 .selected_text(&settings.color_space)
@@ -699,6 +717,10 @@ fn draw_video(ui: &mut Ui, settings: &mut VideoSettings) -> bool {
 
 fn draw_hotkeys(ui: &mut Ui, settings: &mut HotkeySettings) -> bool {
     let mut changed = false;
+
+    ui.label(egui::RichText::new("Hotkeys are not yet implemented. Bindings are saved but have no effect.")
+        .size(11.0).color(TEXT_MUTED).italics());
+    ui.add_space(8.0);
 
     section_header(ui, "BINDINGS");
 
@@ -744,7 +766,7 @@ fn draw_appearance(ui: &mut Ui, state: &mut AppState) -> bool {
     section_header(ui, "THEME");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Theme");
+        labeled_row_unimplemented(ui, "Theme");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("theme_combo")
                 .selected_text(&state.settings.appearance.theme)
@@ -770,7 +792,7 @@ fn draw_appearance(ui: &mut Ui, state: &mut AppState) -> bool {
     section_header(ui, "FONT");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Font Size");
+        labeled_row_unimplemented(ui, "Font Size");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             changed |= ui
                 .add(
@@ -839,7 +861,7 @@ fn draw_advanced(ui: &mut Ui, settings: &mut AdvancedSettings) -> bool {
     section_header(ui, "PERFORMANCE");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Process Priority");
+        labeled_row_unimplemented(ui, "Process Priority");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("priority_combo")
                 .selected_text(&settings.process_priority)
@@ -861,7 +883,7 @@ fn draw_advanced(ui: &mut Ui, settings: &mut AdvancedSettings) -> bool {
     section_header(ui, "NETWORK");
 
     ui.horizontal(|ui| {
-        labeled_row(ui, "Network Buffer Size");
+        labeled_row_unimplemented(ui, "Network Buffer Size");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             changed |= ui
                 .add(

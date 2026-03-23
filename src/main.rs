@@ -689,7 +689,8 @@ impl ApplicationHandler for AppManager {
         } else {
             Vec::new()
         };
-        if !drained_frames.is_empty()
+        let had_new_frames = !drained_frames.is_empty();
+        if had_new_frames
             && let Some(ref mut gpu) = self.gpu
         {
             // Update native_size on sources when we first see their frame dimensions.
@@ -869,10 +870,17 @@ impl ApplicationHandler for AppManager {
             }
         }
 
-        // Request redraw for all windows so detached windows also animate.
-        for win in self.windows.values() {
-            win.window.request_redraw();
+        // Request redraws only when new content arrived — avoids a tight busy
+        // loop that pegs the CPU and starves macOS window management (Lasso jank).
+        if had_new_frames {
+            // New capture frames: redraw to display them.
+            for win in self.windows.values() {
+                win.window.request_redraw();
+            }
         }
+        // When no new frames arrive, winit still delivers redraws triggered by:
+        // - Input events (mouse, keyboard, resize)
+        // - egui's request_repaint() (animations, hover effects, toolbar pulse)
 
     }
 }

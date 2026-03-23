@@ -53,10 +53,38 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 }
             });
 
-            // Add display source
-            if ui.button(egui_phosphor::regular::PLUS).on_hover_text("Add display source").clicked() {
-                add_display_source(state, &cmd_tx, active_id);
+            // Add source (popup menu)
+            let add_response = ui
+                .button(egui_phosphor::regular::PLUS)
+                .on_hover_text("Add source");
+
+            let popup_id = ui.make_persistent_id("add_source_menu");
+            if add_response.clicked() {
+                ui.memory_mut(|m: &mut egui::Memory| m.toggle_popup(popup_id));
             }
+
+            #[allow(deprecated)]
+            egui::popup_below_widget(
+                ui,
+                popup_id,
+                &add_response,
+                egui::PopupCloseBehavior::CloseOnClickOutside,
+                |ui: &mut egui::Ui| {
+                    ui.set_min_width(120.0);
+                    if ui.button("Display").clicked() {
+                        add_display_source(state, &cmd_tx, active_id);
+                        ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
+                    }
+                    if ui.button("Window").clicked() {
+                        add_window_source(state, active_id);
+                        ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
+                    }
+                    if ui.button("Camera").clicked() {
+                        add_camera_source(state, &cmd_tx, active_id);
+                        ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
+                    }
+                },
+            );
         });
     });
 
@@ -271,6 +299,90 @@ fn add_display_source(
         let _ = tx.try_send(GstCommand::AddCaptureSource {
             source_id: new_src_id,
             config: CaptureSourceConfig::Screen { screen_index: 0 },
+        });
+    }
+    state.selected_source_id = Some(new_src_id);
+    state.capture_active = true;
+    state.scenes_dirty = true;
+    state.scenes_last_changed = std::time::Instant::now();
+}
+
+/// Add a new window source to the active scene (placeholder — no capture until configured).
+fn add_window_source(state: &mut AppState, active_id: crate::scene::SceneId) {
+    let new_src_id = SourceId(state.next_source_id);
+    state.next_source_id += 1;
+    let source_count = state
+        .scenes
+        .iter()
+        .find(|s| s.id == active_id)
+        .map(|s| s.sources.len())
+        .unwrap_or(0);
+    let new_source = Source {
+        id: new_src_id,
+        name: format!("Window {}", source_count + 1),
+        source_type: SourceType::Window,
+        properties: SourceProperties::Window {
+            window_id: 0,
+            window_title: String::new(),
+            owner_name: String::new(),
+        },
+        transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
+        opacity: 1.0,
+        visible: true,
+        muted: false,
+        volume: 1.0,
+    };
+    state.sources.push(new_source);
+    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+        scene.sources.push(new_src_id);
+    }
+    // No capture started — user must pick a window in Properties first.
+    state.selected_source_id = Some(new_src_id);
+    state.scenes_dirty = true;
+    state.scenes_last_changed = std::time::Instant::now();
+}
+
+/// Add a new camera source to the active scene and start capture immediately.
+fn add_camera_source(
+    state: &mut AppState,
+    cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
+    active_id: crate::scene::SceneId,
+) {
+    let new_src_id = SourceId(state.next_source_id);
+    state.next_source_id += 1;
+    let source_count = state
+        .scenes
+        .iter()
+        .find(|s| s.id == active_id)
+        .map(|s| s.sources.len())
+        .unwrap_or(0);
+    let device_name = state
+        .available_cameras
+        .first()
+        .map(|c| c.name.clone())
+        .unwrap_or_else(|| "Camera".to_string());
+    let new_source = Source {
+        id: new_src_id,
+        name: format!("Camera {}", source_count + 1),
+        source_type: SourceType::Camera,
+        properties: SourceProperties::Camera {
+            device_index: 0,
+            device_name,
+        },
+        transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
+        opacity: 1.0,
+        visible: true,
+        muted: false,
+        volume: 1.0,
+    };
+    state.sources.push(new_source);
+    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+        scene.sources.push(new_src_id);
+    }
+    if let Some(tx) = cmd_tx {
+        let _ = tx.try_send(GstCommand::AddCaptureSource {
+            source_id: new_src_id,
+            config: CaptureSourceConfig::Camera { device_index: 0 },
         });
     }
     state.selected_source_id = Some(new_src_id);

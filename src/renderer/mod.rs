@@ -1,6 +1,5 @@
 pub mod compositor;
 pub mod pipelines;
-pub mod preview;
 pub mod text;
 
 use anyhow::Result;
@@ -11,11 +10,9 @@ use egui_wgpu::wgpu::{Device, Queue, TextureFormat};
 use std::sync::Arc;
 use winit::window::Window;
 
+use compositor::Compositor;
 use pipelines::WidgetPipeline;
-use preview::PreviewRenderer;
 use text::GlyphonRenderer;
-
-use crate::gstreamer::RgbaFrame;
 
 // ---------------------------------------------------------------------------
 // SharedGpuState — owns GPU device/queue and shared pipelines
@@ -26,7 +23,7 @@ pub struct SharedGpuState {
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
     pub format: TextureFormat,
-    pub preview_renderer: PreviewRenderer,
+    pub compositor: Compositor,
     #[allow(dead_code)]
     pub widget_pipeline: WidgetPipeline,
     pub text_renderer: GlyphonRenderer,
@@ -72,29 +69,15 @@ impl SharedGpuState {
         let text_renderer = GlyphonRenderer::new();
         let widget_pipeline = WidgetPipeline::new(&device, format);
 
-        // Default preview size: 1920x1080
-        let preview_width: u32 = 1920;
-        let preview_height: u32 = 1080;
-        let preview_renderer = PreviewRenderer::new(&device, format, preview_width, preview_height);
-
-        // Upload a solid dark gray test frame
-        let test_frame = RgbaFrame {
-            data: vec![30u8, 30, 30, 255]
-                .into_iter()
-                .cycle()
-                .take((preview_width * preview_height * 4) as usize)
-                .collect(),
-            width: preview_width,
-            height: preview_height,
-        };
-        preview_renderer.upload_frame(&queue, &test_frame);
+        // Default canvas size: 1920x1080. Compositor starts with a black canvas.
+        let compositor = Compositor::new(&device, format, 1920, 1080);
 
         Ok(Self {
             instance,
             device,
             queue,
             format,
-            preview_renderer,
+            compositor,
             widget_pipeline,
             text_renderer,
         })

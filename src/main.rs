@@ -330,8 +330,8 @@ impl ApplicationHandler for AppManager {
             pollster::block_on(SharedGpuState::new(window)).expect("initialize shared GPU state");
 
         let preview_resources = PreviewResources {
-            pipeline: gpu.preview_renderer.pipeline(),
-            bind_group: gpu.preview_renderer.bind_group(),
+            pipeline: gpu.compositor.canvas_pipeline(),
+            bind_group: gpu.compositor.canvas_bind_group(),
         };
 
         // Try to load saved layout; fall back to default.
@@ -601,18 +601,29 @@ impl ApplicationHandler for AppManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        // Poll GStreamer latest frames and upload to preview texture.
-        // Temporary: drain the map and upload the first frame found (Task 6 will
-        // replace this with full compositor output).
-        if let Some(ref mut channels) = self.gst_channels {
-            let mut frames = channels.latest_frames.lock().expect("lock latest_frames");
-            if let Some((_, frame)) = frames.drain().next()
-                && let Some(ref gpu) = self.gpu
-            {
-                gpu.preview_renderer.upload_frame(&gpu.queue, &frame);
+        // Poll GStreamer latest frames and upload to compositor source layers.
+        // Drain the shared frame map into a local vec first so we can release
+        // self.gst_channels borrow before mutably borrowing self.gpu.
+        let drained_frames: Vec<_> = if let Some(ref channels) = self.gst_channels {
+            channels
+                .latest_frames
+                .lock()
+                .expect("lock latest_frames")
+                .drain()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if !drained_frames.is_empty()
+            && let Some(ref mut gpu) = self.gpu
+        {
+            for (source_id, frame) in drained_frames {
+                gpu.compositor
+                    .upload_frame(&gpu.device, &gpu.queue, source_id, &frame);
             }
-            drop(frames);
+        }
 
+        if let Some(ref mut channels) = self.gst_channels {
             // Poll GStreamer error channel
             while let Ok(err) = channels.error_rx.try_recv() {
                 log::error!("GStreamer error: {err}");
@@ -632,32 +643,6 @@ impl ApplicationHandler for AppManager {
                 let devices = channels.devices_rx.borrow_and_update().clone();
                 let mut app_state = self.state.lock().expect("lock AppState");
                 app_state.available_audio_devices = devices;
-            }
-        }
-
-        // Upload blank preview when capture is stopped
-        {
-            let state = self.state.lock().unwrap();
-            if !state.capture_active {
-                drop(state);
-                if let Some(ref gpu) = self.gpu {
-                    let w = gpu.preview_renderer.width;
-                    let h = gpu.preview_renderer.height;
-                    let size = (w * h * 4) as usize;
-                    let mut data = vec![0u8; size];
-                    for pixel in data.chunks_exact_mut(4) {
-                        pixel[0] = 30;
-                        pixel[1] = 30;
-                        pixel[2] = 30;
-                        pixel[3] = 255;
-                    }
-                    let blank = gstreamer::RgbaFrame {
-                        data,
-                        width: w,
-                        height: h,
-                    };
-                    gpu.preview_renderer.upload_frame(&gpu.queue, &blank);
-                }
             }
         }
 
@@ -710,8 +695,8 @@ impl ApplicationHandler for AppManager {
                 let layout =
                     DockLayout::new_with_ids(detach.group_id, detach.panel_id, detach.panel_type);
                 let preview_resources = PreviewResources {
-                    pipeline: gpu.preview_renderer.pipeline(),
-                    bind_group: gpu.preview_renderer.bind_group(),
+                    pipeline: gpu.compositor.canvas_pipeline(),
+                    bind_group: gpu.compositor.canvas_bind_group(),
                 };
                 let win_state =
                     WindowState::new(window, gpu, layout, false, Some(preview_resources))

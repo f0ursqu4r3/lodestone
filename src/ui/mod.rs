@@ -9,6 +9,7 @@ pub mod settings_window;
 pub mod sources_panel;
 pub mod stream_controls;
 pub mod toolbar;
+pub mod transform_handles;
 
 use crate::state::AppState;
 use layout::{PanelId, PanelType};

@@ -23,6 +23,7 @@ pub struct Source {
     #[serde(default)]
     pub properties: SourceProperties,
     pub transform: Transform,
+    /// Alpha opacity in the range [0.0, 1.0]. Values outside this range are clamped by the compositor.
     #[serde(default = "default_opacity")]
     pub opacity: f32,
     pub visible: bool,

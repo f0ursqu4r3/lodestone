@@ -122,6 +122,8 @@ pub struct SourceLayer {
     pub texture: wgpu::Texture,
     pub texture_view: wgpu::TextureView,
     pub bind_group: wgpu::BindGroup,
+    pub uniform_buffer: wgpu::Buffer,
+    pub uniform_bind_group: wgpu::BindGroup,
     pub size: (u32, u32),
 }
 
@@ -142,10 +144,8 @@ pub struct Compositor {
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
 
-    /// Uniform buffer holding one `SourceUniforms` (32 bytes).
-    uniform_buffer: wgpu::Buffer,
+    /// Layout for per-source uniform bind groups (group 1).
     uniform_bind_group_layout: wgpu::BindGroupLayout,
-    uniform_bind_group: wgpu::BindGroup,
 
     /// Layout for source texture bind groups (group 0).
     texture_bind_group_layout: wgpu::BindGroupLayout,
@@ -228,14 +228,7 @@ impl Compositor {
                 ],
             });
 
-        // ---- Uniform buffer + bind group (group 1) -------------------------
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("compositor_uniform_buffer"),
-            size: std::mem::size_of::<SourceUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
+        // ---- Uniform bind group layout (group 1) — per-source buffers created in upload_frame
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("compositor_uniform_bgl"),
@@ -250,15 +243,6 @@ impl Compositor {
                     count: None,
                 }],
             });
-
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("compositor_uniform_bg"),
-            layout: &uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
 
         // ---- Compositor render pipeline ------------------------------------
         let compositor_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -397,9 +381,7 @@ impl Compositor {
             canvas_height,
             pipeline,
             sampler,
-            uniform_buffer,
             uniform_bind_group_layout,
-            uniform_bind_group,
             texture_bind_group_layout,
             source_layers: HashMap::new(),
             readback_buffer,
@@ -451,12 +433,28 @@ impl Compositor {
                     },
                 ],
             });
+            let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("compositor_source_uniform"),
+                size: std::mem::size_of::<SourceUniforms>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("compositor_source_uniform_bg"),
+                layout: &self.uniform_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                }],
+            });
             self.source_layers.insert(
                 source_id,
                 SourceLayer {
                     texture,
                     texture_view,
                     bind_group,
+                    uniform_buffer,
+                    uniform_bind_group,
                     size: (frame.width, frame.height),
                 },
             );
@@ -494,8 +492,8 @@ impl Compositor {
 
     /// Composite all visible sources onto the canvas texture.
     ///
-    /// The first source clears the canvas to opaque black; subsequent sources
-    /// use `LoadOp::Load` so prior layers are preserved.
+    /// Always clears the canvas to black first, then draws each visible source
+    /// with its own per-source uniform buffer to avoid data races.
     pub fn compose(
         &self,
         queue: &Queue,
@@ -505,58 +503,9 @@ impl Compositor {
         let cw = self.canvas_width as f32;
         let ch = self.canvas_height as f32;
 
-        let mut first_pass = true;
-
-        for source in sources {
-            if !source.visible {
-                continue;
-            }
-            let layer = match self.source_layers.get(&source.id) {
-                Some(l) => l,
-                None => continue,
-            };
-
-            // Normalize pixel-space transform to 0..1 canvas space.
-            let t = &source.transform;
-            let uniforms = SourceUniforms {
-                rect: [t.x / cw, t.y / ch, t.width / cw, t.height / ch],
-                opacity: source.opacity.clamp(0.0, 1.0),
-                _padding: [0.0; 3],
-            };
-            queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
-
-            let load_op = if first_pass {
-                first_pass = false;
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK)
-            } else {
-                wgpu::LoadOp::Load
-            };
-
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("compositor_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.canvas_view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: load_op,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &layer.bind_group, &[]);
-            pass.set_bind_group(1, &self.uniform_bind_group, &[]);
-            pass.draw(0..4, 0..1);
-        }
-
-        // If no visible sources were drawn, still clear the canvas to black.
-        if first_pass {
-            let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        // Dedicated clear pass — always runs.
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("compositor_clear_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.canvas_view,
@@ -571,7 +520,47 @@ impl Compositor {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            drop(pass);
+        }
+
+        // Draw each visible source with its own uniform buffer.
+        for source in sources {
+            let layer = match self.source_layers.get(&source.id) {
+                Some(l) => l,
+                None => continue,
+            };
+            if !source.visible {
+                continue;
+            }
+
+            // Write to per-source uniform buffer — avoids race with shared buffer.
+            let t = &source.transform;
+            let uniforms = SourceUniforms {
+                rect: [t.x / cw, t.y / ch, t.width / cw, t.height / ch],
+                opacity: source.opacity.clamp(0.0, 1.0),
+                _padding: [0.0; 3],
+            };
+            queue.write_buffer(&layer.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("compositor_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.canvas_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &layer.bind_group, &[]);
+            pass.set_bind_group(1, &layer.uniform_bind_group, &[]);
+            pass.draw(0..4, 0..1);
         }
     }
 
@@ -609,28 +598,16 @@ impl Compositor {
         );
 
         let submission_index = queue.submit(std::iter::once(encoder.finish()));
+
+        // Map and read back, stripping row padding.
+        let slice = self.readback_buffer.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |_| {});
         device
             .poll(wgpu::PollType::Wait {
                 submission_index: Some(submission_index),
                 timeout: None,
             })
             .expect("GPU poll failed during readback");
-
-        // Map and read back, stripping row padding.
-        let slice = self.readback_buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = tx.send(result);
-        });
-        device
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            })
-            .expect("GPU poll failed during map");
-        rx.recv()
-            .expect("map_async channel closed")
-            .expect("map_async failed");
 
         let raw = slice.get_mapped_range();
         let unpadded_bytes_per_row = (self.canvas_width * 4) as usize;

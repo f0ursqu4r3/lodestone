@@ -471,7 +471,7 @@ pub fn draw_transform_handles(
                 .order(egui::Order::Foreground)
                 .fixed_pos(ctx_state.pos)
                 .show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    egui::Frame::menu(ui.style()).show(ui, |ui| {
                         action_taken =
                             show_source_context_menu_items(ui, state, source_id, canvas_size);
                     });

@@ -1,3 +1,4 @@
+pub mod compositor;
 pub mod pipelines;
 pub mod preview;
 pub mod text;

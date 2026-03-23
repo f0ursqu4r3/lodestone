@@ -434,14 +434,41 @@ pub fn draw_transform_handles(
     }
 
     // ── Context menu for right-click in preview ──
-    // Interact with the full viewport for right-click.
-    let viewport_response = ui.interact(
-        viewport_rect,
-        egui::Id::new("preview_context_menu"),
-        egui::Sense::click(),
-    );
+    // We detected the right-click above and selected the source. Now open a
+    // popup at the pointer position if a source is selected and secondary was clicked.
+    #[allow(deprecated)]
+    let ctx_menu_id = egui::Id::new("preview_source_context_menu");
+    if let Some(mouse_pos) = pointer
+        && secondary_clicked
+        && viewport_rect.contains(mouse_pos)
+        && state.selected_source_id.is_some()
+    {
+        #[allow(deprecated)]
+        ui.memory_mut(|m| m.open_popup(ctx_menu_id));
+    }
     if let Some(selected_id) = state.selected_source_id {
-        show_source_context_menu(ui, &viewport_response, state, selected_id, canvas_size);
+        let popup_pos = pointer.unwrap_or(viewport_rect.center());
+        egui::Area::new(ctx_menu_id)
+            .order(egui::Order::Foreground)
+            .fixed_pos(popup_pos)
+            .show(ui.ctx(), |ui| {
+                #[allow(deprecated)]
+                let is_open = ui.memory(|m| m.is_popup_open(ctx_menu_id));
+                if !is_open {
+                    return;
+                }
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    show_source_context_menu_items(ui, state, selected_id, canvas_size);
+                });
+            });
+        // Close popup on click outside.
+        #[allow(deprecated)]
+        let should_close = ui.input(|i| i.pointer.primary_clicked())
+            && ui.memory(|m| m.is_popup_open(ctx_menu_id));
+        if should_close {
+            #[allow(deprecated)]
+            ui.memory_mut(|m| m.close_popup(ctx_menu_id));
+        }
     }
 
     // ── Handles + dragging for selected source ──
@@ -551,8 +578,7 @@ pub fn draw_transform_handles(
 
 // ── Source Context Menu ────────────────────────────────────────────────────
 
-/// Show a context menu with quick transform actions for the selected source.
-/// Can be called from both the preview panel and the sources panel.
+/// Show a context menu via `response.context_menu()` — used by the sources panel.
 pub fn show_source_context_menu(
     _ui: &mut egui::Ui,
     response: &egui::Response,
@@ -561,87 +587,97 @@ pub fn show_source_context_menu(
     canvas_size: Vec2,
 ) {
     response.context_menu(|ui| {
-        let cw = canvas_size.x;
-        let ch = canvas_size.y;
-
-        // Get current source dimensions for aspect ratio calculations.
-        let (src_w, src_h) = state
-            .sources
-            .iter()
-            .find(|s| s.id == source_id)
-            .map(|s| (s.transform.width, s.transform.height))
-            .unwrap_or((cw, ch));
-        let src_aspect = src_w / src_h.max(1.0);
-        let canvas_aspect = cw / ch.max(1.0);
-
-        ui.set_min_width(160.0);
-
-        if ui.button("Fit to Canvas").on_hover_text("Scale to fit inside canvas, preserving aspect ratio").clicked() {
-            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-                let (w, h) = if src_aspect > canvas_aspect {
-                    (cw, cw / src_aspect)
-                } else {
-                    (ch * src_aspect, ch)
-                };
-                s.transform.x = (cw - w) / 2.0;
-                s.transform.y = (ch - h) / 2.0;
-                s.transform.width = w;
-                s.transform.height = h;
-            }
-            mark_dirty(state);
-            ui.close();
-        }
-
-        if ui.button("Stretch to Canvas").on_hover_text("Fill entire canvas, ignoring aspect ratio").clicked() {
-            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-                s.transform.x = 0.0;
-                s.transform.y = 0.0;
-                s.transform.width = cw;
-                s.transform.height = ch;
-            }
-            mark_dirty(state);
-            ui.close();
-        }
-
-        if ui.button("Fill Canvas").on_hover_text("Scale to cover entire canvas, cropping overflow").clicked() {
-            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-                let (w, h) = if src_aspect > canvas_aspect {
-                    (ch * src_aspect, ch)
-                } else {
-                    (cw, cw / src_aspect)
-                };
-                s.transform.x = (cw - w) / 2.0;
-                s.transform.y = (ch - h) / 2.0;
-                s.transform.width = w;
-                s.transform.height = h;
-            }
-            mark_dirty(state);
-            ui.close();
-        }
-
-        ui.separator();
-
-        if ui.button("Center on Canvas").on_hover_text("Move to center without resizing").clicked() {
-            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-                s.transform.x = (cw - s.transform.width) / 2.0;
-                s.transform.y = (ch - s.transform.height) / 2.0;
-            }
-            mark_dirty(state);
-            ui.close();
-        }
-
-        if ui.button("Reset Transform").on_hover_text("Reset to native size, centered").clicked() {
-            if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-                let (nw, nh) = s.native_size;
-                s.transform.width = nw;
-                s.transform.height = nh;
-                s.transform.x = (cw - nw) / 2.0;
-                s.transform.y = (ch - nh) / 2.0;
-            }
-            mark_dirty(state);
-            ui.close();
-        }
+        show_source_context_menu_items(ui, state, source_id, canvas_size);
     });
+}
+
+/// The actual menu items — shared between `response.context_menu()` and the
+/// manual popup used in the preview viewport.
+pub fn show_source_context_menu_items(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    source_id: crate::scene::SourceId,
+    canvas_size: Vec2,
+) {
+    let cw = canvas_size.x;
+    let ch = canvas_size.y;
+
+    let (src_w, src_h) = state
+        .sources
+        .iter()
+        .find(|s| s.id == source_id)
+        .map(|s| (s.transform.width, s.transform.height))
+        .unwrap_or((cw, ch));
+    let src_aspect = src_w / src_h.max(1.0);
+    let canvas_aspect = cw / ch.max(1.0);
+
+    ui.set_min_width(160.0);
+
+    if ui.button("Fit to Canvas").on_hover_text("Scale to fit, preserving aspect ratio").clicked() {
+        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+            let (w, h) = if src_aspect > canvas_aspect {
+                (cw, cw / src_aspect)
+            } else {
+                (ch * src_aspect, ch)
+            };
+            s.transform.x = (cw - w) / 2.0;
+            s.transform.y = (ch - h) / 2.0;
+            s.transform.width = w;
+            s.transform.height = h;
+        }
+        mark_dirty(state);
+        ui.close();
+    }
+
+    if ui.button("Stretch to Canvas").on_hover_text("Fill canvas, ignoring aspect ratio").clicked() {
+        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+            s.transform.x = 0.0;
+            s.transform.y = 0.0;
+            s.transform.width = cw;
+            s.transform.height = ch;
+        }
+        mark_dirty(state);
+        ui.close();
+    }
+
+    if ui.button("Fill Canvas").on_hover_text("Cover canvas, crop overflow").clicked() {
+        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+            let (w, h) = if src_aspect > canvas_aspect {
+                (ch * src_aspect, ch)
+            } else {
+                (cw, cw / src_aspect)
+            };
+            s.transform.x = (cw - w) / 2.0;
+            s.transform.y = (ch - h) / 2.0;
+            s.transform.width = w;
+            s.transform.height = h;
+        }
+        mark_dirty(state);
+        ui.close();
+    }
+
+    ui.separator();
+
+    if ui.button("Center on Canvas").on_hover_text("Move to center without resizing").clicked() {
+        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+            s.transform.x = (cw - s.transform.width) / 2.0;
+            s.transform.y = (ch - s.transform.height) / 2.0;
+        }
+        mark_dirty(state);
+        ui.close();
+    }
+
+    if ui.button("Reset Transform").on_hover_text("Reset to native size, centered").clicked() {
+        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+            let (nw, nh) = s.native_size;
+            s.transform.width = nw;
+            s.transform.height = nh;
+            s.transform.x = (cw - nw) / 2.0;
+            s.transform.y = (ch - nh) / 2.0;
+        }
+        mark_dirty(state);
+        ui.close();
+    }
 }
 
 fn mark_dirty(state: &mut AppState) {

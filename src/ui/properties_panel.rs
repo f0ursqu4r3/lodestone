@@ -3,7 +3,7 @@
 //! Shows transform, opacity, and source-specific settings for whichever source
 //! is selected in the Sources panel (`state.selected_source_id`).
 
-use crate::gstreamer::{CaptureSourceConfig, GstCommand};
+use crate::gstreamer::{CaptureSourceConfig, GstCommand, GstError};
 use crate::scene::{SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
@@ -99,16 +99,15 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
             let monitor_count = state.monitor_count;
             let source = &mut state.sources[source_idx];
-            let SourceProperties::Display {
+            if let SourceProperties::Display {
                 ref mut screen_index,
             } = source.properties
-            else {
-                return;
-            };
-
-            let prev_index = *screen_index;
-            let selected_label = format!("Monitor {}", *screen_index);
-            egui::ComboBox::from_id_salt(egui::Id::new("props_monitor_combo").with(selected_id.0))
+            {
+                let prev_index = *screen_index;
+                let selected_label = format!("Monitor {}", *screen_index);
+                egui::ComboBox::from_id_salt(
+                    egui::Id::new("props_monitor_combo").with(selected_id.0),
+                )
                 .selected_text(&selected_label)
                 .width(ui.available_width() - 8.0)
                 .show_ui(ui, |ui| {
@@ -118,8 +117,77 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     }
                 });
 
-            if *screen_index != prev_index {
-                changed = true;
+                if *screen_index != prev_index {
+                    changed = true;
+                }
+            }
+        }
+        SourceType::Image => {
+            section_label(ui, "SOURCE");
+            ui.add_space(4.0);
+
+            // Clone what we need before taking mutable borrows.
+            let cmd_tx = state.command_tx.clone();
+            let src_id = selected_id;
+
+            let source = &mut state.sources[source_idx];
+            if let SourceProperties::Image { ref mut path } = source.properties {
+                // Path text input.
+                let hint = if path.is_empty() {
+                    "Select an image..."
+                } else {
+                    ""
+                };
+                ui.horizontal(|ui| {
+                    let te = egui::TextEdit::singleline(path)
+                        .hint_text(hint)
+                        .desired_width(ui.available_width() - 60.0);
+                    if ui.add(te).changed() {
+                        changed = true;
+                    }
+                });
+
+                ui.add_space(4.0);
+
+                let current_path = path.clone();
+
+                ui.horizontal(|ui| {
+                    // Browse button.
+                    if ui
+                        .button(egui_phosphor::regular::FOLDER)
+                        .on_hover_text("Browse for image")
+                        .clicked()
+                        && let Some(picked) = rfd::FileDialog::new()
+                            .add_filter(
+                                "Images",
+                                &["png", "jpg", "jpeg", "bmp", "gif", "webp", "tiff", "tif"],
+                            )
+                            .pick_file()
+                    {
+                        let picked_str = picked.to_string_lossy().to_string();
+                        load_and_send_image(state, source_idx, src_id, &cmd_tx, picked_str);
+                        changed = true;
+                    }
+
+                    // Reload button.
+                    let has_path = !current_path.is_empty();
+                    ui.add_enabled_ui(has_path, |ui| {
+                        if ui
+                            .button(egui_phosphor::regular::ARROW_CLOCKWISE)
+                            .on_hover_text("Reload image")
+                            .clicked()
+                        {
+                            load_and_send_image(
+                                state,
+                                source_idx,
+                                src_id,
+                                &cmd_tx,
+                                current_path.clone(),
+                            );
+                            changed = true;
+                        }
+                    });
+                });
             }
         }
         SourceType::Window => {
@@ -278,4 +346,36 @@ fn drag_field(ui: &mut egui::Ui, label: &str, value: &mut f32) -> bool {
             .update_while_editing(false),
     )
     .changed()
+}
+
+/// Load an image from `path`, update the source properties/transform, and send the frame
+/// to the GStreamer thread via `LoadImageFrame`.
+fn load_and_send_image(
+    state: &mut AppState,
+    source_idx: usize,
+    source_id: crate::scene::SourceId,
+    cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
+    path: String,
+) {
+    match crate::image_source::load_image_source(&path) {
+        Ok(frame) => {
+            let source = &mut state.sources[source_idx];
+            // Update the stored path.
+            if let SourceProperties::Image { path: ref mut p } = source.properties {
+                *p = path;
+            }
+            // Set transform to the image's native dimensions.
+            source.transform.width = frame.width as f32;
+            source.transform.height = frame.height as f32;
+            // Send the frame to GStreamer.
+            if let Some(tx) = cmd_tx {
+                let _ = tx.try_send(GstCommand::LoadImageFrame { source_id, frame });
+            }
+        }
+        Err(e) => {
+            state.active_errors.push(GstError::CaptureFailure {
+                message: format!("Failed to load image: {e}"),
+            });
+        }
+    }
 }

@@ -64,6 +64,9 @@ pub enum SourceProperties {
         device_index: u32,
         device_name: String,
     },
+    Image {
+        path: String,
+    },
 }
 
 impl Default for SourceProperties {

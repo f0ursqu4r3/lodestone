@@ -84,6 +84,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         add_camera_source(state, &cmd_tx, active_id);
                         ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
                     }
+                    if ui.button("Image").clicked() {
+                        add_image_source(state, &cmd_tx, active_id);
+                        ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
+                    }
                 },
             );
         });
@@ -319,7 +323,7 @@ fn add_display_source(
     state.scenes_last_changed = std::time::Instant::now();
 }
 
-/// Add a new window source to the active scene (placeholder — no capture until configured).
+/// Add a new window source to the active scene (placeholder -- no capture until configured).
 fn add_window_source(state: &mut AppState, active_id: crate::scene::SceneId) {
     let new_src_id = SourceId(state.next_source_id);
     state.next_source_id += 1;
@@ -348,7 +352,7 @@ fn add_window_source(state: &mut AppState, active_id: crate::scene::SceneId) {
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
         scene.sources.push(new_src_id);
     }
-    // No capture started — user must pick a window in Properties first.
+    // No capture started -- user must pick a window in Properties first.
     state.selected_source_id = Some(new_src_id);
     state.scenes_dirty = true;
     state.scenes_last_changed = std::time::Instant::now();
@@ -403,6 +407,36 @@ fn add_camera_source(
     state.scenes_last_changed = std::time::Instant::now();
 }
 
+/// Add a new image source to the active scene.
+fn add_image_source(
+    state: &mut AppState,
+    _cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
+    active_id: crate::scene::SceneId,
+) {
+    let new_src_id = SourceId(state.next_source_id);
+    state.next_source_id += 1;
+    let source = Source {
+        id: new_src_id,
+        name: "Image".to_string(),
+        source_type: SourceType::Image,
+        properties: SourceProperties::Image {
+            path: String::new(),
+        },
+        transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
+        opacity: 1.0,
+        visible: true,
+        muted: false,
+        volume: 1.0,
+    };
+    state.sources.push(source);
+    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+        scene.sources.push(new_src_id);
+    }
+    state.selected_source_id = Some(new_src_id);
+    state.scenes_dirty = true;
+    state.scenes_last_changed = std::time::Instant::now();
+}
+
 /// Remove a source from the active scene and clean up state.
 fn remove_source(
     state: &mut AppState,
@@ -414,10 +448,22 @@ fn remove_source(
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
         scene.sources.retain(|&id| id != src_id);
     }
+    // Check source type before removing — only capture-based sources need a GstCommand.
+    let has_capture_pipeline = state
+        .sources
+        .iter()
+        .find(|s| s.id == src_id)
+        .map(|s| {
+            matches!(
+                s.source_type,
+                SourceType::Display | SourceType::Window | SourceType::Camera
+            )
+        })
+        .unwrap_or(false);
     // Remove from global sources list.
     state.sources.retain(|s| s.id != src_id);
-    // Send GstCommand.
-    if let Some(tx) = cmd_tx {
+    // Send GstCommand only for sources with capture pipelines.
+    if has_capture_pipeline && let Some(tx) = cmd_tx {
         let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
     }
     // Clear selection if we just deleted the selected source.

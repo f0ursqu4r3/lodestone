@@ -400,6 +400,13 @@ impl GstThread {
             GstCommand::RemoveCaptureSource { source_id } => {
                 self.remove_capture_source(source_id);
             }
+            GstCommand::LoadImageFrame { source_id, frame } => {
+                self.channels
+                    .latest_frames
+                    .lock()
+                    .unwrap()
+                    .insert(source_id, frame);
+            }
             GstCommand::Shutdown => {
                 self.stop_pipeline(PipelineKind::Stream);
                 self.stop_pipeline(PipelineKind::Record);

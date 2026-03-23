@@ -29,6 +29,8 @@ gstreamer-video = "0.23"
 egui-phosphor = "0.11.0"
 core-graphics = "0.25.0"
 core-foundation = "0.10.1"
+image = "0.25.10"
+rfd = "0.17.2"
 
 [dev-dependencies]
 tempfile = "3"

@@ -65,6 +65,11 @@ pub enum GstCommand {
     RemoveCaptureSource {
         source_id: SourceId,
     },
+    /// Push a decoded image frame directly into the shared frame map (no capture pipeline).
+    LoadImageFrame {
+        source_id: SourceId,
+        frame: RgbaFrame,
+    },
     Shutdown,
 }
 

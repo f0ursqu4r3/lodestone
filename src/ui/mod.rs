@@ -1,3 +1,5 @@
+pub mod theme;
+
 pub mod audio_mixer;
 pub mod layout;
 pub mod preview_panel;

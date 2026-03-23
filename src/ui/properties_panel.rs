@@ -364,9 +364,11 @@ fn load_and_send_image(
             if let SourceProperties::Image { path: ref mut p } = source.properties {
                 *p = path;
             }
-            // Set transform to the image's native dimensions.
-            source.transform.width = frame.width as f32;
-            source.transform.height = frame.height as f32;
+            // Set transform and native size to the image's dimensions.
+            let native = (frame.width as f32, frame.height as f32);
+            source.transform.width = native.0;
+            source.transform.height = native.1;
+            source.native_size = native;
             // Send the frame to GStreamer.
             if let Some(tx) = cmd_tx {
                 let _ = tx.try_send(GstCommand::LoadImageFrame { source_id, frame });

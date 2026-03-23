@@ -674,6 +674,18 @@ impl ApplicationHandler for AppManager {
         if !drained_frames.is_empty()
             && let Some(ref mut gpu) = self.gpu
         {
+            // Update native_size on sources when we first see their frame dimensions.
+            {
+                let mut app_state = self.state.lock().expect("lock AppState");
+                for (source_id, frame) in &drained_frames {
+                    let new_size = (frame.width as f32, frame.height as f32);
+                    if let Some(s) = app_state.sources.iter_mut().find(|s| s.id == *source_id)
+                        && s.native_size != new_size
+                    {
+                        s.native_size = new_size;
+                    }
+                }
+            }
             for (source_id, frame) in drained_frames {
                 gpu.compositor
                     .upload_frame(&gpu.device, &gpu.queue, source_id, &frame);

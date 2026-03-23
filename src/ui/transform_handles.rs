@@ -630,12 +630,13 @@ pub fn show_source_context_menu(
             ui.close();
         }
 
-        if ui.button("Reset Transform").on_hover_text("Reset to default position and size").clicked() {
+        if ui.button("Reset Transform").on_hover_text("Reset to native size, centered").clicked() {
             if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-                s.transform.x = 0.0;
-                s.transform.y = 0.0;
-                s.transform.width = cw;
-                s.transform.height = ch;
+                let (nw, nh) = s.native_size;
+                s.transform.width = nw;
+                s.transform.height = nh;
+                s.transform.x = (cw - nw) / 2.0;
+                s.transform.y = (ch - nh) / 2.0;
             }
             mark_dirty(state);
             ui.close();

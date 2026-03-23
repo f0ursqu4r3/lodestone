@@ -23,6 +23,11 @@ pub struct Source {
     #[serde(default)]
     pub properties: SourceProperties,
     pub transform: Transform,
+    /// Original/native size of the source content (e.g., monitor resolution, image
+    /// dimensions, camera resolution). Used by "Reset Transform" to restore the
+    /// source to its natural size. Updated when the source content changes.
+    #[serde(default = "default_native_size")]
+    pub native_size: (f32, f32),
     /// Alpha opacity in the range [0.0, 1.0]. Values outside this range are clamped by the compositor.
     #[serde(default = "default_opacity")]
     pub opacity: f32,
@@ -126,6 +131,10 @@ fn default_opacity() -> f32 {
     1.0
 }
 
+fn default_native_size() -> (f32, f32) {
+    (1920.0, 1080.0)
+}
+
 impl SceneCollection {
     pub fn default_collection() -> Self {
         let scene_id = SceneId(1);
@@ -142,6 +151,7 @@ impl SceneCollection {
                 source_type: SourceType::Display,
                 properties: SourceProperties::Display { screen_index: 0 },
                 transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
+                native_size: (1920.0, 1080.0),
                 opacity: 1.0,
                 visible: true,
                 muted: false,
@@ -211,6 +221,7 @@ mod tests {
                 width: 1920.0,
                 height: 1080.0,
             },
+            native_size: (1920.0, 1080.0),
             opacity: 0.5,
             visible: true,
             muted: false,
@@ -291,6 +302,7 @@ mod tests {
             source_type: SourceType::Camera,
             properties: SourceProperties::default(),
             transform: Transform::new(0.0, 0.0, 640.0, 480.0),
+            native_size: (640.0, 480.0),
             opacity: 1.0,
             visible: true,
             muted: false,

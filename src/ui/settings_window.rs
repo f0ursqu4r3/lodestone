@@ -11,8 +11,8 @@ use crate::settings::{
 };
 use crate::state::AppState;
 use crate::ui::theme::{
-    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY,
-    TEXT_SECONDARY, color_to_hex, parse_hex_color,
+    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED,
+    TEXT_PRIMARY, TEXT_SECONDARY, color_to_hex, parse_hex_color,
 };
 
 // ── Category enum ─────────────────────────────────────────────────────────────
@@ -779,10 +779,10 @@ fn draw_appearance(ui: &mut Ui, state: &mut AppState) -> bool {
         let accent = parse_hex_color(&state.settings.appearance.accent_color);
         let (swatch_rect, _) =
             ui.allocate_exact_size(egui::Vec2::new(24.0, 24.0), egui::Sense::hover());
-        ui.painter().rect_filled(swatch_rect, 4.0, accent);
+        ui.painter().rect_filled(swatch_rect, RADIUS_SM, accent);
         ui.painter().rect_stroke(
             swatch_rect,
-            4.0,
+            RADIUS_SM,
             egui::Stroke::new(1.0, BORDER),
             StrokeKind::Outside,
         );

@@ -8,8 +8,8 @@ use egui::{self, Color32, RichText, Sense, Vec2};
 use crate::scene::{Scene, SceneId};
 use crate::state::{AppState, RecordingStatus, StreamStatus};
 use crate::ui::theme::{
-    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, GREEN_ONLINE, RED_LIVE, TEXT_MUTED, TEXT_PRIMARY,
-    TEXT_SECONDARY, TOOLBAR_HEIGHT,
+    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, GREEN_ONLINE, RADIUS_LG, RADIUS_SM, RED_LIVE,
+    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, TOOLBAR_HEIGHT,
 };
 
 /// Draw the toolbar. Returns `true` if the settings button was clicked.
@@ -110,7 +110,7 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
 
         let btn = egui::Button::new(RichText::new(name).size(11.0).color(text_color))
             .fill(fill)
-            .corner_radius(12.0)
+            .corner_radius(RADIUS_LG)
             .min_size(Vec2::new(0.0, 24.0));
 
         if ui.add(btn).clicked() {
@@ -121,7 +121,7 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
     // "+" button to create a new scene.
     let add_btn = egui::Button::new(RichText::new("+").size(12.0).color(TEXT_MUTED))
         .fill(BG_BASE)
-        .corner_radius(12.0)
+        .corner_radius(RADIUS_LG)
         .min_size(Vec2::new(24.0, 24.0));
 
     if ui.add(add_btn).clicked() {
@@ -201,7 +201,7 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
     let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
         .fill(fill)
         .stroke(egui::Stroke::new(1.0, RED_LIVE))
-        .corner_radius(4.0)
+        .corner_radius(RADIUS_SM)
         .min_size(Vec2::new(64.0, 26.0));
 
     if ui.add(btn).clicked()
@@ -245,7 +245,7 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
     let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
         .fill(fill)
         .stroke(egui::Stroke::new(1.0, rec_color))
-        .corner_radius(4.0)
+        .corner_radius(RADIUS_SM)
         .min_size(Vec2::new(64.0, 26.0));
 
     if ui.add(btn).clicked()

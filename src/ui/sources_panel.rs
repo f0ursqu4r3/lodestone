@@ -7,7 +7,9 @@ use crate::gstreamer::{CaptureSourceConfig, GstCommand};
 use crate::scene::{Source, SourceId, SourceProperties, SourceType, Transform};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
-use crate::ui::theme::{BG_ELEVATED, BORDER, DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY, accent_dim};
+use crate::ui::theme::{
+    BG_ELEVATED, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_dim,
+};
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, vec2};
 
 /// Return a text icon character for a given source type.
@@ -104,7 +106,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 // Selection highlight background.
                 if is_selected {
                     ui.painter()
-                        .rect_filled(row_rect, CornerRadius::same(2), selected_bg);
+                        .rect_filled(row_rect, CornerRadius::same(RADIUS_SM as u8), selected_bg);
                 }
 
                 // Handle click for selection.
@@ -123,7 +125,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     egui::pos2(cursor_x + icon_size / 2.0, center_y),
                     vec2(icon_size, icon_size),
                 );
-                painter.rect_filled(icon_rect, CornerRadius::same(2), BG_ELEVATED);
+                painter.rect_filled(icon_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
                 let icon_text = source_icon(&source_type);
                 let icon_color = with_opacity(TEXT_PRIMARY, row_opacity);
                 painter.text(

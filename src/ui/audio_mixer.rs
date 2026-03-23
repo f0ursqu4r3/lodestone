@@ -2,7 +2,7 @@ use crate::gstreamer::{AudioSourceKind, GstCommand};
 use crate::state::AppState;
 use crate::ui::layout::PanelId;
 use crate::ui::theme::{
-    BG_BASE, BG_PANEL, BORDER, RED_LIVE, TEXT_MUTED, VU_GREEN, VU_RED, VU_YELLOW,
+    BG_BASE, BG_PANEL, BORDER, RADIUS_MD, RED_LIVE, TEXT_MUTED, VU_GREEN, VU_RED, VU_YELLOW,
 };
 use egui::StrokeKind;
 
@@ -88,7 +88,7 @@ fn draw_channel_strip(
             if peak_db > -6.0 {
                 let glow_rect = rect.expand(2.0);
                 let glow_color = VU_RED.gamma_multiply(0.3);
-                ui.painter().rect_filled(glow_rect, 6.0, glow_color);
+                ui.painter().rect_filled(glow_rect, RADIUS_MD, glow_color);
                 // Re-draw background on top of glow
                 ui.painter().rect(
                     rect,

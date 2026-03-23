@@ -5,7 +5,7 @@ use egui_wgpu::{Callback, CallbackResources, CallbackTrait};
 
 use crate::state::{AppState, StreamStatus};
 use crate::ui::layout::PanelId;
-use crate::ui::theme::{BG_BASE, RED_GLOW, RED_LIVE, TEXT_MUTED};
+use crate::ui::theme::{BG_BASE, RADIUS_SM, RED_GLOW, RED_LIVE, TEXT_MUTED};
 
 /// GPU resources for the preview callback, stored in `egui_renderer.callback_resources`.
 ///
@@ -111,10 +111,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
         // Glow shadow (larger rect behind)
         let glow_expand = 3.0;
         let glow_rect = badge_rect.expand(glow_expand);
-        painter.rect_filled(glow_rect, 6.0, RED_GLOW);
+        painter.rect_filled(glow_rect, RADIUS_SM, RED_GLOW);
 
         // Badge background
-        painter.rect_filled(badge_rect, 3.0, RED_LIVE);
+        painter.rect_filled(badge_rect, RADIUS_SM, RED_LIVE);
 
         // Badge text
         let text_pos = badge_rect.min + badge_padding;
@@ -143,7 +143,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
 
         // Semi-transparent black background
         let bg = egui::Color32::from_rgba_premultiplied(0, 0, 0, 128);
-        painter.rect_filled(overlay_rect, 2.0, bg);
+        painter.rect_filled(overlay_rect, RADIUS_SM, bg);
 
         // Text
         let text_pos = overlay_rect.min + overlay_padding;

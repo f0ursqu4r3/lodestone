@@ -48,6 +48,15 @@ pub const DOCK_GRIP_WIDTH: f32 = 28.0;
 pub const FLOATING_HEADER_HEIGHT: f32 = 28.0;
 pub const FLOATING_MIN_SIZE: egui::Vec2 = egui::Vec2::new(200.0, 100.0);
 
+// ── Border Radii ──
+
+/// Small radius for buttons, inputs, badges, overlays.
+pub const RADIUS_SM: f32 = 4.0;
+/// Medium radius for cards, thumbnails, panels.
+pub const RADIUS_MD: f32 = 6.0;
+/// Large radius for pill-shaped elements (scene switcher).
+pub const RADIUS_LG: f32 = 12.0;
+
 // ── Accent Color Helpers ──
 
 /// Default accent color (neutral white-gray).

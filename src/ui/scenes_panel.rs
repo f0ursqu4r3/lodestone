@@ -8,7 +8,7 @@ use crate::gstreamer::{CaptureSourceConfig, GstCommand};
 use crate::scene::{Scene, SceneId, SourceId};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
-use crate::ui::theme::{BG_ELEVATED, BORDER, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::ui::theme::{BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY};
 use egui::{CornerRadius, Pos2, Rect, Sense, Stroke, vec2};
 
 /// Draw the scenes panel — a 2-column grid of scene thumbnails.
@@ -73,7 +73,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         let is_hovered = response.hovered();
 
                         // Thumbnail background.
-                        painter.rect_filled(thumb_rect, CornerRadius::same(3), BG_ELEVATED);
+                        painter.rect_filled(thumb_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
 
                         // Border: active = TEXT_PRIMARY, hovered = TEXT_MUTED, default = BORDER.
                         let border_color = if is_active {
@@ -85,7 +85,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         };
                         painter.rect_stroke(
                             thumb_rect,
-                            CornerRadius::same(3),
+                            CornerRadius::same(RADIUS_SM as u8),
                             Stroke::new(1.0, border_color),
                             egui::StrokeKind::Outside,
                         );

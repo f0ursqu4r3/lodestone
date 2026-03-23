@@ -2,6 +2,8 @@ use gstreamer::prelude::*;
 use gstreamer_app::{AppSink, AppSrc};
 use log;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
 use super::capture::{build_audio_capture_pipeline, build_capture_pipeline};
@@ -26,6 +28,8 @@ enum PipelineKind {
 struct CaptureHandle {
     pipeline: gstreamer::Pipeline,
     appsink: AppSink,
+    /// Set to `false` to stop the window capture thread (if any).
+    capture_running: Option<Arc<AtomicBool>>,
 }
 
 /// State held by the GStreamer thread.
@@ -71,6 +75,14 @@ impl GstThread {
     /// Start capturing from the given source, keyed by source_id.
     fn add_capture_source(&mut self, source_id: SourceId, config: &CaptureSourceConfig) {
         self.remove_capture_source(source_id);
+
+        // Window capture uses a dedicated appsrc pipeline + grab thread.
+        #[cfg(target_os = "macos")]
+        if let CaptureSourceConfig::Window { window_id } = config {
+            self.add_window_capture_source(source_id, *window_id);
+            return;
+        }
+
         match build_capture_pipeline(
             config,
             self.encoder_config.width,
@@ -82,17 +94,120 @@ impl GstThread {
                     log::error!("Failed to start capture for source {source_id:?}: {e}");
                     return;
                 }
-                self.captures
-                    .insert(source_id, CaptureHandle { pipeline, appsink });
+                self.captures.insert(
+                    source_id,
+                    CaptureHandle {
+                        pipeline,
+                        appsink,
+                        capture_running: None,
+                    },
+                );
                 log::info!("Capture pipeline started for source {source_id:?}");
             }
-            Err(e) => log::error!("Failed to build capture pipeline for source {source_id:?}: {e}"),
+            Err(e) => {
+                log::error!("Failed to build capture pipeline for source {source_id:?}: {e}")
+            }
         }
+    }
+
+    /// Start a window capture pipeline with a dedicated frame-grabbing thread.
+    #[cfg(target_os = "macos")]
+    fn add_window_capture_source(&mut self, source_id: SourceId, window_id: u32) {
+        use super::capture::{build_window_capture_pipeline, grab_window_frame};
+
+        // Grab one frame to determine the window dimensions.
+        let (_, initial_width, initial_height) = match grab_window_frame(window_id) {
+            Some(frame) => frame,
+            None => {
+                log::error!(
+                    "Cannot capture window {window_id} for source {source_id:?}: window unavailable"
+                );
+                let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                    message: format!("Window {window_id} is not available for capture"),
+                });
+                return;
+            }
+        };
+
+        let fps = self.encoder_config.fps;
+
+        let (pipeline, appsink, appsrc) =
+            match build_window_capture_pipeline(initial_width, initial_height, fps) {
+                Ok(handles) => handles,
+                Err(e) => {
+                    log::error!(
+                        "Failed to build window capture pipeline for source {source_id:?}: {e}"
+                    );
+                    return;
+                }
+            };
+
+        if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
+            log::error!("Failed to start window capture for source {source_id:?}: {e}");
+            return;
+        }
+
+        let running = Arc::new(AtomicBool::new(true));
+        let running_clone = Arc::clone(&running);
+        let error_tx = self.channels.error_tx.clone();
+        let frame_interval = std::time::Duration::from_nanos(1_000_000_000 / fps as u64);
+
+        std::thread::Builder::new()
+            .name(format!("window-grab-{}", window_id))
+            .spawn(move || {
+                log::info!("Window grab thread started for window {window_id}");
+                while running_clone.load(Ordering::Relaxed) {
+                    let frame_start = std::time::Instant::now();
+
+                    match grab_window_frame(window_id) {
+                        Some((rgba_data, _w, _h)) => {
+                            let mut buffer = gstreamer::Buffer::with_size(rgba_data.len()).unwrap();
+                            {
+                                let buf_ref = buffer.get_mut().unwrap();
+                                let mut map = buf_ref.map_writable().unwrap();
+                                map.as_mut_slice().copy_from_slice(&rgba_data);
+                            }
+                            if appsrc.push_buffer(buffer).is_err() {
+                                log::warn!("Failed to push buffer to window appsrc, stopping");
+                                break;
+                            }
+                        }
+                        None => {
+                            log::warn!("Window {window_id} became unavailable, stopping capture");
+                            let _ = error_tx.send(GstError::CaptureFailure {
+                                message: format!("Window {window_id} is no longer available"),
+                            });
+                            break;
+                        }
+                    }
+
+                    let elapsed = frame_start.elapsed();
+                    if elapsed < frame_interval {
+                        std::thread::sleep(frame_interval - elapsed);
+                    }
+                }
+                log::info!("Window grab thread exiting for window {window_id}");
+            })
+            .expect("spawn window grab thread");
+
+        self.captures.insert(
+            source_id,
+            CaptureHandle {
+                pipeline,
+                appsink,
+                capture_running: Some(running),
+            },
+        );
+        log::info!("Window capture pipeline started for source {source_id:?} (window {window_id})");
     }
 
     /// Stop and remove the capture pipeline for the given source_id.
     fn remove_capture_source(&mut self, source_id: SourceId) {
         if let Some(handle) = self.captures.remove(&source_id) {
+            // Signal the window grab thread to stop (if any).
+            if let Some(ref running) = handle.capture_running {
+                running.store(false, Ordering::Relaxed);
+            }
             let _ = handle.pipeline.set_state(gstreamer::State::Null);
             log::info!("Capture pipeline stopped for source {source_id:?}");
         }
@@ -272,6 +387,9 @@ impl GstThread {
             GstCommand::StopCapture => {
                 // Stop all active captures.
                 for (_, handle) in self.captures.drain() {
+                    if let Some(ref running) = handle.capture_running {
+                        running.store(false, Ordering::Relaxed);
+                    }
                     let _ = handle.pipeline.set_state(gstreamer::State::Null);
                 }
                 log::info!("All captures stopped");
@@ -288,6 +406,9 @@ impl GstThread {
                 self.stop_audio_capture(AudioSourceKind::Mic);
                 self.stop_audio_capture(AudioSourceKind::System);
                 for (_, handle) in self.captures.drain() {
+                    if let Some(ref running) = handle.capture_running {
+                        running.store(false, Ordering::Relaxed);
+                    }
                     let _ = handle.pipeline.set_state(gstreamer::State::Null);
                 }
                 return true;
@@ -430,6 +551,9 @@ impl GstThread {
                     self.stop_audio_capture(AudioSourceKind::Mic);
                     self.stop_audio_capture(AudioSourceKind::System);
                     for (_, handle) in self.captures.drain() {
+                        if let Some(ref running) = handle.capture_running {
+                            running.store(false, Ordering::Relaxed);
+                        }
                         let _ = handle.pipeline.set_state(gstreamer::State::Null);
                     }
                     return;

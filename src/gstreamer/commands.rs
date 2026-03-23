@@ -72,6 +72,8 @@ pub enum GstCommand {
 #[derive(Debug, Clone)]
 pub enum CaptureSourceConfig {
     Screen { screen_index: u32 },
+    Window { window_id: u32 },
+    Camera { device_index: u32 },
 }
 
 /// Recording container format.

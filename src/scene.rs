@@ -52,7 +52,18 @@ pub struct Transform {
 /// Type-specific source configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SourceProperties {
-    Display { screen_index: u32 },
+    Display {
+        screen_index: u32,
+    },
+    Window {
+        window_id: u32,
+        window_title: String,
+        owner_name: String,
+    },
+    Camera {
+        device_index: u32,
+        device_name: String,
+    },
 }
 
 impl Default for SourceProperties {

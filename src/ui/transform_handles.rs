@@ -630,7 +630,6 @@ pub fn show_source_context_menu_items(
     source_id: crate::scene::SourceId,
     canvas_size: Vec2,
 ) -> bool {
-    let mut acted = false;
     let cw = canvas_size.x;
     let ch = canvas_size.y;
 
@@ -643,75 +642,86 @@ pub fn show_source_context_menu_items(
     let src_aspect = src_w / src_h.max(1.0);
     let canvas_aspect = cw / ch.max(1.0);
 
-    ui.set_min_width(160.0);
-    ui.style_mut().visuals.button_frame = false;
+    // Determine which action was clicked (if any). We collect the click first,
+    // then apply the mutation, to keep the layout code clean.
+    #[derive(Clone, Copy)]
+    enum Action { Fit, Stretch, Fill, Center, Reset }
+    let mut action: Option<Action> = None;
 
-    if ui.selectable_label(false, "Fit to Canvas").clicked() {
+    // Use justified layout with frameless buttons — matches egui's context_menu style.
+    ui.allocate_ui_with_layout(
+        egui::vec2(160.0, 0.0),
+        egui::Layout::top_down_justified(egui::Align::LEFT),
+        |ui| {
+            ui.style_mut().spacing.button_padding = egui::vec2(6.0, 2.0);
+
+            if ui.add(egui::Button::new("Fit to Canvas").frame(false)).clicked() {
+                action = Some(Action::Fit);
+            }
+            if ui.add(egui::Button::new("Stretch to Canvas").frame(false)).clicked() {
+                action = Some(Action::Stretch);
+            }
+            if ui.add(egui::Button::new("Fill Canvas").frame(false)).clicked() {
+                action = Some(Action::Fill);
+            }
+            ui.separator();
+            if ui.add(egui::Button::new("Center on Canvas").frame(false)).clicked() {
+                action = Some(Action::Center);
+            }
+            if ui.add(egui::Button::new("Reset Transform").frame(false)).clicked() {
+                action = Some(Action::Reset);
+            }
+        },
+    );
+
+    // Apply the action.
+    if let Some(act) = action {
         if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-            let (w, h) = if src_aspect > canvas_aspect {
-                (cw, cw / src_aspect)
-            } else {
-                (ch * src_aspect, ch)
-            };
-            s.transform.x = (cw - w) / 2.0;
-            s.transform.y = (ch - h) / 2.0;
-            s.transform.width = w;
-            s.transform.height = h;
+            match act {
+                Action::Fit => {
+                    let (w, h) = if src_aspect > canvas_aspect {
+                        (cw, cw / src_aspect)
+                    } else {
+                        (ch * src_aspect, ch)
+                    };
+                    s.transform.x = (cw - w) / 2.0;
+                    s.transform.y = (ch - h) / 2.0;
+                    s.transform.width = w;
+                    s.transform.height = h;
+                }
+                Action::Stretch => {
+                    s.transform.x = 0.0;
+                    s.transform.y = 0.0;
+                    s.transform.width = cw;
+                    s.transform.height = ch;
+                }
+                Action::Fill => {
+                    let (w, h) = if src_aspect > canvas_aspect {
+                        (ch * src_aspect, ch)
+                    } else {
+                        (cw, cw / src_aspect)
+                    };
+                    s.transform.x = (cw - w) / 2.0;
+                    s.transform.y = (ch - h) / 2.0;
+                    s.transform.width = w;
+                    s.transform.height = h;
+                }
+                Action::Center => {
+                    s.transform.x = (cw - s.transform.width) / 2.0;
+                    s.transform.y = (ch - s.transform.height) / 2.0;
+                }
+                Action::Reset => {
+                    let (nw, nh) = s.native_size;
+                    s.transform.width = nw;
+                    s.transform.height = nh;
+                    s.transform.x = (cw - nw) / 2.0;
+                    s.transform.y = (ch - nh) / 2.0;
+                }
+            }
         }
         mark_dirty(state);
-        acted = true;
     }
-
-    if ui.selectable_label(false, "Stretch to Canvas").clicked() {
-        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-            s.transform.x = 0.0;
-            s.transform.y = 0.0;
-            s.transform.width = cw;
-            s.transform.height = ch;
-        }
-        mark_dirty(state);
-        acted = true;
-    }
-
-    if ui.selectable_label(false, "Fill Canvas").clicked() {
-        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-            let (w, h) = if src_aspect > canvas_aspect {
-                (ch * src_aspect, ch)
-            } else {
-                (cw, cw / src_aspect)
-            };
-            s.transform.x = (cw - w) / 2.0;
-            s.transform.y = (ch - h) / 2.0;
-            s.transform.width = w;
-            s.transform.height = h;
-        }
-        mark_dirty(state);
-        acted = true;
-    }
-
-    ui.separator();
-
-    if ui.selectable_label(false, "Center on Canvas").clicked() {
-        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-            s.transform.x = (cw - s.transform.width) / 2.0;
-            s.transform.y = (ch - s.transform.height) / 2.0;
-        }
-        mark_dirty(state);
-        acted = true;
-    }
-
-    if ui.selectable_label(false, "Reset Transform").clicked() {
-        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
-            let (nw, nh) = s.native_size;
-            s.transform.width = nw;
-            s.transform.height = nh;
-            s.transform.x = (cw - nw) / 2.0;
-            s.transform.y = (ch - nh) / 2.0;
-        }
-        mark_dirty(state);
-        acted = true;
-    }
-    acted
+    action.is_some()
 }
 
 fn mark_dirty(state: &mut AppState) {

@@ -644,8 +644,9 @@ pub fn show_source_context_menu_items(
     let canvas_aspect = cw / ch.max(1.0);
 
     ui.set_min_width(160.0);
+    ui.style_mut().visuals.button_frame = false;
 
-    if ui.button("Fit to Canvas").on_hover_text("Scale to fit, preserving aspect ratio").clicked() {
+    if ui.selectable_label(false, "Fit to Canvas").clicked() {
         if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
             let (w, h) = if src_aspect > canvas_aspect {
                 (cw, cw / src_aspect)
@@ -661,7 +662,7 @@ pub fn show_source_context_menu_items(
         acted = true;
     }
 
-    if ui.button("Stretch to Canvas").on_hover_text("Fill canvas, ignoring aspect ratio").clicked() {
+    if ui.selectable_label(false, "Stretch to Canvas").clicked() {
         if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
             s.transform.x = 0.0;
             s.transform.y = 0.0;
@@ -672,7 +673,7 @@ pub fn show_source_context_menu_items(
         acted = true;
     }
 
-    if ui.button("Fill Canvas").on_hover_text("Cover canvas, crop overflow").clicked() {
+    if ui.selectable_label(false, "Fill Canvas").clicked() {
         if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
             let (w, h) = if src_aspect > canvas_aspect {
                 (ch * src_aspect, ch)
@@ -690,7 +691,7 @@ pub fn show_source_context_menu_items(
 
     ui.separator();
 
-    if ui.button("Center on Canvas").on_hover_text("Move to center without resizing").clicked() {
+    if ui.selectable_label(false, "Center on Canvas").clicked() {
         if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
             s.transform.x = (cw - s.transform.width) / 2.0;
             s.transform.y = (ch - s.transform.height) / 2.0;
@@ -699,7 +700,7 @@ pub fn show_source_context_menu_items(
         acted = true;
     }
 
-    if ui.button("Reset Transform").on_hover_text("Reset to native size, centered").clicked() {
+    if ui.selectable_label(false, "Reset Transform").clicked() {
         if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
             let (nw, nh) = s.native_size;
             s.transform.width = nw;

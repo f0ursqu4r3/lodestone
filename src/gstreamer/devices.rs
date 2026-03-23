@@ -18,8 +18,53 @@ pub struct WindowInfo {
     pub owner_name: String,
 }
 
+/// Name substrings that indicate a screen-capture source rather than a real camera.
+const SCREEN_CAPTURE_HINTS: &[&str] = &["Screen", "Capture screen", "Display"];
+
 /// Known virtual audio device names used for system audio loopback.
 const LOOPBACK_DEVICE_NAMES: &[&str] = &["BlackHole", "Soundflower", "Loopback"];
+
+/// Enumerate available camera devices using GStreamer's DeviceMonitor.
+///
+/// Filters out screen-capture sources by name heuristics. If no real cameras
+/// remain, all `Video/Source` devices are returned so the user can choose.
+pub fn enumerate_cameras() -> Result<Vec<CameraDevice>> {
+    let monitor = gstreamer::DeviceMonitor::new();
+
+    let caps = gstreamer::Caps::new_empty_simple("video/x-raw");
+    monitor.add_filter(Some("Video/Source"), Some(&caps));
+
+    monitor.start().context("Failed to start device monitor")?;
+    let devices = monitor.devices();
+    monitor.stop();
+
+    let all: Vec<CameraDevice> = devices
+        .iter()
+        .enumerate()
+        .map(|(i, device)| CameraDevice {
+            device_index: i as u32,
+            name: device.display_name().to_string(),
+        })
+        .collect();
+
+    // Try to filter out screen-capture devices.
+    let filtered: Vec<CameraDevice> = all
+        .iter()
+        .filter(|cam| {
+            !SCREEN_CAPTURE_HINTS
+                .iter()
+                .any(|hint| cam.name.contains(hint))
+        })
+        .cloned()
+        .collect();
+
+    // If filtering removed everything, return the unfiltered list.
+    if filtered.is_empty() {
+        Ok(all)
+    } else {
+        Ok(filtered)
+    }
+}
 
 /// Enumerate available audio input devices using GStreamer's DeviceMonitor.
 pub fn enumerate_audio_input_devices() -> Result<Vec<AudioDevice>> {
@@ -70,6 +115,21 @@ mod tests {
             }
             Err(e) => {
                 eprintln!("Skipping device enumeration test: {e}");
+            }
+        }
+    }
+
+    #[test]
+    fn enumerate_cameras_does_not_panic() {
+        gstreamer::init().unwrap();
+        match enumerate_cameras() {
+            Ok(cameras) => {
+                for cam in &cameras {
+                    assert!(!cam.name.is_empty());
+                }
+            }
+            Err(e) => {
+                eprintln!("Skipping camera enumeration test: {e}");
             }
         }
     }

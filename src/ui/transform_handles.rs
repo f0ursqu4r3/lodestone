@@ -434,42 +434,73 @@ pub fn draw_transform_handles(
     }
 
     // ── Context menu for right-click in preview ──
-    // We detected the right-click above and selected the source. Now open a
-    // popup at the pointer position if a source is selected and secondary was clicked.
-    #[allow(deprecated)]
-    let ctx_menu_id = egui::Id::new("preview_source_context_menu");
+    // Track popup state manually to avoid egui popup API issues with
+    // secondary_clicked + primary_clicked firing on the same frame (macOS trackpad).
+    let ctx_state_id = egui::Id::new("preview_ctx_state");
+
+    #[derive(Clone, Default)]
+    struct CtxMenuState {
+        open: bool,
+        pos: Pos2,
+        source: Option<crate::scene::SourceId>,
+        /// Frame counter when opened — skip close checks on the opening frame.
+        open_frame: u64,
+    }
+
+    let frame_nr = ui.ctx().cumulative_frame_nr();
+    let mut ctx_state: CtxMenuState =
+        ui.memory(|m| m.data.get_temp(ctx_state_id).unwrap_or_default());
+
+    // Open on right-click over a source.
     if let Some(mouse_pos) = pointer
         && secondary_clicked
         && viewport_rect.contains(mouse_pos)
         && state.selected_source_id.is_some()
     {
-        #[allow(deprecated)]
-        ui.memory_mut(|m| m.open_popup(ctx_menu_id));
+        ctx_state.open = true;
+        ctx_state.pos = mouse_pos;
+        ctx_state.source = state.selected_source_id;
+        ctx_state.open_frame = frame_nr;
     }
-    if let Some(selected_id) = state.selected_source_id {
-        let popup_pos = pointer.unwrap_or(viewport_rect.center());
-        egui::Area::new(ctx_menu_id)
-            .order(egui::Order::Foreground)
-            .fixed_pos(popup_pos)
-            .show(ui.ctx(), |ui| {
-                #[allow(deprecated)]
-                let is_open = ui.memory(|m| m.is_popup_open(ctx_menu_id));
-                if !is_open {
-                    return;
-                }
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    show_source_context_menu_items(ui, state, selected_id, canvas_size);
+
+    // Draw the menu if open.
+    if ctx_state.open {
+        if let Some(source_id) = ctx_state.source {
+            let mut action_taken = false;
+            let area_resp = egui::Area::new(egui::Id::new("preview_ctx_area"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(ctx_state.pos)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        action_taken =
+                            show_source_context_menu_items(ui, state, source_id, canvas_size);
+                    });
                 });
-            });
-        // Close popup on click outside.
-        #[allow(deprecated)]
-        let should_close = ui.input(|i| i.pointer.primary_clicked())
-            && ui.memory(|m| m.is_popup_open(ctx_menu_id));
-        if should_close {
-            #[allow(deprecated)]
-            ui.memory_mut(|m| m.close_popup(ctx_menu_id));
+
+            // Close if an action was taken.
+            if action_taken {
+                ctx_state.open = false;
+            }
+
+            // Close if clicked outside the menu (but not on the frame it opened).
+            if frame_nr > ctx_state.open_frame && !action_taken {
+                let any_click = ui.input(|i| {
+                    i.pointer.primary_clicked() || i.pointer.secondary_clicked()
+                });
+                let in_menu = area_resp
+                    .response
+                    .rect
+                    .contains(pointer.unwrap_or(Pos2::ZERO));
+                if any_click && !in_menu {
+                    ctx_state.open = false;
+                }
+            }
+        } else {
+            ctx_state.open = false;
         }
     }
+
+    ui.memory_mut(|m| m.data.insert_temp(ctx_state_id, ctx_state));
 
     // ── Handles + dragging for selected source ──
     let Some(selected_id) = state.selected_source_id else {
@@ -592,13 +623,14 @@ pub fn show_source_context_menu(
 }
 
 /// The actual menu items — shared between `response.context_menu()` and the
-/// manual popup used in the preview viewport.
+/// manual popup used in the preview viewport. Returns `true` if an action was taken.
 pub fn show_source_context_menu_items(
     ui: &mut egui::Ui,
     state: &mut AppState,
     source_id: crate::scene::SourceId,
     canvas_size: Vec2,
-) {
+) -> bool {
+    let mut acted = false;
     let cw = canvas_size.x;
     let ch = canvas_size.y;
 
@@ -626,7 +658,7 @@ pub fn show_source_context_menu_items(
             s.transform.height = h;
         }
         mark_dirty(state);
-        ui.close();
+        acted = true;
     }
 
     if ui.button("Stretch to Canvas").on_hover_text("Fill canvas, ignoring aspect ratio").clicked() {
@@ -637,7 +669,7 @@ pub fn show_source_context_menu_items(
             s.transform.height = ch;
         }
         mark_dirty(state);
-        ui.close();
+        acted = true;
     }
 
     if ui.button("Fill Canvas").on_hover_text("Cover canvas, crop overflow").clicked() {
@@ -653,7 +685,7 @@ pub fn show_source_context_menu_items(
             s.transform.height = h;
         }
         mark_dirty(state);
-        ui.close();
+        acted = true;
     }
 
     ui.separator();
@@ -664,7 +696,7 @@ pub fn show_source_context_menu_items(
             s.transform.y = (ch - s.transform.height) / 2.0;
         }
         mark_dirty(state);
-        ui.close();
+        acted = true;
     }
 
     if ui.button("Reset Transform").on_hover_text("Reset to native size, centered").clicked() {
@@ -676,8 +708,9 @@ pub fn show_source_context_menu_items(
             s.transform.y = (ch - nh) / 2.0;
         }
         mark_dirty(state);
-        ui.close();
+        acted = true;
     }
+    acted
 }
 
 fn mark_dirty(state: &mut AppState) {

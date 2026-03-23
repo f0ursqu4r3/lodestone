@@ -347,8 +347,22 @@ impl ApplicationHandler for AppManager {
         let window_id = window.id();
 
         // Create shared GPU state from the main window
-        let gpu =
+        let mut gpu =
             pollster::block_on(SharedGpuState::new(window)).expect("initialize shared GPU state");
+
+        // Resize compositor to match saved resolution settings (GPU init uses 1920x1080 default).
+        {
+            let app_state = self.state.lock().expect("lock AppState");
+            let base = crate::renderer::compositor::parse_resolution(
+                &app_state.settings.video.base_resolution,
+            );
+            let output = crate::renderer::compositor::parse_resolution(
+                &app_state.settings.video.output_resolution,
+            );
+            if base != (1920, 1080) || output != (1920, 1080) {
+                gpu.compositor.resize(&gpu.device, base, output);
+            }
+        }
 
         let preview_resources = PreviewResources {
             pipeline: gpu.compositor.canvas_pipeline(),
@@ -709,6 +723,18 @@ impl ApplicationHandler for AppManager {
                 || new_output != (gpu.compositor.output_width, gpu.compositor.output_height)
             {
                 gpu.compositor.resize(&gpu.device, new_base, new_output);
+                // Update preview resources — the canvas bind group changed.
+                if let Some(main_id) = self.main_window_id
+                    && let Some(win) = self.windows.get_mut(&main_id)
+                {
+                    let new_resources = PreviewResources {
+                        pipeline: gpu.compositor.canvas_pipeline(),
+                        bind_group: gpu.compositor.canvas_bind_group(),
+                    };
+                    win.egui_renderer
+                        .callback_resources
+                        .insert(new_resources);
+                }
             }
         }
 

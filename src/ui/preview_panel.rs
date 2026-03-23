@@ -5,7 +5,7 @@ use egui_wgpu::{Callback, CallbackResources, CallbackTrait};
 
 use crate::state::{AppState, StreamStatus};
 use crate::ui::layout::PanelId;
-use crate::ui::theme::{BG_BASE, RADIUS_SM, RED_GLOW, RED_LIVE, TEXT_MUTED};
+use crate::ui::theme::{RADIUS_SM, RED_GLOW, RED_LIVE, TEXT_MUTED};
 
 /// GPU resources for the preview callback, stored in `egui_renderer.callback_resources`.
 ///
@@ -78,14 +78,18 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
         return;
     }
 
-    // Use fixed preview dimensions (1920x1080); per-source dimensions tracked in Task 6.
-    let preview_width: u32 = 1920;
-    let preview_height: u32 = 1080;
+    // Read canvas resolution from settings for correct letterboxing.
+    let (preview_width, preview_height) = {
+        let base = &state.settings.video.base_resolution;
+        let parts: Vec<&str> = base.split('x').collect();
+        let w = parts.first().and_then(|s| s.parse().ok()).unwrap_or(1920u32);
+        let h = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(1080u32);
+        (w, h)
+    };
 
-    // Fill entire panel with theme base color (letterbox bars)
-    ui.painter().rect_filled(panel_rect, 0.0, BG_BASE);
-
-    // Compute letterboxed rect and emit the paint callback
+    // Compute letterboxed rect and emit the paint callback.
+    // The canvas area is filled black by the GPU paint callback.
+    // The panel background (outside the letterbox) uses the default BG_PANEL from dockview chrome.
     let preview_rect = letterboxed_rect(panel_rect, preview_width, preview_height);
 
     ui.painter()
@@ -123,14 +127,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
 
     // Resolution overlay (bottom-right of viewport) — always visible
     {
-        let video = &state.settings.video;
-        let resolution = &video.output_resolution;
-        let fps = video.fps;
+        let fps = state.settings.video.fps;
         let overlay_text = format!(
             "{}\u{00d7}{} \u{00b7} {}fps",
-            resolution.split('x').next().unwrap_or("1920"),
-            resolution.split('x').nth(1).unwrap_or("1080"),
-            fps,
+            preview_width, preview_height, fps,
         );
         let font = egui::FontId::new(9.0, egui::FontFamily::Proportional);
         let text_galley = painter.layout_no_wrap(overlay_text, font, TEXT_MUTED);
@@ -151,7 +151,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     }
 
     // Transform handles for selected source
-    let canvas_size = egui::Vec2::new(1920.0, 1080.0); // TODO: read from settings when virtual canvas is implemented
+    let canvas_size = egui::Vec2::new(preview_width as f32, preview_height as f32);
     crate::ui::transform_handles::draw_transform_handles(ui, state, preview_rect, panel_rect, canvas_size);
 
     // Allocate the space so egui knows it's used

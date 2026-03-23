@@ -8,13 +8,13 @@ use super::capture::{build_audio_capture_pipeline, build_capture_pipeline};
 use super::commands::{
     AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, GstCommand, GstThreadChannels,
 };
-use crate::scene::SourceId;
 use super::encode::{
     RecordPipelineHandles, StreamPipelineHandles, build_record_pipeline_with_audio,
     build_stream_pipeline_with_audio,
 };
 use super::error::GstError;
 use super::types::RgbaFrame;
+use crate::scene::SourceId;
 
 #[derive(Debug)]
 enum PipelineKind {
@@ -82,7 +82,8 @@ impl GstThread {
                     log::error!("Failed to start capture for source {source_id:?}: {e}");
                     return;
                 }
-                self.captures.insert(source_id, CaptureHandle { pipeline, appsink });
+                self.captures
+                    .insert(source_id, CaptureHandle { pipeline, appsink });
                 log::info!("Capture pipeline started for source {source_id:?}");
             }
             Err(e) => log::error!("Failed to build capture pipeline for source {source_id:?}: {e}"),
@@ -183,10 +184,6 @@ impl GstThread {
 
     fn handle_command(&mut self, cmd: GstCommand) -> bool {
         match cmd {
-            GstCommand::SetCaptureSource(source) => {
-                // Backwards-compat: route through add_capture_source with SourceId(0).
-                self.add_capture_source(SourceId(0), &source);
-            }
             GstCommand::StartStream(config) => {
                 let url = format!("{}/{}", config.destination.rtmp_url(), config.stream_key);
                 match build_stream_pipeline_with_audio(
@@ -444,8 +441,9 @@ impl GstThread {
 
             // Pull frames from all active capture pipelines and update latest_frames map.
             for (&source_id, handle) in self.captures.iter() {
-                if let Some(sample) =
-                    handle.appsink.try_pull_sample(gstreamer::ClockTime::from_mseconds(0))
+                if let Some(sample) = handle
+                    .appsink
+                    .try_pull_sample(gstreamer::ClockTime::from_mseconds(0))
                 {
                     let (width, height) = sample
                         .caps()

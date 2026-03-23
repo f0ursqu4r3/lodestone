@@ -118,6 +118,7 @@ pub struct SourceUniforms {
 // ---------------------------------------------------------------------------
 
 /// GPU resources for a single composited source.
+#[allow(dead_code)]
 pub struct SourceLayer {
     pub texture: wgpu::Texture,
     pub texture_view: wgpu::TextureView,
@@ -486,6 +487,7 @@ impl Compositor {
     }
 
     /// Remove a source layer, freeing its GPU resources.
+    #[allow(dead_code)]
     pub fn remove_source(&mut self, source_id: SourceId) {
         self.source_layers.remove(&source_id);
     }
@@ -494,12 +496,7 @@ impl Compositor {
     ///
     /// Always clears the canvas to black first, then draws each visible source
     /// with its own per-source uniform buffer to avoid data races.
-    pub fn compose(
-        &self,
-        queue: &Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        sources: &[&Source],
-    ) {
+    pub fn compose(&self, queue: &Queue, encoder: &mut wgpu::CommandEncoder, sources: &[&Source]) {
         let cw = self.canvas_width as f32;
         let ch = self.canvas_height as f32;
 
@@ -570,10 +567,9 @@ impl Compositor {
     pub fn readback(&self, device: &Device, queue: &Queue) -> RgbaFrame {
         let bytes_per_row_padded = ((self.canvas_width * 4) + 255) & !255;
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("compositor_readback_encoder"),
-            });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("compositor_readback_encoder"),
+        });
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -612,8 +608,7 @@ impl Compositor {
         let raw = slice.get_mapped_range();
         let unpadded_bytes_per_row = (self.canvas_width * 4) as usize;
         let padded = bytes_per_row_padded as usize;
-        let mut data =
-            Vec::with_capacity(unpadded_bytes_per_row * self.canvas_height as usize);
+        let mut data = Vec::with_capacity(unpadded_bytes_per_row * self.canvas_height as usize);
         for row in 0..self.canvas_height as usize {
             let start = row * padded;
             data.extend_from_slice(&raw[start..start + unpadded_bytes_per_row]);

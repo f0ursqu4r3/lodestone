@@ -362,19 +362,23 @@ impl ApplicationHandler for AppManager {
             state.monitor_count = monitor_count;
         }
 
-        // Send initial capture command based on active scene
+        // Send initial capture commands for all sources in the active scene
         {
             let state = self.state.lock().unwrap();
             if let Some(scene_id) = state.active_scene_id
                 && let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id)
-                && let Some(&src_id) = scene.sources.first()
-                && let Some(source) = state.sources.iter().find(|s| s.id == src_id)
             {
-                let crate::scene::SourceProperties::Display { screen_index } = source.properties;
-                if let Some(ref tx) = state.command_tx {
-                    let _ = tx.try_send(gstreamer::GstCommand::SetCaptureSource(
-                        gstreamer::CaptureSourceConfig::Screen { screen_index },
-                    ));
+                for &src_id in &scene.sources {
+                    if let Some(source) = state.sources.iter().find(|s| s.id == src_id) {
+                        let crate::scene::SourceProperties::Display { screen_index } =
+                            source.properties;
+                        if let Some(ref tx) = state.command_tx {
+                            let _ = tx.try_send(gstreamer::GstCommand::AddCaptureSource {
+                                source_id: src_id,
+                                config: gstreamer::CaptureSourceConfig::Screen { screen_index },
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -641,11 +645,11 @@ impl ApplicationHandler for AppManager {
                     .filter_map(|sid| app_state.sources.iter().find(|s| s.id == *sid))
                     .collect();
 
-                let mut encoder = gpu.device.create_command_encoder(
-                    &egui_wgpu::wgpu::CommandEncoderDescriptor {
-                        label: Some("compositor_encoder"),
-                    },
-                );
+                let mut encoder =
+                    gpu.device
+                        .create_command_encoder(&egui_wgpu::wgpu::CommandEncoderDescriptor {
+                            label: Some("compositor_encoder"),
+                        });
                 gpu.compositor
                     .compose(&gpu.queue, &mut encoder, &resolved_sources);
                 gpu.queue.submit(std::iter::once(encoder.finish()));

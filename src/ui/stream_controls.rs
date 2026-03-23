@@ -18,6 +18,19 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
         });
     ui.memory_mut(|m| m.data.insert_temp(dest_idx_id, dest_idx));
 
+    // Custom RTMP URL input (shown only for Custom RTMP destination)
+    let rtmp_url_id = egui::Id::new(("rtmp_url", panel_id.0));
+    let mut rtmp_url: String =
+        ui.memory(|m| m.data.get_temp::<String>(rtmp_url_id).unwrap_or_default());
+
+    if dest_idx == 2 {
+        ui.horizontal(|ui| {
+            ui.label("RTMP URL");
+            ui.add(egui::TextEdit::singleline(&mut rtmp_url).hint_text("rtmp://your.server/live"));
+        });
+        ui.memory_mut(|m| m.data.insert_temp(rtmp_url_id, rtmp_url.clone()));
+    }
+
     // Stream key input (password style), stored in egui memory
     let key_id = egui::Id::new(("stream_key", panel_id.0));
     let mut stream_key: String =
@@ -59,7 +72,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
             let destination = match dest_idx {
                 1 => crate::gstreamer::StreamDestination::YouTube,
                 2 => crate::gstreamer::StreamDestination::CustomRtmp {
-                    url: String::new(), // TODO: add custom URL field
+                    url: rtmp_url.clone(),
                 },
                 _ => crate::gstreamer::StreamDestination::Twitch,
             };

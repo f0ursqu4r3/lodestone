@@ -22,7 +22,7 @@ cargo fmt --check      # check formatting
 
 The app runs a `winit` event loop driving a `wgpu` render pipeline. The UI layer uses `egui` for layout/input only — all visuals are rendered through custom wgpu pipelines. Text rendering uses `glyphon` + `cosmic-text` instead of egui's default painter.
 
-OBS integration (`libobs-rs`) runs on a dedicated OS thread. It communicates with the render loop exclusively via `tokio` channels — OBS handles are never shared across threads. The UI layer never touches video data directly.
+GStreamer runs on a dedicated thread. It communicates with the render loop exclusively via `tokio` channels — GStreamer handles are never shared across threads. The UI layer never touches video data directly.
 
 ```
 winit event loop
@@ -30,16 +30,16 @@ winit event loop
         ├── custom UI renderer     (wgpu pipelines: panels, shadows, animations)
         ├── egui-wgpu integration  (layout + input only)
         ├── glyphon text pass      (subpixel AA text)
-        ├── preview pipeline       (OBS frame → wgpu texture)
-        └── libobs-rs thread       (dedicated OS thread, channels to render loop)
+        ├── preview pipeline       (GStreamer frame → wgpu texture)
+        └── GStreamer thread        (dedicated thread, channels to render loop)
 ```
 
-Key modules: `renderer/` (render loop, pipelines, text, preview), `ui/` (egui panels), `obs/` (libobs thread, scenes, output, settings), `state.rs` (shared app state via `Arc<Mutex<AppState>>`).
+Key modules: `renderer/` (render loop, pipelines, text, preview), `ui/` (egui panels, dockview layout), `gstreamer/` (capture, encoding, streaming, recording), `state.rs` (shared app state via `Arc<Mutex<AppState>>`).
 
 ## Coding Conventions
 
 - No `unwrap()` in non-prototype paths — use `anyhow` for error propagation.
-- OBS thread communicates via channels only.
+- GStreamer thread communicates via channels only.
 - GPU resources (buffers, textures, pipelines) are owned by the renderer, never leaked to UI code.
 - Settings are plain TOML. No binary formats, no databases.
 - All public types get doc comments.
@@ -47,4 +47,4 @@ Key modules: `renderer/` (render loop, pipelines, text, preview), `ui/` (egui pa
 
 ## License
 
-GPL-3.0 (inherited from `libobs-rs`).
+GPL-3.0.

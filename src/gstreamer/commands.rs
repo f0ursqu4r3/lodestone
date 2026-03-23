@@ -37,7 +37,6 @@ impl Default for AudioEncoderConfig {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum GstCommand {
-    SetCaptureSource(CaptureSourceConfig),
     StartStream(StreamConfig),
     StopStream,
     StartRecording {
@@ -206,7 +205,11 @@ mod tests {
             width: 1,
             height: 1,
         };
-        thread_ch.latest_frames.lock().unwrap().insert(source_id, frame);
+        thread_ch
+            .latest_frames
+            .lock()
+            .unwrap()
+            .insert(source_id, frame);
         let frames = main_ch.latest_frames.lock().unwrap();
         assert!(frames.contains_key(&source_id));
     }

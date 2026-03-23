@@ -43,22 +43,27 @@ fn apply_scene_diff(
 /// if the scene has no display source.
 ///
 /// Used for initial scene setup (first run / scene delete fallback).
+/// Starts capture for all sources in the given scene.
 fn send_capture_for_scene(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     sources: &[Source],
     scene: &Scene,
 ) {
     let Some(tx) = cmd_tx else { return };
-    if let Some(&src_id) = scene.sources.first()
-        && let Some(source) = sources.iter().find(|s| s.id == src_id)
-    {
-        let SourceProperties::Display { screen_index } = source.properties;
-        let _ = tx.try_send(GstCommand::SetCaptureSource(CaptureSourceConfig::Screen {
-            screen_index,
-        }));
-        return;
+    let mut any_started = false;
+    for &src_id in &scene.sources {
+        if let Some(source) = sources.iter().find(|s| s.id == src_id) {
+            let SourceProperties::Display { screen_index } = source.properties;
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id: src_id,
+                config: CaptureSourceConfig::Screen { screen_index },
+            });
+            any_started = true;
+        }
     }
-    let _ = tx.try_send(GstCommand::StopCapture);
+    if !any_started {
+        let _ = tx.try_send(GstCommand::StopCapture);
+    }
 }
 
 /// Draw the scene editor panel (scene list, sources, and per-source properties).
@@ -393,9 +398,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
             .find(|s| s.id == active_id)
             .map(|s| !s.sources.is_empty())
             .unwrap_or(false);
-        if !has_sources
-            && let Some(ref tx) = cmd_tx
-        {
+        if !has_sources && let Some(ref tx) = cmd_tx {
             let _ = tx.try_send(GstCommand::StopCapture);
         }
         state.capture_active = has_sources;

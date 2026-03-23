@@ -191,7 +191,12 @@ mod tests {
             name: "Test".into(),
             source_type: SourceType::Display,
             properties: SourceProperties::default(),
-            transform: Transform { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0 },
+            transform: Transform {
+                x: 0.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
             opacity: 0.5,
             visible: true,
             muted: false,

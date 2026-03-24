@@ -64,9 +64,10 @@ fn draw_channel_strip(
 
             ui.add_space(4.0);
 
-            // VU meter: 8px wide, 80px tall
+            // VU meter: 8px wide, fills available height minus label/dB/mute overhead.
             let vu_width = 8.0_f32;
-            let vu_height = 80.0_f32;
+            let fixed_overhead = 4.0 + 14.0 + 4.0 + 16.0; // spacer + dB + spacer + mute
+            let vu_height = (ui.available_height() - fixed_overhead).max(20.0);
             let fill_frac = ((current_db + 60.0) / 60.0).clamp(0.0, 1.0);
             let filled_height = vu_height * fill_frac;
 

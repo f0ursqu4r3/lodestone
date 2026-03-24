@@ -5,7 +5,7 @@
 
 use egui::{self, Color32, RichText, Sense, Vec2};
 
-use crate::scene::{Scene, SceneId};
+use crate::scene::SceneId;
 use crate::state::{AppState, RecordingStatus, StreamStatus};
 use crate::ui::theme::{
     BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, BTN_PADDING, BTN_PILL_PADDING, GREEN_ONLINE,
@@ -89,21 +89,31 @@ fn divider(ui: &mut egui::Ui) {
         .line_segment([rect.center_top(), rect.center_bottom()], (1.0, BORDER));
 }
 
-/// Scene quick-switcher: horizontal pill-style buttons.
+/// Scene quick-switcher: shows only pinned scenes as pill-style buttons.
 fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
     ui.spacing_mut().button_padding = BTN_PILL_PADDING;
     let active_id = state.active_scene_id;
 
-    // Collect scene info to avoid borrow issues.
-    let scene_info: Vec<(SceneId, String)> = state
+    // Collect pinned scenes to avoid borrow issues.
+    let pinned_scenes: Vec<(SceneId, String)> = state
         .scenes
         .iter()
+        .filter(|s| s.pinned)
         .map(|s| (s.id, s.name.clone()))
         .collect();
 
+    if pinned_scenes.is_empty() {
+        ui.label(
+            RichText::new("Pin scenes to show here")
+                .size(10.0)
+                .color(TEXT_MUTED),
+        );
+        return;
+    }
+
     let mut new_active = active_id;
 
-    for (id, name) in &scene_info {
+    for (id, name) in &pinned_scenes {
         let is_active = active_id == Some(*id);
         let fill = if is_active { BG_ELEVATED } else { BG_BASE };
         let text_color = if is_active {
@@ -120,30 +130,6 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
         if ui.add(btn).clicked() {
             new_active = Some(*id);
         }
-    }
-
-    // "+" button to create a new scene.
-    let add_btn = egui::Button::new(
-        RichText::new(egui_phosphor::regular::PLUS)
-            .size(12.0)
-            .color(TEXT_MUTED),
-    )
-    .fill(BG_BASE)
-    .corner_radius(RADIUS_LG)
-    .min_size(Vec2::new(24.0, 24.0));
-
-    if ui.add(add_btn).clicked() {
-        let new_id = SceneId(state.next_scene_id);
-        state.next_scene_id += 1;
-        let scene_num = state.scenes.len() + 1;
-        state.scenes.push(Scene {
-            id: new_id,
-            name: format!("Scene {scene_num}"),
-            sources: Vec::new(),
-        });
-        new_active = Some(new_id);
-        state.scenes_dirty = true;
-        state.scenes_last_changed = std::time::Instant::now();
     }
 
     if new_active != active_id {

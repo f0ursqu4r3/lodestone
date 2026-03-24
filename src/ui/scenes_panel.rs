@@ -16,10 +16,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     let cmd_tx = state.command_tx.clone();
 
     // Snapshot scene data to avoid borrow conflicts during iteration.
-    let scenes: Vec<(SceneId, String)> = state
+    let scenes: Vec<(SceneId, String, bool)> = state
         .scenes
         .iter()
-        .map(|s| (s.id, s.name.clone()))
+        .map(|s| (s.id, s.name.clone(), s.pinned))
         .collect();
     let active_id = state.active_scene_id;
 
@@ -68,7 +68,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
                     if cell_idx < scenes.len() {
                         // ── Scene thumbnail ──
-                        let (scene_id, scene_name) = &scenes[cell_idx];
+                        let (scene_id, scene_name, is_pinned) = &scenes[cell_idx];
                         let is_active = active_id == Some(*scene_id);
                         let is_hovered = response.hovered();
 
@@ -93,6 +93,17 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                             Stroke::new(1.0, border_color),
                             egui::StrokeKind::Outside,
                         );
+
+                        // Pin indicator (top-right of thumbnail).
+                        if *is_pinned {
+                            painter.text(
+                                egui::pos2(thumb_rect.right() - 6.0, thumb_rect.top() + 8.0),
+                                egui::Align2::RIGHT_CENTER,
+                                egui_phosphor::regular::PUSH_PIN,
+                                egui::FontId::proportional(10.0),
+                                TEXT_MUTED,
+                            );
+                        }
 
                         let is_renaming = state.renaming_scene_id == Some(*scene_id);
 
@@ -178,6 +189,22 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
                         // Context menu.
                         response.context_menu(|ui| {
+                            // Pin / Unpin
+                            let pin_label = if *is_pinned {
+                                "Unpin from toolbar"
+                            } else {
+                                "Pin to toolbar"
+                            };
+                            if ui.button(pin_label).clicked() {
+                                if let Some(scene) =
+                                    state.scenes.iter_mut().find(|s| s.id == *scene_id)
+                                {
+                                    scene.pinned = !scene.pinned;
+                                }
+                                state.scenes_dirty = true;
+                                state.scenes_last_changed = std::time::Instant::now();
+                                ui.close();
+                            }
                             if ui.button("Rename").clicked() {
                                 state.renaming_scene_id = Some(*scene_id);
                                 state.rename_buffer = scene_name.clone();
@@ -204,6 +231,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                                 id: new_id,
                                 name: format!("Scene {}", state.scenes.len() + 1),
                                 sources: Vec::new(),
+                                pinned: false,
                             });
                             state.active_scene_id = Some(new_id);
                             state.scenes_dirty = true;
@@ -364,6 +392,7 @@ fn delete_scene_by_id(
             id: new_id,
             name: "Scene 1".to_string(),
             sources: Vec::new(),
+            pinned: false,
         });
     }
 

@@ -248,6 +248,65 @@ fn default_native_size() -> (f32, f32) {
     (1920.0, 1080.0)
 }
 
+/// Legacy format types for migrating old `scenes.toml` files.
+///
+/// In the legacy format, scenes contained `sources = [1, 2]` (a plain list of
+/// `SourceId` integers) rather than `Vec<SceneSource>` structs. The top-level
+/// field was `sources` (now `library`), but that rename is handled by the
+/// `#[serde(alias)]` on `SceneCollection`. The scene-level migration is what
+/// this module addresses.
+mod legacy {
+    use super::*;
+
+    /// A scene in the legacy format where `sources` is a plain list of source IDs.
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct LegacyScene {
+        pub id: SceneId,
+        pub name: String,
+        pub sources: Vec<SourceId>,
+    }
+
+    /// The legacy scene collection format with `sources` as `Vec<LibrarySource>`
+    /// and scenes containing plain `SourceId` lists.
+    #[derive(Debug, Clone, Deserialize)]
+    pub struct LegacySceneCollection {
+        pub scenes: Vec<LegacyScene>,
+        pub sources: Vec<LibrarySource>,
+        pub active_scene_id: Option<SceneId>,
+        #[serde(default = "super::default_next_id")]
+        pub next_scene_id: u64,
+        #[serde(default = "super::default_next_id")]
+        pub next_source_id: u64,
+    }
+
+    impl LegacySceneCollection {
+        /// Convert the legacy collection into the new format.
+        pub fn into_new_format(self) -> SceneCollection {
+            let scenes = self
+                .scenes
+                .into_iter()
+                .map(|legacy_scene| Scene {
+                    id: legacy_scene.id,
+                    name: legacy_scene.name,
+                    sources: legacy_scene
+                        .sources
+                        .into_iter()
+                        .map(SceneSource::new)
+                        .collect(),
+                })
+                .collect();
+
+            SceneCollection {
+                scenes,
+                library: self.sources,
+                active_scene_id: self.active_scene_id,
+                next_scene_id: self.next_scene_id,
+                next_source_id: self.next_source_id,
+            }
+        }
+    }
+}
+
 impl SceneCollection {
     /// Backward-compatible accessor for the source library. Will be removed in Task 3.
     #[deprecated(note = "Use .library instead — will be removed in Task 3")]
@@ -261,6 +320,29 @@ impl SceneCollection {
     #[allow(dead_code)] // Will be used by migration path in Task 2
     pub fn sources_mut(&mut self) -> &mut Vec<LibrarySource> {
         &mut self.library
+    }
+
+    /// Parse a TOML string into a `SceneCollection`, automatically detecting
+    /// and migrating the legacy format if needed.
+    ///
+    /// Tries the new format first (with `Vec<SceneSource>` in scenes). If that
+    /// fails, falls back to parsing as a legacy collection (with plain
+    /// `Vec<SourceId>` in scenes) and converts it to the new format.
+    pub fn from_toml_str(s: &str) -> Result<Self, toml::de::Error> {
+        // Try the new format first
+        match toml::from_str::<SceneCollection>(s) {
+            Ok(coll) => Ok(coll),
+            Err(new_err) => {
+                // Fall back to legacy format
+                match toml::from_str::<legacy::LegacySceneCollection>(s) {
+                    Ok(legacy) => {
+                        log::info!("Migrated legacy scenes.toml to new library format");
+                        Ok(legacy.into_new_format())
+                    }
+                    Err(_) => Err(new_err),
+                }
+            }
+        }
     }
 
     pub fn default_collection() -> Self {
@@ -293,7 +375,7 @@ impl SceneCollection {
 
     pub fn load_from(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
-            Ok(contents) => toml::from_str(&contents).unwrap_or_else(|e| {
+            Ok(contents) => Self::from_toml_str(&contents).unwrap_or_else(|e| {
                 log::warn!("Failed to parse scenes.toml, using default: {e}");
                 Self::default_collection()
             }),
@@ -678,5 +760,222 @@ mod tests {
         assert_eq!(deserialized.overrides.visible, None);
         assert_eq!(deserialized.overrides.muted, Some(true));
         assert_eq!(deserialized.overrides.volume, None);
+    }
+
+    // ---- Legacy migration tests ----
+
+    const LEGACY_SINGLE_SOURCE: &str = r#"
+next_scene_id = 2
+next_source_id = 2
+
+[[sources]]
+id = 1
+name = "Display"
+source_type = "Display"
+visible = true
+muted = false
+volume = 1.0
+opacity = 1.0
+[sources.properties.Display]
+screen_index = 0
+[sources.transform]
+x = 0.0
+y = 0.0
+width = 1920.0
+height = 1080.0
+
+[[scenes]]
+id = 1
+name = "Scene 1"
+sources = [1]
+"#;
+
+    #[test]
+    fn migrate_legacy_single_source() {
+        let coll = SceneCollection::from_toml_str(LEGACY_SINGLE_SOURCE).unwrap();
+
+        // Library should contain the source
+        assert_eq!(coll.library.len(), 1);
+        assert_eq!(coll.library[0].name, "Display");
+        assert_eq!(coll.library[0].id, SourceId(1));
+
+        // Scene should reference it via SceneSource with empty overrides
+        assert_eq!(coll.scenes.len(), 1);
+        assert_eq!(coll.scenes[0].sources.len(), 1);
+        assert_eq!(coll.scenes[0].sources[0].source_id, SourceId(1));
+        assert!(!coll.scenes[0].sources[0].is_transform_overridden());
+        assert!(!coll.scenes[0].sources[0].is_opacity_overridden());
+
+        // IDs preserved
+        assert_eq!(coll.next_scene_id, 2);
+        assert_eq!(coll.next_source_id, 2);
+    }
+
+    #[test]
+    fn migrate_legacy_multiple_sources_and_scenes() {
+        let toml_str = r#"
+next_scene_id = 3
+next_source_id = 4
+
+[[sources]]
+id = 1
+name = "Display"
+source_type = "Display"
+visible = true
+muted = false
+volume = 1.0
+opacity = 1.0
+[sources.properties.Display]
+screen_index = 0
+[sources.transform]
+x = 0.0
+y = 0.0
+width = 1920.0
+height = 1080.0
+
+[[sources]]
+id = 2
+name = "Camera"
+source_type = "Camera"
+visible = true
+muted = false
+volume = 1.0
+opacity = 0.8
+[sources.properties.Camera]
+device_index = 0
+device_name = "FaceCam"
+[sources.transform]
+x = 100.0
+y = 100.0
+width = 640.0
+height = 480.0
+
+[[sources]]
+id = 3
+name = "Logo"
+source_type = "Image"
+visible = true
+muted = false
+volume = 1.0
+opacity = 1.0
+[sources.properties.Image]
+path = "/tmp/logo.png"
+[sources.transform]
+x = 0.0
+y = 0.0
+width = 200.0
+height = 200.0
+
+[[scenes]]
+id = 1
+name = "Main Scene"
+sources = [1, 2, 3]
+
+[[scenes]]
+id = 2
+name = "BRB"
+sources = [3]
+"#;
+
+        let coll = SceneCollection::from_toml_str(toml_str).unwrap();
+
+        assert_eq!(coll.library.len(), 3);
+        assert_eq!(coll.library[0].name, "Display");
+        assert_eq!(coll.library[1].name, "Camera");
+        assert_eq!(coll.library[2].name, "Logo");
+
+        // Scene 1 has all three sources
+        assert_eq!(coll.scenes.len(), 2);
+        assert_eq!(coll.scenes[0].name, "Main Scene");
+        assert_eq!(coll.scenes[0].sources.len(), 3);
+        assert_eq!(coll.scenes[0].sources[0].source_id, SourceId(1));
+        assert_eq!(coll.scenes[0].sources[1].source_id, SourceId(2));
+        assert_eq!(coll.scenes[0].sources[2].source_id, SourceId(3));
+
+        // Scene 2 has just the logo
+        assert_eq!(coll.scenes[1].name, "BRB");
+        assert_eq!(coll.scenes[1].sources.len(), 1);
+        assert_eq!(coll.scenes[1].sources[0].source_id, SourceId(3));
+
+        // All overrides should be empty
+        for scene in &coll.scenes {
+            for ss in &scene.sources {
+                assert!(!ss.is_transform_overridden());
+                assert!(!ss.is_opacity_overridden());
+                assert!(!ss.is_visible_overridden());
+                assert!(!ss.is_muted_overridden());
+                assert!(!ss.is_volume_overridden());
+            }
+        }
+
+        assert_eq!(coll.next_scene_id, 3);
+        assert_eq!(coll.next_source_id, 4);
+    }
+
+    #[test]
+    fn from_toml_str_prefers_new_format() {
+        // Serialize a new-format collection and verify it parses without fallback
+        let coll = SceneCollection::default_collection();
+        let toml_str = toml::to_string_pretty(&coll).unwrap();
+        let parsed = SceneCollection::from_toml_str(&toml_str).unwrap();
+        assert_eq!(parsed.scenes.len(), 1);
+        assert_eq!(parsed.library.len(), 1);
+        assert_eq!(parsed.scenes[0].sources[0].source_id, SourceId(1));
+    }
+
+    #[test]
+    fn from_toml_str_returns_error_on_invalid_toml() {
+        let result = SceneCollection::from_toml_str("this is not valid toml {{{{");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn migrate_legacy_empty_scene_sources() {
+        let toml_str = r#"
+next_scene_id = 2
+next_source_id = 2
+
+[[sources]]
+id = 1
+name = "Display"
+source_type = "Display"
+visible = true
+muted = false
+volume = 1.0
+opacity = 1.0
+[sources.properties.Display]
+screen_index = 0
+[sources.transform]
+x = 0.0
+y = 0.0
+width = 1920.0
+height = 1080.0
+
+[[scenes]]
+id = 1
+name = "Empty Scene"
+sources = []
+"#;
+
+        let coll = SceneCollection::from_toml_str(toml_str).unwrap();
+        assert_eq!(coll.scenes[0].sources.len(), 0);
+        assert_eq!(coll.library.len(), 1);
+    }
+
+    #[test]
+    fn migrate_legacy_preserves_source_properties() {
+        let coll = SceneCollection::from_toml_str(LEGACY_SINGLE_SOURCE).unwrap();
+        let source = &coll.library[0];
+
+        assert!(matches!(source.source_type, SourceType::Display));
+        assert!(matches!(
+            source.properties,
+            SourceProperties::Display { screen_index: 0 }
+        ));
+        assert_eq!(source.transform, Transform::new(0.0, 0.0, 1920.0, 1080.0));
+        assert!(source.visible);
+        assert!(!source.muted);
+        assert_eq!(source.volume, 1.0);
+        assert!((source.opacity - 1.0).abs() < f32::EPSILON);
     }
 }

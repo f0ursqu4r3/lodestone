@@ -133,6 +133,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 &state.library,
                 old_scene.as_ref(),
                 new_scene.as_ref(),
+                state.settings.general.exclude_self_from_capture,
             );
 
             if let Some(ref scene) = new_scene {
@@ -374,6 +375,7 @@ fn apply_scene_diff(
     library: &[crate::scene::LibrarySource],
     old_scene: Option<&Scene>,
     new_scene: Option<&Scene>,
+    exclude_self: bool,
 ) {
     let Some(tx) = cmd_tx else { return };
 
@@ -396,7 +398,7 @@ fn apply_scene_diff(
                         source_id: src_id,
                         config: CaptureSourceConfig::Screen {
                             screen_index: *screen_index,
-                            exclude_self: false,
+                            exclude_self,
                         },
                     });
                 }
@@ -460,7 +462,7 @@ fn delete_scene_by_id(
     let first_scene = state.scenes.first().cloned();
     if let Some(ref scene) = first_scene {
         state.active_scene_id = Some(scene.id);
-        send_capture_for_scene(cmd_tx, &state.library, scene);
+        send_capture_for_scene(cmd_tx, &state.library, scene, state.settings.general.exclude_self_from_capture);
         state.capture_active = !scene.sources.is_empty();
     } else {
         state.active_scene_id = None;
@@ -476,6 +478,7 @@ fn send_capture_for_scene(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     library: &[crate::scene::LibrarySource],
     scene: &Scene,
+    exclude_self: bool,
 ) {
     let Some(tx) = cmd_tx else { return };
     let mut any_started = false;
@@ -487,7 +490,7 @@ fn send_capture_for_scene(
                         source_id: src_id,
                         config: CaptureSourceConfig::Screen {
                             screen_index: *screen_index,
-                            exclude_self: false,
+                            exclude_self,
                         },
                     });
                     any_started = true;

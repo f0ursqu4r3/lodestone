@@ -595,7 +595,7 @@ fn start_capture_from_properties(
                 source_id,
                 config: CaptureSourceConfig::Screen {
                     screen_index: *screen_index,
-                    exclude_self: false,
+                    exclude_self: state.settings.general.exclude_self_from_capture,
                 },
             });
             state.capture_active = true;

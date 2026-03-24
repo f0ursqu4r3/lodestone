@@ -181,7 +181,7 @@ pub(crate) struct GstThreadChannels {
 
 /// Create all channels and return both ends.
 pub fn create_channels() -> (GstChannels, GstThreadChannels) {
-    let (command_tx, command_rx) = mpsc::channel(16);
+    let (command_tx, command_rx) = mpsc::channel(64);
     let latest_frames = Arc::new(Mutex::new(HashMap::new()));
     let (composited_frame_tx, composited_frame_rx) = mpsc::channel(2);
     let (stats_tx, stats_rx) = watch::channel(PipelineStats::default());

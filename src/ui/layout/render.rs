@@ -848,8 +848,17 @@ fn render_content(
 
             let padded_rect = content_rect.shrink(PANEL_PADDING);
             let mut padded_ui = ui.new_child(egui::UiBuilder::new().max_rect(padded_rect));
+
+            // Preview panel paints directly via wgpu callback and doesn't
+            // scroll — hide scrollbars to prevent 1px rounding overflow.
+            let scroll_visibility = if panel_type == crate::ui::layout::PanelType::Preview {
+                egui::scroll_area::ScrollBarVisibility::AlwaysHidden
+            } else {
+                egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded
+            };
             egui::ScrollArea::both()
                 .auto_shrink(false)
+                .scroll_bar_visibility(scroll_visibility)
                 .show(&mut padded_ui, |ui| {
                     crate::ui::draw_panel(panel_type, ui, state, panel_id);
                 });

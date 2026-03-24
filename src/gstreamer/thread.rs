@@ -236,25 +236,24 @@ impl GstThread {
         let fps = self.encoder_config.fps;
 
         // 1. Start SCK capture
-        let (sck_handle, frame_rx) =
-            match screencapturekit::start_display_capture(
-                screen_index as usize,
-                width,
-                height,
-                fps,
-                exclude_self,
-            ) {
-                Ok(result) => result,
-                Err(e) => {
-                    log::error!("Display capture failed for source {source_id:?}: {e}");
-                    let _ = self.channels.error_tx.send(GstError::CaptureFailure {
-                        message: format!(
-                            "Display capture failed: {e}. Check screen recording permission."
-                        ),
-                    });
-                    return;
-                }
-            };
+        let (sck_handle, frame_rx) = match screencapturekit::start_display_capture(
+            screen_index as usize,
+            width,
+            height,
+            fps,
+            exclude_self,
+        ) {
+            Ok(result) => result,
+            Err(e) => {
+                log::error!("Display capture failed for source {source_id:?}: {e}");
+                let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                    message: format!(
+                        "Display capture failed: {e}. Check screen recording permission."
+                    ),
+                });
+                return;
+            }
+        };
 
         // 2. Build GStreamer pipeline
         let (pipeline, appsink, appsrc) = match build_display_capture_pipeline(width, height, fps) {
@@ -946,7 +945,10 @@ mod tests {
             .command_tx
             .try_send(GstCommand::AddCaptureSource {
                 source_id: SourceId(1),
-                config: CaptureSourceConfig::Screen { screen_index: 0, exclude_self: false },
+                config: CaptureSourceConfig::Screen {
+                    screen_index: 0,
+                    exclude_self: false,
+                },
             })
             .unwrap();
         main_ch

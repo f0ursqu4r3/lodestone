@@ -462,7 +462,12 @@ fn delete_scene_by_id(
     let first_scene = state.scenes.first().cloned();
     if let Some(ref scene) = first_scene {
         state.active_scene_id = Some(scene.id);
-        send_capture_for_scene(cmd_tx, &state.library, scene, state.settings.general.exclude_self_from_capture);
+        send_capture_for_scene(
+            cmd_tx,
+            &state.library,
+            scene,
+            state.settings.general.exclude_self_from_capture,
+        );
         state.capture_active = !scene.sources.is_empty();
     } else {
         state.active_scene_id = None;

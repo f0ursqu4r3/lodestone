@@ -350,7 +350,10 @@ mod tests {
     #[test]
     fn build_capture_pipeline_creates_valid_pipeline() {
         gstreamer::init().unwrap();
-        let config = CaptureSourceConfig::Screen { screen_index: 0, exclude_self: false };
+        let config = CaptureSourceConfig::Screen {
+            screen_index: 0,
+            exclude_self: false,
+        };
         let result = build_capture_pipeline(&config, 1920, 1080, 30);
         match result {
             Ok((pipeline, appsink)) => {

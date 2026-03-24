@@ -5,11 +5,11 @@
 //!
 //! This module is only compiled on macOS (`#[cfg(target_os = "macos")]`).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::{define_class, msg_send, AllocAnyThread, DeclaredClass, Message};
+use objc2::{AllocAnyThread, DeclaredClass, Message, define_class, msg_send};
 use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeFlags};
 use objc2_core_video::{
     CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight,
@@ -67,11 +67,7 @@ define_class!(
 
     unsafe impl SCStreamDelegate for StreamOutputDelegate {
         #[unsafe(method(stream:didStopWithError:))]
-        unsafe fn stream_didStopWithError(
-            &self,
-            _stream: &SCStream,
-            error: &NSError,
-        ) {
+        unsafe fn stream_didStopWithError(&self, _stream: &SCStream, error: &NSError) {
             log::warn!("SCStream stopped with error: {}", error);
         }
     }
@@ -248,10 +244,10 @@ fn build_content_filter(
         let count = all_windows.count();
         for i in 0..count {
             let window = unsafe { all_windows.objectAtIndex_unchecked(i) };
-            if let Some(app) = unsafe { window.owningApplication() } {
-                if unsafe { app.processID() } == our_pid {
-                    excluded.push(window.retain());
-                }
+            if let Some(app) = unsafe { window.owningApplication() }
+                && unsafe { app.processID() } == our_pid
+            {
+                excluded.push(window.retain());
             }
         }
 
@@ -313,7 +309,8 @@ fn extract_rgba_frame(sample_buffer: &CMSampleBuffer) -> Option<RgbaFrame> {
         let pixel_buffer = sample_buffer.image_buffer()?;
 
         // Lock pixel data for reading
-        let lock_status = CVPixelBufferLockBaseAddress(&pixel_buffer, CVPixelBufferLockFlags::ReadOnly);
+        let lock_status =
+            CVPixelBufferLockBaseAddress(&pixel_buffer, CVPixelBufferLockFlags::ReadOnly);
         if lock_status != 0 {
             log::warn!("CVPixelBufferLockBaseAddress failed: {}", lock_status);
             return None;

@@ -1,10 +1,11 @@
-//! Sources panel — displays the source list for the active scene.
+//! Sources panel — scene composition tool.
 //!
+//! Lists the sources in the active scene (picked from the global library).
 //! Each source is shown as a row with an icon, name, and visibility toggle.
-//! Supports selection, reordering, add, and remove.
+//! Supports selection, reordering, add-from-library, and remove-from-scene.
 
 use crate::gstreamer::{CaptureSourceConfig, GstCommand};
-use crate::scene::{LibrarySource, SceneSource, SourceId, SourceProperties, SourceType, Transform};
+use crate::scene::{LibrarySource, SceneSource, SourceId, SourceOverrides, SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{
@@ -40,29 +41,51 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         ui.colored_label(TEXT_PRIMARY, "Sources");
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Remove selected source
+            // Remove selected source from scene
             let has_selection = state.selected_source_id.is_some();
             ui.add_enabled_ui(has_selection, |ui| {
                 if ui
                     .button(egui_phosphor::regular::MINUS)
-                    .on_hover_text("Remove source")
+                    .on_hover_text("Remove from scene")
                     .clicked()
                     && let Some(src_id) = state.selected_source_id
                 {
-                    remove_source(state, &cmd_tx, active_id, src_id);
+                    remove_source_from_scene(state, &cmd_tx, active_id, src_id);
                 }
             });
 
-            // Add source (popup menu)
+            // Add source from library (popup menu)
             let add_response = ui
                 .button(egui_phosphor::regular::PLUS)
-                .on_hover_text("Add source");
+                .on_hover_text("Add from library");
 
             let popup_id = ui.make_persistent_id("add_source_menu");
             if add_response.clicked() {
                 #[allow(deprecated)]
                 ui.memory_mut(|m: &mut egui::Memory| m.toggle_popup(popup_id));
             }
+
+            // Snapshot library data before the popup to avoid borrow conflicts.
+            let scene_source_ids: Vec<SourceId> = state
+                .scenes
+                .iter()
+                .find(|s| s.id == active_id)
+                .map(|s| s.source_ids())
+                .unwrap_or_default();
+
+            let available_sources: Vec<(SourceId, String, SourceType, SourceProperties)> = state
+                .library
+                .iter()
+                .filter(|lib_src| !scene_source_ids.contains(&lib_src.id))
+                .map(|lib_src| {
+                    (
+                        lib_src.id,
+                        lib_src.name.clone(),
+                        lib_src.source_type.clone(),
+                        lib_src.properties.clone(),
+                    )
+                })
+                .collect();
 
             #[allow(deprecated)]
             egui::popup_below_widget(
@@ -73,21 +96,39 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 |ui: &mut egui::Ui| {
                     use crate::ui::theme::{menu_item_icon, styled_menu};
                     styled_menu(ui, |ui| {
-                        if menu_item_icon(ui, egui_phosphor::regular::MONITOR, "Display") {
-                            add_display_source(state, &cmd_tx, active_id);
-                            ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
-                        }
-                        if menu_item_icon(ui, egui_phosphor::regular::APP_WINDOW, "Window") {
-                            add_window_source(state, active_id);
-                            ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
-                        }
-                        if menu_item_icon(ui, egui_phosphor::regular::VIDEO_CAMERA, "Camera") {
-                            add_camera_source(state, &cmd_tx, active_id);
-                            ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
-                        }
-                        if menu_item_icon(ui, egui_phosphor::regular::IMAGE, "Image") {
-                            add_image_source(state, &cmd_tx, active_id);
-                            ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
+                        if available_sources.is_empty() {
+                            ui.label(
+                                egui::RichText::new("All sources added")
+                                    .color(TEXT_MUTED)
+                                    .size(11.0),
+                            );
+                        } else {
+                            // Track which source to add (collected after loop to avoid borrow conflicts).
+                            let mut source_to_add: Option<(SourceId, SourceProperties)> = None;
+
+                            for (src_id, name, src_type, props) in &available_sources {
+                                if menu_item_icon(ui, source_icon(src_type), name) {
+                                    source_to_add = Some((*src_id, props.clone()));
+                                    ui.memory_mut(|m| m.close_popup(popup_id));
+                                }
+                            }
+
+                            // Apply outside the iterator to satisfy the borrow checker.
+                            if let Some((src_id, props)) = source_to_add {
+                                if let Some(scene) =
+                                    state.scenes.iter_mut().find(|s| s.id == active_id)
+                                {
+                                    scene.sources.push(SceneSource {
+                                        source_id: src_id,
+                                        overrides: SourceOverrides::default(),
+                                    });
+                                }
+                                // Start capture based on snapshotted properties.
+                                start_capture_from_properties(state, &cmd_tx, src_id, &props);
+                                state.selected_source_id = Some(src_id);
+                                state.scenes_dirty = true;
+                                state.scenes_last_changed = std::time::Instant::now();
+                            }
                         }
                     });
                 },
@@ -98,14 +139,27 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     ui.add_space(4.0);
 
     // ── Source list ──
-    let source_ids: Vec<SourceId> = state
+    // Iterate the active scene's SceneSource entries and look up LibrarySource for each.
+    let scene_sources: Vec<(SourceId, bool)> = state
         .scenes
         .iter()
         .find(|s| s.id == active_id)
-        .map(|s| s.source_ids())
+        .map(|scene| {
+            scene
+                .sources
+                .iter()
+                .map(|ss| {
+                    let lib = state.library.iter().find(|l| l.id == ss.source_id);
+                    let visible = lib
+                        .map(|l| ss.resolve_visible(l))
+                        .unwrap_or(true);
+                    (ss.source_id, visible)
+                })
+                .collect()
+        })
         .unwrap_or_default();
 
-    if source_ids.is_empty() {
+    if scene_sources.is_empty() {
         ui.add_space(16.0);
         ui.centered_and_justified(|ui| {
             ui.colored_label(TEXT_MUTED, "No sources. Click + to add one.");
@@ -115,23 +169,38 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     let mut move_up: Option<SourceId> = None;
     let mut move_down: Option<SourceId> = None;
-    let source_count = source_ids.len();
+    let source_count = scene_sources.len();
     let selected_bg = accent_dim(DEFAULT_ACCENT);
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        for (idx, &src_id) in source_ids.iter().enumerate() {
-            let source = state.library.iter().find(|s| s.id == src_id);
-            let Some(source) = source else { continue };
+    // Snapshot display data for each source to avoid borrowing state during rendering.
+    struct SourceRow {
+        id: SourceId,
+        name: String,
+        source_type: SourceType,
+        visible: bool,
+    }
 
-            let is_selected = state.selected_source_id == Some(src_id);
-            let is_visible = source.visible;
-            let source_name = source.name.clone();
-            let source_type = source.source_type.clone();
+    let rows: Vec<SourceRow> = scene_sources
+        .iter()
+        .filter_map(|(src_id, resolved_visible)| {
+            let lib = state.library.iter().find(|l| l.id == *src_id)?;
+            Some(SourceRow {
+                id: *src_id,
+                name: lib.name.clone(),
+                source_type: lib.source_type.clone(),
+                visible: *resolved_visible,
+            })
+        })
+        .collect();
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for (idx, row) in rows.iter().enumerate() {
+            let is_selected = state.selected_source_id == Some(row.id);
 
             // Row opacity: dim hidden sources to 40%.
-            let row_opacity = if is_visible { 1.0 } else { 0.4 };
+            let row_opacity = if row.visible { 1.0 } else { 0.4 };
 
-            ui.push_id(src_id.0, |ui| {
+            ui.push_id(row.id.0, |ui| {
                 // Allocate a row area.
                 let row_height = 28.0;
                 let available_width = ui.available_width();
@@ -149,7 +218,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
                 // Handle click for selection.
                 if row_response.clicked() {
-                    state.selected_source_id = Some(src_id);
+                    state.selected_source_id = Some(row.id);
                 }
 
                 // Paint the row contents.
@@ -164,7 +233,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     vec2(icon_size, icon_size),
                 );
                 painter.rect_filled(icon_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
-                let icon_text = source_icon(&source_type);
+                let icon_text = source_icon(&row.source_type);
                 let icon_color = with_opacity(TEXT_PRIMARY, row_opacity);
                 painter.text(
                     icon_rect.center(),
@@ -180,7 +249,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 painter.text(
                     egui::pos2(cursor_x, center_y),
                     egui::Align2::LEFT_CENTER,
-                    &source_name,
+                    &row.name,
                     egui::FontId::proportional(11.0),
                     name_color,
                 );
@@ -189,7 +258,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 let right_x = row_rect.right() - 4.0;
 
                 // Visibility toggle eye icon.
-                let eye_text = if is_visible {
+                let eye_text = if row.visible {
                     egui_phosphor::regular::EYE
                 } else {
                     egui_phosphor::regular::EYE_SLASH
@@ -214,12 +283,15 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     eye_color,
                 );
 
-                // Handle eye click (toggle visibility).
-                if eye_hovered
-                    && row_response.clicked()
-                    && let Some(source) = state.library.iter_mut().find(|s| s.id == src_id)
-                {
-                    source.visible = !source.visible;
+                // Handle eye click — toggle per-scene visibility override.
+                if eye_hovered && row_response.clicked() {
+                    let current_visible = row.visible;
+                    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id)
+                        && let Some(scene_src) =
+                            scene.sources.iter_mut().find(|ss| ss.source_id == row.id)
+                    {
+                        scene_src.overrides.visible = Some(!current_visible);
+                    }
                     state.scenes_dirty = true;
                     state.scenes_last_changed = std::time::Instant::now();
                 }
@@ -229,7 +301,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     ui,
                     &row_response,
                     state,
-                    src_id,
+                    row.id,
                     egui::Vec2::new(1920.0, 1080.0), // TODO: read from settings
                 );
 
@@ -250,7 +322,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     // ── Reorder buttons for selected source ──
     if let Some(selected_id) = state.selected_source_id {
-        // Only show reorder if the selected source belongs to this scene.
+        let source_ids: Vec<SourceId> = rows.iter().map(|r| r.id).collect();
         if let Some(idx) = source_ids.iter().position(|&id| id == selected_id) {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -293,210 +365,111 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     }
 }
 
-/// Add a new display source to the active scene.
-fn add_display_source(
+/// Start the capture pipeline for a library source if it has a capturable type.
+#[allow(dead_code)] // Will be used by library panel (Task 5)
+fn start_capture_for_source(
     state: &mut AppState,
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    active_id: crate::scene::SceneId,
+    lib_src: &LibrarySource,
 ) {
-    let new_src_id = SourceId(state.next_source_id);
-    state.next_source_id += 1;
-    let source_count = state
-        .scenes
-        .iter()
-        .find(|s| s.id == active_id)
-        .map(|s| s.sources.len())
-        .unwrap_or(0);
-    let new_source = LibrarySource {
-        id: new_src_id,
-        name: format!("Display {}", source_count + 1),
-        source_type: SourceType::Display,
-        properties: SourceProperties::Display { screen_index: 0 },
-        transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
-        native_size: (1920.0, 1080.0),
-        opacity: 1.0,
-        visible: true,
-        muted: false,
-        volume: 1.0,
-        folder: None,
-    };
-    state.library.push(new_source);
-    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-        scene.sources.push(SceneSource::new(new_src_id));
-    }
-    if let Some(tx) = cmd_tx {
-        let _ = tx.try_send(GstCommand::AddCaptureSource {
-            source_id: new_src_id,
-            config: CaptureSourceConfig::Screen { screen_index: 0 },
-        });
-    }
-    state.selected_source_id = Some(new_src_id);
-    state.capture_active = true;
-    state.scenes_dirty = true;
-    state.scenes_last_changed = std::time::Instant::now();
+    start_capture_from_properties(state, cmd_tx, lib_src.id, &lib_src.properties);
 }
 
-/// Add a new window source to the active scene (placeholder -- no capture until configured).
-fn add_window_source(state: &mut AppState, active_id: crate::scene::SceneId) {
-    let new_src_id = SourceId(state.next_source_id);
-    state.next_source_id += 1;
-    let source_count = state
-        .scenes
-        .iter()
-        .find(|s| s.id == active_id)
-        .map(|s| s.sources.len())
-        .unwrap_or(0);
-    let new_source = LibrarySource {
-        id: new_src_id,
-        name: format!("Window {}", source_count + 1),
-        source_type: SourceType::Window,
-        properties: SourceProperties::Window {
-            window_id: 0,
-            window_title: String::new(),
-            owner_name: String::new(),
-        },
-        transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
-        native_size: (1920.0, 1080.0),
-        opacity: 1.0,
-        visible: true,
-        muted: false,
-        volume: 1.0,
-        folder: None,
-    };
-    state.library.push(new_source);
-    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-        scene.sources.push(SceneSource::new(new_src_id));
-    }
-    // No capture started -- user must pick a window in Properties first.
-    state.selected_source_id = Some(new_src_id);
-    state.scenes_dirty = true;
-    state.scenes_last_changed = std::time::Instant::now();
-}
-
-/// Add a new camera source to the active scene and start capture immediately.
-fn add_camera_source(
+/// Start capture from already-snapshotted properties (avoids borrow conflicts).
+fn start_capture_from_properties(
     state: &mut AppState,
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    active_id: crate::scene::SceneId,
+    source_id: SourceId,
+    properties: &SourceProperties,
 ) {
-    let new_src_id = SourceId(state.next_source_id);
-    state.next_source_id += 1;
-    let source_count = state
-        .scenes
-        .iter()
-        .find(|s| s.id == active_id)
-        .map(|s| s.sources.len())
-        .unwrap_or(0);
-    let device_name = state
-        .available_cameras
-        .first()
-        .map(|c| c.name.clone())
-        .unwrap_or_else(|| "Camera".to_string());
-    let new_source = LibrarySource {
-        id: new_src_id,
-        name: format!("Camera {}", source_count + 1),
-        source_type: SourceType::Camera,
-        properties: SourceProperties::Camera {
-            device_index: 0,
-            device_name,
-        },
-        transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
-        native_size: (1920.0, 1080.0),
-        opacity: 1.0,
-        visible: true,
-        muted: false,
-        volume: 1.0,
-        folder: None,
-    };
-    state.library.push(new_source);
-    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-        scene.sources.push(SceneSource::new(new_src_id));
+    let Some(tx) = cmd_tx else { return };
+    match properties {
+        SourceProperties::Display { screen_index } => {
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id,
+                config: CaptureSourceConfig::Screen {
+                    screen_index: *screen_index,
+                },
+            });
+            state.capture_active = true;
+        }
+        SourceProperties::Window { window_id, .. } if *window_id != 0 => {
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id,
+                config: CaptureSourceConfig::Window {
+                    window_id: *window_id,
+                },
+            });
+            state.capture_active = true;
+        }
+        SourceProperties::Camera { device_index, .. } => {
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id,
+                config: CaptureSourceConfig::Camera {
+                    device_index: *device_index,
+                },
+            });
+            state.capture_active = true;
+        }
+        _ => {}
     }
-    if let Some(tx) = cmd_tx {
-        let _ = tx.try_send(GstCommand::AddCaptureSource {
-            source_id: new_src_id,
-            config: CaptureSourceConfig::Camera { device_index: 0 },
-        });
-    }
-    state.selected_source_id = Some(new_src_id);
-    state.capture_active = true;
-    state.scenes_dirty = true;
-    state.scenes_last_changed = std::time::Instant::now();
 }
 
-/// Add a new image source to the active scene.
-fn add_image_source(
-    state: &mut AppState,
-    _cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    active_id: crate::scene::SceneId,
+/// Stop the capture pipeline for a source if it has a capturable type.
+fn stop_capture_for_source(
+    cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
+    source_type: &SourceType,
+    source_id: SourceId,
 ) {
-    let new_src_id = SourceId(state.next_source_id);
-    state.next_source_id += 1;
-    let source = LibrarySource {
-        id: new_src_id,
-        name: "Image".to_string(),
-        source_type: SourceType::Image,
-        properties: SourceProperties::Image {
-            path: String::new(),
-        },
-        transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
-        native_size: (1920.0, 1080.0),
-        opacity: 1.0,
-        visible: true,
-        muted: false,
-        volume: 1.0,
-        folder: None,
-    };
-    state.library.push(source);
-    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-        scene.sources.push(SceneSource::new(new_src_id));
+    if matches!(
+        source_type,
+        SourceType::Display | SourceType::Window | SourceType::Camera
+    )
+        && let Some(tx) = cmd_tx
+    {
+        let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id });
     }
-    state.selected_source_id = Some(new_src_id);
-    state.scenes_dirty = true;
-    state.scenes_last_changed = std::time::Instant::now();
 }
 
-/// Remove a source from the active scene and clean up state.
-fn remove_source(
+/// Remove a source from the active scene only (does NOT delete from library).
+fn remove_source_from_scene(
     state: &mut AppState,
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     active_id: crate::scene::SceneId,
     src_id: SourceId,
 ) {
+    // Get source type before removing from scene.
+    let source_type = state
+        .library
+        .iter()
+        .find(|s| s.id == src_id)
+        .map(|s| s.source_type.clone());
+
     // Remove from scene.
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
         scene.sources.retain(|s| s.source_id != src_id);
     }
-    // Check source type before removing — only capture-based sources need a GstCommand.
-    let has_capture_pipeline = state
-        .library
-        .iter()
-        .find(|s| s.id == src_id)
-        .map(|s| {
-            matches!(
-                s.source_type,
-                SourceType::Display | SourceType::Window | SourceType::Camera
-            )
-        })
-        .unwrap_or(false);
-    // Remove from global sources list.
-    state.library.retain(|s| s.id != src_id);
-    // Send GstCommand only for sources with capture pipelines.
-    if has_capture_pipeline && let Some(tx) = cmd_tx {
-        let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
+
+    // Stop capture if the source is no longer in the active scene.
+    if let Some(st) = &source_type {
+        stop_capture_for_source(cmd_tx, st, src_id);
     }
-    // Clear selection if we just deleted the selected source.
+
+    // Clear selection if we just removed the selected source.
     if state.selected_source_id == Some(src_id) {
         state.selected_source_id = None;
     }
-    // Update capture_active.
+
+    // Update capture_active based on remaining sources.
     let has_sources = state
         .scenes
         .iter()
         .find(|s| s.id == active_id)
         .map(|s| !s.sources.is_empty())
         .unwrap_or(false);
-    if !has_sources && let Some(tx) = cmd_tx {
+    if !has_sources
+        && let Some(tx) = cmd_tx
+    {
         let _ = tx.try_send(GstCommand::StopCapture);
     }
     state.capture_active = has_sources;

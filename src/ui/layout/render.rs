@@ -729,7 +729,9 @@ fn render_tab_bar(
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.set_min_width(120.0);
-                    for &pt in DOCKABLE_TYPES {
+                    let mut sorted_types = DOCKABLE_TYPES.to_vec();
+                    sorted_types.sort_by_key(|pt| pt.display_name());
+                    for &pt in &sorted_types {
                         if ui.selectable_label(false, pt.display_name()).clicked() {
                             actions.push(LayoutAction::AddPanel {
                                 target_group: gid,

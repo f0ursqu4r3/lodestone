@@ -6,6 +6,8 @@ pub mod error;
 #[cfg(target_os = "macos")]
 #[allow(non_snake_case)]
 pub mod screencapturekit;
+#[cfg(target_os = "macos")]
+pub mod virtual_camera;
 pub mod thread;
 pub mod types;
 

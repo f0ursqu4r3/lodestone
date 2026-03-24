@@ -35,7 +35,8 @@ rfd = "0.17.2"
 # macOS ScreenCaptureKit bindings (objc2 ecosystem)
 block2 = "0.6"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSError", "NSString", "NSThread"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSDictionary", "NSError", "NSObject", "NSString", "NSThread", "NSUserDefaults", "NSValue"] }
+objc2-io-surface = { version = "0.3", features = ["IOSurface"] }
 objc2-screen-capture-kit = "0.3"
 objc2-core-media = "0.3"
 objc2-core-video = "0.3"

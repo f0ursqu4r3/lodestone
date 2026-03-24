@@ -302,7 +302,6 @@ fn delete_scene_by_id(
                 let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
             }
         }
-        state.library.retain(|s| !src_ids.contains(&s.id));
     }
 
     // Remove the scene itself.

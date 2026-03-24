@@ -225,17 +225,17 @@ fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hov
 /// Send `AddCaptureSource` / `RemoveCaptureSource` commands for the delta between two scenes.
 fn apply_scene_diff(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    sources: &[crate::scene::Source],
+    #[allow(deprecated)] sources: &[crate::scene::Source],
     old_scene: Option<&Scene>,
     new_scene: Option<&Scene>,
 ) {
     let Some(tx) = cmd_tx else { return };
 
     let old_ids: std::collections::HashSet<SourceId> = old_scene
-        .map(|s| s.sources.iter().copied().collect())
+        .map(|s| s.source_ids().into_iter().collect())
         .unwrap_or_default();
     let new_ids: std::collections::HashSet<SourceId> = new_scene
-        .map(|s| s.sources.iter().copied().collect())
+        .map(|s| s.source_ids().into_iter().collect())
         .unwrap_or_default();
 
     for &src_id in old_ids.difference(&new_ids) {
@@ -296,7 +296,7 @@ fn delete_scene_by_id(
 
     // Remove sources belonging to the deleted scene.
     if let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id) {
-        let src_ids: Vec<SourceId> = scene.sources.clone();
+        let src_ids: Vec<SourceId> = scene.source_ids();
         for &src_id in &src_ids {
             if let Some(tx) = cmd_tx {
                 let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
@@ -327,12 +327,12 @@ fn delete_scene_by_id(
 /// Start capture for all sources in a scene, or `StopCapture` if it has none.
 fn send_capture_for_scene(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    sources: &[crate::scene::Source],
+    #[allow(deprecated)] sources: &[crate::scene::Source],
     scene: &Scene,
 ) {
     let Some(tx) = cmd_tx else { return };
     let mut any_started = false;
-    for &src_id in &scene.sources {
+    for src_id in scene.source_ids() {
         if let Some(source) = sources.iter().find(|s| s.id == src_id) {
             match &source.properties {
                 crate::scene::SourceProperties::Display { screen_index } => {

@@ -1,4 +1,5 @@
 use crate::gstreamer::{GstCommand, GstError};
+#[allow(deprecated)]
 use crate::scene::{Scene, SceneId, Source, SourceId};
 use crate::settings::AppSettings;
 

@@ -247,7 +247,12 @@ fn labeled_row(ui: &mut Ui, label: &str) {
 fn labeled_row_unimplemented(ui: &mut Ui, label: &str) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).size(13.0).color(TEXT_MUTED));
-        ui.label(egui::RichText::new("(not yet implemented)").size(10.0).color(TEXT_MUTED).italics());
+        ui.label(
+            egui::RichText::new("(not yet implemented)")
+                .size(10.0)
+                .color(TEXT_MUTED)
+                .italics(),
+        );
     });
 }
 
@@ -256,7 +261,12 @@ fn draw_toggle_unimplemented(ui: &mut Ui, label: &str, _value: &mut bool) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).size(13.0).color(TEXT_MUTED));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(egui::RichText::new("not implemented").size(10.0).color(TEXT_MUTED).italics());
+            ui.label(
+                egui::RichText::new("not implemented")
+                    .size(10.0)
+                    .color(TEXT_MUTED)
+                    .italics(),
+            );
         });
     });
 }
@@ -718,8 +728,14 @@ fn draw_video(ui: &mut Ui, settings: &mut VideoSettings) -> bool {
 fn draw_hotkeys(ui: &mut Ui, settings: &mut HotkeySettings) -> bool {
     let mut changed = false;
 
-    ui.label(egui::RichText::new("Hotkeys are not yet implemented. Bindings are saved but have no effect.")
-        .size(11.0).color(TEXT_MUTED).italics());
+    ui.label(
+        egui::RichText::new(
+            "Hotkeys are not yet implemented. Bindings are saved but have no effect.",
+        )
+        .size(11.0)
+        .color(TEXT_MUTED)
+        .italics(),
+    );
     ui.add_space(8.0);
 
     section_header(ui, "BINDINGS");

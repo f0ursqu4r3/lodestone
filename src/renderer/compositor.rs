@@ -6,6 +6,7 @@ use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Device, Queue, TextureFormat};
 
 use crate::gstreamer::RgbaFrame;
+#[allow(deprecated)]
 use crate::scene::{Source, SourceId};
 
 // ---------------------------------------------------------------------------

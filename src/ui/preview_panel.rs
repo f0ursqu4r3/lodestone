@@ -93,7 +93,10 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     let (preview_width, preview_height) = {
         let base = &state.settings.video.base_resolution;
         let parts: Vec<&str> = base.split('x').collect();
-        let w = parts.first().and_then(|s| s.parse().ok()).unwrap_or(1920u32);
+        let w = parts
+            .first()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1920u32);
         let h = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(1080u32);
         (w, h)
     };
@@ -163,7 +166,13 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
 
     // Transform handles for selected source
     let canvas_size = egui::Vec2::new(preview_width as f32, preview_height as f32);
-    crate::ui::transform_handles::draw_transform_handles(ui, state, preview_rect, panel_rect, canvas_size);
+    crate::ui::transform_handles::draw_transform_handles(
+        ui,
+        state,
+        preview_rect,
+        panel_rect,
+        canvas_size,
+    );
 
     // Allocate the space so egui knows it's used
     ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());

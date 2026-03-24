@@ -4,7 +4,8 @@
 //! Supports selection, reordering, add, and remove.
 
 use crate::gstreamer::{CaptureSourceConfig, GstCommand};
-use crate::scene::{Source, SourceId, SourceProperties, SourceType, Transform};
+#[allow(deprecated)]
+use crate::scene::{SceneSource, Source, SourceId, SourceProperties, SourceType, Transform};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{
@@ -71,7 +72,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 &add_response,
                 egui::PopupCloseBehavior::CloseOnClickOutside,
                 |ui: &mut egui::Ui| {
-                    use crate::ui::theme::{styled_menu, menu_item_icon};
+                    use crate::ui::theme::{menu_item_icon, styled_menu};
                     styled_menu(ui, |ui| {
                         if menu_item_icon(ui, egui_phosphor::regular::MONITOR, "Display") {
                             add_display_source(state, &cmd_tx, active_id);
@@ -102,7 +103,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         .scenes
         .iter()
         .find(|s| s.id == active_id)
-        .map(|s| s.sources.clone())
+        .map(|s| s.source_ids())
         .unwrap_or_default();
 
     if source_ids.is_empty() {
@@ -318,10 +319,11 @@ fn add_display_source(
         visible: true,
         muted: false,
         volume: 1.0,
+        folder: None,
     };
     state.sources.push(new_source);
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-        scene.sources.push(new_src_id);
+        scene.sources.push(SceneSource::new(new_src_id));
     }
     if let Some(tx) = cmd_tx {
         let _ = tx.try_send(GstCommand::AddCaptureSource {
@@ -360,10 +362,11 @@ fn add_window_source(state: &mut AppState, active_id: crate::scene::SceneId) {
         visible: true,
         muted: false,
         volume: 1.0,
+        folder: None,
     };
     state.sources.push(new_source);
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-        scene.sources.push(new_src_id);
+        scene.sources.push(SceneSource::new(new_src_id));
     }
     // No capture started -- user must pick a window in Properties first.
     state.selected_source_id = Some(new_src_id);
@@ -404,10 +407,11 @@ fn add_camera_source(
         visible: true,
         muted: false,
         volume: 1.0,
+        folder: None,
     };
     state.sources.push(new_source);
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-        scene.sources.push(new_src_id);
+        scene.sources.push(SceneSource::new(new_src_id));
     }
     if let Some(tx) = cmd_tx {
         let _ = tx.try_send(GstCommand::AddCaptureSource {
@@ -442,10 +446,11 @@ fn add_image_source(
         visible: true,
         muted: false,
         volume: 1.0,
+        folder: None,
     };
     state.sources.push(source);
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-        scene.sources.push(new_src_id);
+        scene.sources.push(SceneSource::new(new_src_id));
     }
     state.selected_source_id = Some(new_src_id);
     state.scenes_dirty = true;
@@ -461,7 +466,7 @@ fn remove_source(
 ) {
     // Remove from scene.
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
-        scene.sources.retain(|&id| id != src_id);
+        scene.sources.retain(|s| s.source_id != src_id);
     }
     // Check source type before removing — only capture-based sources need a GstCommand.
     let has_capture_pipeline = state

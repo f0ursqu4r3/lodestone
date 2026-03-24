@@ -265,7 +265,11 @@ fn snap_transform(
     // Other source edges and centers.
     for other in other_sources {
         x_targets.extend_from_slice(&[other.x, other.x + other.width, other.x + other.width / 2.0]);
-        y_targets.extend_from_slice(&[other.y, other.y + other.height, other.y + other.height / 2.0]);
+        y_targets.extend_from_slice(&[
+            other.y,
+            other.y + other.height,
+            other.y + other.height / 2.0,
+        ]);
     }
 
     // Snap all four edges + center of the source.
@@ -327,11 +331,23 @@ fn draw_snap_guides(
     let mut y_targets = vec![0.0, canvas_size.y, canvas_size.y / 2.0];
     for other in other_sources {
         x_targets.extend_from_slice(&[other.x, other.x + other.width, other.x + other.width / 2.0]);
-        y_targets.extend_from_slice(&[other.y, other.y + other.height, other.y + other.height / 2.0]);
+        y_targets.extend_from_slice(&[
+            other.y,
+            other.y + other.height,
+            other.y + other.height / 2.0,
+        ]);
     }
 
-    let edges_x = [transform.x, transform.x + transform.width, transform.x + transform.width / 2.0];
-    let edges_y = [transform.y, transform.y + transform.height, transform.y + transform.height / 2.0];
+    let edges_x = [
+        transform.x,
+        transform.x + transform.width,
+        transform.x + transform.width / 2.0,
+    ];
+    let edges_y = [
+        transform.y,
+        transform.y + transform.height,
+        transform.y + transform.height / 2.0,
+    ];
 
     let guide_stroke = egui::Stroke::new(1.0, TEXT_MUTED);
 
@@ -340,7 +356,10 @@ fn draw_snap_guides(
             if (ex - tx).abs() < 1.0 {
                 let screen_x = canvas_to_screen(Pos2::new(tx, 0.0), viewport, canvas_size).x;
                 painter.line_segment(
-                    [Pos2::new(screen_x, viewport.top()), Pos2::new(screen_x, viewport.bottom())],
+                    [
+                        Pos2::new(screen_x, viewport.top()),
+                        Pos2::new(screen_x, viewport.bottom()),
+                    ],
                     guide_stroke,
                 );
             }
@@ -352,7 +371,10 @@ fn draw_snap_guides(
             if (ey - ty).abs() < 1.0 {
                 let screen_y = canvas_to_screen(Pos2::new(0.0, ty), viewport, canvas_size).y;
                 painter.line_segment(
-                    [Pos2::new(viewport.left(), screen_y), Pos2::new(viewport.right(), screen_y)],
+                    [
+                        Pos2::new(viewport.left(), screen_y),
+                        Pos2::new(viewport.right(), screen_y),
+                    ],
                     guide_stroke,
                 );
             }
@@ -395,10 +417,18 @@ pub fn draw_transform_handles(
                 .sources
                 .iter()
                 .rev() // topmost source first
-                .filter_map(|&src_id| {
-                    state.sources.iter().find(|s| s.id == src_id && s.visible).map(|s| {
-                        (src_id, transform_to_screen_rect(&s.transform, viewport_rect, canvas_size))
-                    })
+                .filter_map(|ss| {
+                    let src_id = ss.source_id;
+                    state
+                        .sources
+                        .iter()
+                        .find(|s| s.id == src_id && s.visible)
+                        .map(|s| {
+                            (
+                                src_id,
+                                transform_to_screen_rect(&s.transform, viewport_rect, canvas_size),
+                            )
+                        })
                 })
                 .collect()
         })
@@ -489,9 +519,8 @@ pub fn draw_transform_handles(
 
             // Close if clicked outside the menu (but not on the frame it opened).
             if frame_nr > ctx_state.open_frame && !action_taken {
-                let any_click = ui.input(|i| {
-                    i.pointer.primary_clicked() || i.pointer.secondary_clicked()
-                });
+                let any_click =
+                    ui.input(|i| i.pointer.primary_clicked() || i.pointer.secondary_clicked());
                 let in_menu = area_resp
                     .response
                     .rect
@@ -651,10 +680,16 @@ pub fn show_source_context_menu_items(
     // Determine which action was clicked (if any). We collect the click first,
     // then apply the mutation, to keep the layout code clean.
     #[derive(Clone, Copy)]
-    enum Action { Fit, Stretch, Fill, Center, Reset }
+    enum Action {
+        Fit,
+        Stretch,
+        Fill,
+        Center,
+        Reset,
+    }
     let mut action: Option<Action> = None;
 
-    use crate::ui::theme::{styled_menu, menu_item};
+    use crate::ui::theme::{menu_item, styled_menu};
     styled_menu(ui, |ui| {
         if menu_item(ui, "Fit to Canvas") {
             action = Some(Action::Fit);

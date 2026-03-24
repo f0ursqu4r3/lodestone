@@ -182,7 +182,7 @@ impl AppManager {
 
         let initial_state = AppState {
             scenes: collection.scenes,
-            sources: collection.sources,
+            sources: collection.library,
             active_scene_id: collection.active_scene_id,
             next_scene_id: collection.next_scene_id,
             next_source_id: collection.next_source_id,
@@ -403,7 +403,7 @@ impl ApplicationHandler for AppManager {
             if let Some(scene_id) = state.active_scene_id
                 && let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id)
             {
-                for &src_id in &scene.sources {
+                for src_id in scene.source_ids() {
                     if let Some(source) = state.sources.iter().find(|s| s.id == src_id) {
                         match &source.properties {
                             crate::scene::SourceProperties::Display { screen_index } => {
@@ -509,7 +509,7 @@ impl ApplicationHandler for AppManager {
                         if app_state.scenes_dirty {
                             let collection = crate::scene::SceneCollection {
                                 scenes: app_state.scenes.clone(),
-                                sources: app_state.sources.clone(),
+                                library: app_state.sources.clone(),
                                 active_scene_id: app_state.active_scene_id,
                                 next_scene_id: app_state.next_scene_id,
                                 next_source_id: app_state.next_source_id,
@@ -611,7 +611,7 @@ impl ApplicationHandler for AppManager {
                             {
                                 let collection = crate::scene::SceneCollection {
                                     scenes: app_state.scenes.clone(),
-                                    sources: app_state.sources.clone(),
+                                    library: app_state.sources.clone(),
                                     active_scene_id: app_state.active_scene_id,
                                     next_scene_id: app_state.next_scene_id,
                                     next_source_id: app_state.next_source_id,
@@ -690,9 +690,7 @@ impl ApplicationHandler for AppManager {
             Vec::new()
         };
         let had_new_frames = !drained_frames.is_empty();
-        if had_new_frames
-            && let Some(ref mut gpu) = self.gpu
-        {
+        if had_new_frames && let Some(ref mut gpu) = self.gpu {
             // Update native_size on sources when we first see their frame dimensions.
             {
                 let mut app_state = self.state.lock().expect("lock AppState");
@@ -740,9 +738,7 @@ impl ApplicationHandler for AppManager {
                         pipeline: gpu.compositor.canvas_pipeline(),
                         bind_group: gpu.compositor.canvas_bind_group(),
                     };
-                    win.egui_renderer
-                        .callback_resources
-                        .insert(new_resources);
+                    win.egui_renderer.callback_resources.insert(new_resources);
                 }
             }
         }
@@ -757,9 +753,10 @@ impl ApplicationHandler for AppManager {
                     .scenes
                     .iter()
                     .find(|s| s.id == active_scene_id)
-                    .map(|s| s.sources.clone())
+                    .map(|s| s.source_ids())
                     .unwrap_or_default();
 
+                #[allow(deprecated)]
                 let resolved_sources: Vec<&crate::scene::Source> = source_ids
                     .iter()
                     .filter_map(|sid| app_state.sources.iter().find(|s| s.id == *sid))
@@ -889,7 +886,6 @@ impl ApplicationHandler for AppManager {
         // When no new frames arrive, winit still delivers redraws triggered by:
         // - Input events (mouse, keyboard, resize)
         // - egui's request_repaint() (animations, hover effects, toolbar pulse)
-
     }
 }
 
@@ -904,10 +900,10 @@ fn diff_scene_sources(
     new_scene: Option<&crate::scene::Scene>,
 ) -> (Vec<crate::scene::SourceId>, Vec<crate::scene::SourceId>) {
     let old_ids: std::collections::HashSet<_> = old_scene
-        .map(|s| s.sources.iter().copied().collect())
+        .map(|s| s.source_ids().into_iter().collect())
         .unwrap_or_default();
     let new_ids: std::collections::HashSet<_> = new_scene
-        .map(|s| s.sources.iter().copied().collect())
+        .map(|s| s.source_ids().into_iter().collect())
         .unwrap_or_default();
 
     let to_add: Vec<_> = new_ids.difference(&old_ids).copied().collect();
@@ -918,14 +914,14 @@ fn diff_scene_sources(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::{Scene, SceneId, SourceId};
+    use crate::scene::{Scene, SceneId, SceneSource, SourceId};
 
     #[test]
     fn diff_empty_to_scene() {
         let scene = Scene {
             id: SceneId(1),
             name: "S".into(),
-            sources: vec![SourceId(1), SourceId(2)],
+            sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
         };
         let (to_add, to_remove) = diff_scene_sources(None, Some(&scene));
         assert_eq!(to_add.len(), 2);
@@ -937,7 +933,7 @@ mod tests {
         let scene = Scene {
             id: SceneId(1),
             name: "S".into(),
-            sources: vec![SourceId(1)],
+            sources: vec![SceneSource::new(SourceId(1))],
         };
         let (to_add, to_remove) = diff_scene_sources(Some(&scene), None);
         assert!(to_add.is_empty());
@@ -949,12 +945,12 @@ mod tests {
         let old = Scene {
             id: SceneId(1),
             name: "A".into(),
-            sources: vec![SourceId(1), SourceId(2)],
+            sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
         };
         let new = Scene {
             id: SceneId(2),
             name: "B".into(),
-            sources: vec![SourceId(2), SourceId(3)],
+            sources: vec![SceneSource::new(SourceId(2)), SceneSource::new(SourceId(3))],
         };
         let (to_add, to_remove) = diff_scene_sources(Some(&old), Some(&new));
         assert!(to_add.contains(&SourceId(3)));
@@ -968,7 +964,7 @@ mod tests {
         let scene = Scene {
             id: SceneId(1),
             name: "A".into(),
-            sources: vec![SourceId(1)],
+            sources: vec![SceneSource::new(SourceId(1))],
         };
         let (to_add, to_remove) = diff_scene_sources(Some(&scene), Some(&scene));
         assert!(to_add.is_empty());

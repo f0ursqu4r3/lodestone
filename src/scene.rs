@@ -176,6 +176,7 @@ impl SceneSource {
 
 impl Scene {
     /// Move a source one position earlier (lower z-index / further back).
+    #[allow(dead_code)]
     pub fn move_source_up(&mut self, source_id: SourceId) {
         if let Some(pos) = self.sources.iter().position(|s| s.source_id == source_id)
             && pos > 0
@@ -185,6 +186,7 @@ impl Scene {
     }
 
     /// Move a source one position later (higher z-index / further forward).
+    #[allow(dead_code)]
     pub fn move_source_down(&mut self, source_id: SourceId) {
         if let Some(pos) = self.sources.iter().position(|s| s.source_id == source_id)
             && pos + 1 < self.sources.len()

@@ -111,6 +111,17 @@ fn draw_segmented_buttons(
     clicked
 }
 
+/// Start a rename: set state and bump the focus generation so the TextEdit gets focused.
+fn start_rename_source(ui: &egui::Ui, state: &mut AppState, id: SourceId, name: &str) {
+    state.renaming_source_id = Some(id);
+    state.rename_buffer = name.to_string();
+    let gen_id = egui::Id::new("rename_gen");
+    ui.data_mut(|d| {
+        let g: u64 = d.get_temp(gen_id).unwrap_or(0);
+        d.insert_temp(gen_id, g + 1);
+    });
+}
+
 /// Draw the library panel.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // Persist view mode and display mode across frames.
@@ -662,8 +673,7 @@ fn draw_source_grid(
 
                     // Double-click to rename.
                     if tile_response.double_clicked() {
-                        state.renaming_source_id = Some(row.id);
-                        state.rename_buffer = row.name.clone();
+                        start_rename_source(ui, state, row.id, &row.name);
                     }
 
                     // Drag payload (only when not renaming).
@@ -674,8 +684,7 @@ fn draw_source_grid(
                     // Context menu.
                     tile_response.context_menu(|ui| {
                         if ui.button("Rename").clicked() {
-                            state.renaming_source_id = Some(row.id);
-                            state.rename_buffer = row.name.clone();
+                            start_rename_source(ui, state, row.id, &row.name);
                             ui.close();
                         }
                         if ui.button("Delete").clicked() {
@@ -702,8 +711,17 @@ fn draw_source_grid(
                             .font(egui::FontId::proportional(8.0))
                             .horizontal_align(egui::Align::Center);
                         let te_response = child_ui.add(te);
-                        if !te_response.has_focus() {
+                        // Focus on first frame only — check a generation counter
+                        // that resets each time a rename starts.
+                        let gen_id = egui::Id::new("rename_gen");
+                        let focused_gen_id = egui::Id::new(("rename_focused_gen", row.id.0));
+                        let current_gen: u64 =
+                            ui.data(|d| d.get_temp(gen_id).unwrap_or(0));
+                        let focused_gen: u64 =
+                            ui.data(|d| d.get_temp(focused_gen_id).unwrap_or(0));
+                        if focused_gen != current_gen {
                             te_response.request_focus();
+                            ui.data_mut(|d| d.insert_temp(focused_gen_id, current_gen));
                         }
                         let confirmed = te_response.lost_focus()
                             && !ui.input(|i| i.key_pressed(egui::Key::Escape));
@@ -779,8 +797,7 @@ fn draw_source_row(
 
         // Double-click to start rename.
         if row_response.double_clicked() {
-            state.renaming_source_id = Some(row.id);
-            state.rename_buffer = row.name.clone();
+            start_rename_source(ui, state, row.id, &row.name);
         }
 
         // Set drag payload (only when not renaming).
@@ -791,8 +808,7 @@ fn draw_source_row(
         // Context menu (right-click).
         row_response.context_menu(|ui| {
             if ui.button("Rename").clicked() {
-                state.renaming_source_id = Some(row.id);
-                state.rename_buffer = row.name.clone();
+                start_rename_source(ui, state, row.id, &row.name);
                 ui.close();
             }
             if ui.button("Delete").clicked() {

@@ -115,8 +115,17 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                                 .font(egui::FontId::proportional(9.0))
                                 .horizontal_align(egui::Align::Center);
                             let te_response = child_ui.add(te);
-                            if !te_response.has_focus() {
+                            // Focus once on first frame.
+                            let gen_id = egui::Id::new("scene_rename_gen");
+                            let focused_gen_id =
+                                egui::Id::new(("scene_rename_fg", scene_id.0));
+                            let current_gen: u64 =
+                                ui.data(|d| d.get_temp(gen_id).unwrap_or(0));
+                            let focused_gen: u64 =
+                                ui.data(|d| d.get_temp(focused_gen_id).unwrap_or(0));
+                            if focused_gen != current_gen {
                                 te_response.request_focus();
+                                ui.data_mut(|d| d.insert_temp(focused_gen_id, current_gen));
                             }
                             let confirmed = te_response.lost_focus()
                                 && !ui.input(|i| i.key_pressed(egui::Key::Escape));
@@ -160,6 +169,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         if response.double_clicked() {
                             state.renaming_scene_id = Some(*scene_id);
                             state.rename_buffer = scene_name.clone();
+                            let gen_id = egui::Id::new("scene_rename_gen");
+                            ui.data_mut(|d| {
+                                let g: u64 = d.get_temp(gen_id).unwrap_or(0);
+                                d.insert_temp(gen_id, g + 1);
+                            });
                         }
 
                         // Context menu.
@@ -167,6 +181,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                             if ui.button("Rename").clicked() {
                                 state.renaming_scene_id = Some(*scene_id);
                                 state.rename_buffer = scene_name.clone();
+                                let gen_id = egui::Id::new("scene_rename_gen");
+                                ui.data_mut(|d| {
+                                    let g: u64 = d.get_temp(gen_id).unwrap_or(0);
+                                    d.insert_temp(gen_id, g + 1);
+                                });
                                 ui.close();
                             }
                             if ui.button("Delete").clicked() {

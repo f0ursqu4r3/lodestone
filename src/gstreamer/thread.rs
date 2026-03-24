@@ -29,8 +29,11 @@ enum PipelineKind {
 struct CaptureHandle {
     pipeline: gstreamer::Pipeline,
     appsink: AppSink,
-    /// Set to `false` to stop the window capture thread (if any).
+    /// Set to `false` to stop the window/display capture thread (if any).
     capture_running: Option<Arc<AtomicBool>>,
+    /// ScreenCaptureKit stream handle for display capture (macOS only).
+    #[cfg(target_os = "macos")]
+    sck_handle: Option<super::screencapturekit::SCStreamHandle>,
 }
 
 /// State held by the GStreamer thread.
@@ -77,6 +80,17 @@ impl GstThread {
     fn add_capture_source(&mut self, source_id: SourceId, config: &CaptureSourceConfig) {
         self.remove_capture_source(source_id);
 
+        // Display capture uses ScreenCaptureKit on macOS.
+        #[cfg(target_os = "macos")]
+        if let CaptureSourceConfig::Screen {
+            screen_index,
+            exclude_self,
+        } = config
+        {
+            self.add_display_capture_source(source_id, *screen_index, *exclude_self);
+            return;
+        }
+
         // Window capture uses a dedicated appsrc pipeline + grab thread.
         #[cfg(target_os = "macos")]
         if let CaptureSourceConfig::Window { window_id } = config {
@@ -101,6 +115,8 @@ impl GstThread {
                         pipeline,
                         appsink,
                         capture_running: None,
+                        #[cfg(target_os = "macos")]
+                        sck_handle: None,
                     },
                 );
                 log::info!("Capture pipeline started for source {source_id:?}");
@@ -197,17 +213,128 @@ impl GstThread {
                 pipeline,
                 appsink,
                 capture_running: Some(running),
+                #[cfg(target_os = "macos")]
+                sck_handle: None,
             },
         );
         log::info!("Window capture pipeline started for source {source_id:?} (window {window_id})");
     }
 
+    /// Start a display capture pipeline backed by ScreenCaptureKit.
+    #[cfg(target_os = "macos")]
+    fn add_display_capture_source(
+        &mut self,
+        source_id: SourceId,
+        screen_index: u32,
+        exclude_self: bool,
+    ) {
+        use super::capture::build_display_capture_pipeline;
+        use super::screencapturekit;
+
+        let width = self.encoder_config.width;
+        let height = self.encoder_config.height;
+        let fps = self.encoder_config.fps;
+
+        // 1. Start SCK capture
+        let (sck_handle, frame_rx) =
+            match screencapturekit::start_display_capture(
+                screen_index as usize,
+                width,
+                height,
+                fps,
+                exclude_self,
+            ) {
+                Ok(result) => result,
+                Err(e) => {
+                    log::error!("Display capture failed for source {source_id:?}: {e}");
+                    let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                        message: format!(
+                            "Display capture failed: {e}. Check screen recording permission."
+                        ),
+                    });
+                    return;
+                }
+            };
+
+        // 2. Build GStreamer pipeline
+        let (pipeline, appsink, appsrc) = match build_display_capture_pipeline(width, height, fps) {
+            Ok(result) => result,
+            Err(e) => {
+                log::error!(
+                    "Failed to build display capture pipeline for source {source_id:?}: {e}"
+                );
+                let _ = screencapturekit::stop_display_capture(sck_handle);
+                return;
+            }
+        };
+
+        // 3. Set pipeline to Playing
+        if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
+            log::error!("Failed to start display capture for source {source_id:?}: {e}");
+            let _ = screencapturekit::stop_display_capture(sck_handle);
+            return;
+        }
+
+        // 4. Spawn frame-pump thread that forwards SCK frames into appsrc
+        let running = Arc::new(AtomicBool::new(true));
+        let running_clone = Arc::clone(&running);
+
+        std::thread::Builder::new()
+            .name(format!("display-capture-{screen_index}"))
+            .spawn(move || {
+                log::info!("Display capture pump thread started for screen {screen_index}");
+                while running_clone.load(Ordering::Relaxed) {
+                    match frame_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                        Ok(frame) => {
+                            let mut buffer =
+                                gstreamer::Buffer::with_size(frame.data.len()).unwrap();
+                            {
+                                let buf_ref = buffer.get_mut().unwrap();
+                                let mut map = buf_ref.map_writable().unwrap();
+                                map.as_mut_slice().copy_from_slice(&frame.data);
+                            }
+                            if appsrc.push_buffer(buffer).is_err() {
+                                log::warn!("Failed to push buffer to display appsrc, stopping");
+                                break;
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            log::warn!("Display capture frame channel disconnected");
+                            break;
+                        }
+                    }
+                }
+                log::info!("Display capture pump thread exiting for screen {screen_index}");
+            })
+            .expect("spawn display capture pump thread");
+
+        // 5. Store handle
+        self.captures.insert(
+            source_id,
+            CaptureHandle {
+                pipeline,
+                appsink,
+                capture_running: Some(running),
+                sck_handle: Some(sck_handle),
+            },
+        );
+        log::info!(
+            "Display capture pipeline started for source {source_id:?} (screen {screen_index})"
+        );
+    }
+
     /// Stop and remove the capture pipeline for the given source_id.
     fn remove_capture_source(&mut self, source_id: SourceId) {
         if let Some(handle) = self.captures.remove(&source_id) {
-            // Signal the window grab thread to stop (if any).
+            // Signal the capture thread to stop (if any).
             if let Some(ref running) = handle.capture_running {
                 running.store(false, Ordering::Relaxed);
+            }
+            // Stop ScreenCaptureKit stream before tearing down the pipeline.
+            #[cfg(target_os = "macos")]
+            if let Some(sck) = handle.sck_handle {
+                let _ = super::screencapturekit::stop_display_capture(sck);
             }
             let _ = handle.pipeline.set_state(gstreamer::State::Null);
             log::info!("Capture pipeline stopped for source {source_id:?}");
@@ -429,6 +556,10 @@ impl GstThread {
             if let Some(ref running) = handle.capture_running {
                 running.store(false, Ordering::Relaxed);
             }
+            #[cfg(target_os = "macos")]
+            if let Some(sck) = handle.sck_handle {
+                let _ = super::screencapturekit::stop_display_capture(sck);
+            }
             let _ = handle.pipeline.set_state(gstreamer::State::Null);
         }
         log::info!("All captures stopped");
@@ -459,6 +590,10 @@ impl GstThread {
         for (_, handle) in self.captures.drain() {
             if let Some(ref running) = handle.capture_running {
                 running.store(false, Ordering::Relaxed);
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(sck) = handle.sck_handle {
+                let _ = super::screencapturekit::stop_display_capture(sck);
             }
             let _ = handle.pipeline.set_state(gstreamer::State::Null);
         }
@@ -601,6 +736,10 @@ impl GstThread {
                     for (_, handle) in self.captures.drain() {
                         if let Some(ref running) = handle.capture_running {
                             running.store(false, Ordering::Relaxed);
+                        }
+                        #[cfg(target_os = "macos")]
+                        if let Some(sck) = handle.sck_handle {
+                            let _ = super::screencapturekit::stop_display_capture(sck);
                         }
                         let _ = handle.pipeline.set_state(gstreamer::State::Null);
                     }

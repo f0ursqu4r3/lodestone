@@ -131,6 +131,73 @@ pub fn grab_window_frame(window_id: u32) -> Option<(Vec<u8>, u32, u32)> {
     Some((rgba, width, height))
 }
 
+/// Build a GStreamer pipeline for display capture using `appsrc`.
+///
+/// Returns `(pipeline, appsink, appsrc)`. The caller pushes RGBA frames from
+/// ScreenCaptureKit into the `appsrc`; the `appsink` emits frames for the
+/// compositor.
+///
+/// Pipeline: `appsrc → videoconvert → videoscale → appsink`
+///
+/// No `videorate` — ScreenCaptureKit controls frame timing via
+/// `setMinimumFrameInterval`.
+#[cfg(target_os = "macos")]
+pub fn build_display_capture_pipeline(
+    width: u32,
+    height: u32,
+    fps: u32,
+) -> Result<(gstreamer::Pipeline, AppSink, AppSrc)> {
+    let pipeline = gstreamer::Pipeline::with_name("display-capture-pipeline");
+
+    let src_caps = gstreamer_video::VideoCapsBuilder::new()
+        .format(gstreamer_video::VideoFormat::Rgba)
+        .width(width as i32)
+        .height(height as i32)
+        .framerate(gstreamer::Fraction::new(fps as i32, 1))
+        .build();
+
+    let appsrc = AppSrc::builder()
+        .name("display-capture-src")
+        .caps(&src_caps)
+        .is_live(true)
+        .format(gstreamer::Format::Time)
+        .do_timestamp(true)
+        .build();
+
+    let convert = gstreamer::ElementFactory::make("videoconvert")
+        .name("display-capture-convert")
+        .build()
+        .context("Failed to create videoconvert for display capture")?;
+
+    let scale = gstreamer::ElementFactory::make("videoscale")
+        .name("display-capture-scale")
+        .build()
+        .context("Failed to create videoscale for display capture")?;
+
+    let sink_caps = gstreamer_video::VideoCapsBuilder::new()
+        .format(gstreamer_video::VideoFormat::Rgba)
+        .width(width as i32)
+        .height(height as i32)
+        .framerate(gstreamer::Fraction::new(fps as i32, 1))
+        .build();
+
+    let appsink = AppSink::builder()
+        .name("display-capture-sink")
+        .caps(&sink_caps)
+        .max_buffers(2)
+        .drop(true)
+        .build();
+
+    pipeline
+        .add_many([appsrc.upcast_ref(), &convert, &scale, appsink.upcast_ref()])
+        .context("Failed to add elements to display capture pipeline")?;
+
+    gstreamer::Element::link_many([appsrc.upcast_ref(), &convert, &scale, appsink.upcast_ref()])
+        .context("Failed to link display capture pipeline elements")?;
+
+    Ok((pipeline, appsink, appsrc))
+}
+
 /// Build a GStreamer pipeline for window capture using `appsrc`.
 ///
 /// Returns `(pipeline, appsink, appsrc)`. The caller pushes RGBA frames into

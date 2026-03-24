@@ -399,6 +399,15 @@ pub fn draw_transform_handles(
 ) {
     use crate::scene::SourceId;
 
+    // Skip all interaction when a dockview panel drag is active — otherwise
+    // dragging a panel tab over the preview would select/move sources underneath.
+    let dock_drag_active: bool = ui
+        .ctx()
+        .data(|d| d.get_temp(egui::Id::new("dock_drag_active")).unwrap_or(false));
+    if dock_drag_active {
+        return;
+    }
+
     let pointer = ui.input(|i| i.pointer.hover_pos());
     let primary_clicked = ui.input(|i| i.pointer.primary_clicked());
     let primary_down = ui.input(|i| i.pointer.primary_down());

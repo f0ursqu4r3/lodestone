@@ -183,6 +183,12 @@ pub fn render_layout(
     let group_drag_id = egui::Id::new("group_dock_drag");
     let has_tab_drag = layout.drag.is_some();
     let dragging_group = ctx.data(|d| d.get_temp::<GroupId>(group_drag_id));
+
+    // Signal to other systems (e.g. transform handles) that a dock drag is active,
+    // so they can suppress pointer interaction during panel rearrangement.
+    let dock_drag_active = has_tab_drag || dragging_group.is_some();
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("dock_drag_active"), dock_drag_active));
+
     let all_drop_rects = if has_tab_drag || dragging_group.is_some() {
         // Floating groups checked first (higher z-order)
         let mut rects: Vec<(GroupId, egui::Rect)> = Vec::new();

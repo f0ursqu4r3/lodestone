@@ -6,6 +6,7 @@ mod settings;
 mod state;
 mod ui;
 mod window;
+mod window_actions;
 
 use anyhow::Result;
 use muda::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};

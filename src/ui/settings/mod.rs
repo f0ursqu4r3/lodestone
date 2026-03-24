@@ -216,7 +216,7 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
         ui.with_layout(Layout::top_down(Align::Min), |ui| {
             ui.set_width(ui.available_width() - 24.0);
             match category {
-                SettingsCategory::General => general::draw(ui, &mut state.settings.general),
+                SettingsCategory::General => general::draw(ui, state),
                 SettingsCategory::StreamOutput => stream::draw(ui, &mut state.settings.stream),
                 SettingsCategory::Audio => audio::draw(ui, state),
                 SettingsCategory::Video => video::draw(ui, &mut state.settings.video),

@@ -70,6 +70,10 @@ pub enum GstCommand {
         source_id: SourceId,
         frame: RgbaFrame,
     },
+    /// Update display capture exclusion on all active display sources.
+    UpdateDisplayExclusion {
+        exclude_self: bool,
+    },
     #[allow(dead_code)]
     Shutdown,
 }

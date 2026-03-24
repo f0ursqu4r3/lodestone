@@ -32,6 +32,7 @@ use super::types::RgbaFrame;
 pub struct SCStreamHandle {
     stream: Retained<SCStream>,
     _delegate: Retained<StreamOutputDelegate>,
+    screen_index: usize,
 }
 
 // SAFETY: SCStream and the delegate are thread-safe ObjC objects managed by ARC.
@@ -171,6 +172,7 @@ pub fn start_display_capture(
     let handle = SCStreamHandle {
         stream,
         _delegate: delegate,
+        screen_index,
     };
 
     Ok((handle, frame_rx))
@@ -195,6 +197,38 @@ pub fn stop_display_capture(handle: SCStreamHandle) -> Result<()> {
     stop_rx
         .recv()
         .map_err(|_| anyhow!("Stop capture channel closed"))??;
+    Ok(())
+}
+
+/// Update the content filter on a running capture to change window exclusion.
+///
+/// Re-enumerates shareable content to pick up any new/closed windows, rebuilds
+/// the filter with the current exclusion setting, and applies it live.
+pub fn update_exclusion(handle: &SCStreamHandle, exclude_own_pid: bool) -> Result<()> {
+    let content = get_shareable_content()?;
+    let displays: Retained<NSArray<SCDisplay>> = unsafe { content.displays() };
+    if handle.screen_index >= displays.count() {
+        return Err(anyhow!("Display no longer available"));
+    }
+    let display = unsafe { displays.objectAtIndex_unchecked(handle.screen_index) };
+    let filter = build_content_filter(display, &content, exclude_own_pid)?;
+
+    let (tx, rx) = std_mpsc::channel();
+    let block = RcBlock::new(move |error: *mut NSError| {
+        if error.is_null() {
+            let _ = tx.send(Ok(()));
+        } else {
+            let desc = unsafe { (*error).localizedDescription().to_string() };
+            let _ = tx.send(Err(anyhow!("Failed to update content filter: {}", desc)));
+        }
+    });
+    unsafe {
+        handle
+            .stream
+            .updateContentFilter_completionHandler(&filter, Some(&block));
+    }
+    rx.recv()
+        .map_err(|_| anyhow!("Update filter channel closed"))??;
     Ok(())
 }
 

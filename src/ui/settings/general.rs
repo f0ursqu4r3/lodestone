@@ -1,13 +1,15 @@
 use egui::{Align, Layout, Ui};
 
-use crate::settings::GeneralSettings;
+use crate::gstreamer::GstCommand;
+use crate::state::AppState;
 
 use super::{
     draw_toggle, draw_toggle_unimplemented, labeled_row, labeled_row_unimplemented, section_header,
 };
 
-pub(super) fn draw(ui: &mut Ui, settings: &mut GeneralSettings) -> bool {
+pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
     let mut changed = false;
+    let settings = &mut state.settings.general;
 
     section_header(ui, "STARTUP");
 
@@ -28,11 +30,19 @@ pub(super) fn draw(ui: &mut Ui, settings: &mut GeneralSettings) -> bool {
 
     section_header(ui, "CAPTURE");
 
+    let prev_exclude = settings.exclude_self_from_capture;
     changed |= draw_toggle(
         ui,
         "Exclude Lodestone from capture",
         &mut settings.exclude_self_from_capture,
     );
+    if settings.exclude_self_from_capture != prev_exclude
+        && let Some(tx) = &state.command_tx
+    {
+        let _ = tx.try_send(GstCommand::UpdateDisplayExclusion {
+            exclude_self: settings.exclude_self_from_capture,
+        });
+    }
 
     section_header(ui, "EDITOR");
 

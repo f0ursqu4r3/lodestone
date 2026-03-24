@@ -452,6 +452,9 @@ impl GstThread {
             GstCommand::LoadImageFrame { source_id, frame } => {
                 self.handle_load_image_frame(source_id, frame)
             }
+            GstCommand::UpdateDisplayExclusion { exclude_self } => {
+                self.handle_update_display_exclusion(exclude_self)
+            }
             GstCommand::Shutdown => return self.handle_shutdown(),
         }
         false
@@ -571,6 +574,21 @@ impl GstThread {
     fn handle_remove_capture_source(&mut self, source_id: SourceId) {
         self.remove_capture_source(source_id);
     }
+
+    #[cfg(target_os = "macos")]
+    fn handle_update_display_exclusion(&mut self, exclude_self: bool) {
+        use super::screencapturekit;
+        for (source_id, handle) in &self.captures {
+            if let Some(sck) = &handle.sck_handle
+                && let Err(e) = screencapturekit::update_exclusion(sck, exclude_self)
+            {
+                log::warn!("Failed to update display exclusion for source {source_id:?}: {e}");
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn handle_update_display_exclusion(&mut self, _exclude_self: bool) {}
 
     fn handle_load_image_frame(&mut self, source_id: SourceId, frame: RgbaFrame) {
         self.channels

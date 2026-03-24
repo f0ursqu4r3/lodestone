@@ -98,12 +98,17 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // Track deferred deletion (collected after rendering).
     let mut delete_source: Option<SourceId> = None;
 
-    egui::ScrollArea::vertical().show(ui, |ui| match view {
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            match view {
         LibraryView::ByType => {
             draw_by_type_view(ui, state, &rows, display_mode, &mut delete_source);
         }
-        LibraryView::Folders => {
-            draw_folders_view(ui, state, &rows, display_mode, &mut delete_source);
+            LibraryView::Folders => {
+                draw_folders_view(ui, state, &rows, display_mode, &mut delete_source);
+            }
         }
     });
 

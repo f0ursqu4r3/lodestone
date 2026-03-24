@@ -295,6 +295,8 @@ fn draw_source_properties(
     let mut changed = false;
 
     let source_type = state.library[lib_idx].source_type.clone();
+    let cmd_tx_for_display = state.command_tx.clone();
+    let exclude_self = state.settings.general.exclude_self_from_capture;
     match source_type {
         SourceType::Display => {
             section_label(ui, "SOURCE");
@@ -321,6 +323,19 @@ fn draw_source_properties(
                 });
 
                 if *screen_index != prev_index {
+                    // Stop old capture, start new one with the new monitor.
+                    if let Some(ref tx) = cmd_tx_for_display {
+                        let _ = tx.try_send(GstCommand::RemoveCaptureSource {
+                            source_id: selected_id,
+                        });
+                        let _ = tx.try_send(GstCommand::AddCaptureSource {
+                            source_id: selected_id,
+                            config: CaptureSourceConfig::Screen {
+                                screen_index: *screen_index,
+                                exclude_self,
+                            },
+                        });
+                    }
                     changed = true;
                 }
             }

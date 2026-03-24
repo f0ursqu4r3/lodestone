@@ -111,7 +111,8 @@ impl WindowState {
         state: &mut AppState,
     ) -> Result<(Vec<DetachRequest>, bool)> {
         // Sync cached accent color from settings string (once per frame).
-        state.accent_color = crate::ui::theme::parse_hex_color(&state.settings.appearance.accent_color);
+        state.accent_color =
+            crate::ui::theme::parse_hex_color(&state.settings.appearance.accent_color);
         // Also store in egui context data so layout renderers (which don't have state) can read it.
         self.egui_ctx.data_mut(|d| {
             d.insert_temp(egui::Id::new("accent_color"), state.accent_color);

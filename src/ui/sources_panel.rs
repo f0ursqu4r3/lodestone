@@ -9,9 +9,7 @@ use crate::scene::{SceneId, SceneSource, SourceId, SourceOverrides, SourceProper
 use crate::state::AppState;
 use crate::ui::draw_helpers::{draw_selection_highlight, source_icon, with_opacity};
 use crate::ui::layout::tree::PanelId;
-use crate::ui::theme::{
-    BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_dim,
-};
+use crate::ui::theme::{BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_dim};
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, vec2};
 
 /// Payload type for drag-to-reorder within the source list.

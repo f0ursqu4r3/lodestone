@@ -844,10 +844,10 @@ impl GstThread {
                     Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
                 }
                 #[cfg(target_os = "macos")]
-                if let Some(ref handle) = self.virtual_camera_handle {
-                    if let Err(e) = super::virtual_camera::write_frame(handle, &frame) {
-                        log::warn!("Virtual camera frame write failed: {e}");
-                    }
+                if let Some(ref handle) = self.virtual_camera_handle
+                    && let Err(e) = super::virtual_camera::write_frame(handle, &frame)
+                {
+                    log::warn!("Virtual camera frame write failed: {e}");
                 }
             }
 

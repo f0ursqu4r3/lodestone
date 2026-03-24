@@ -15,8 +15,8 @@ use egui::{
 
 use crate::state::AppState;
 use crate::ui::theme::{
-    BG_BASE, BG_ELEVATED, BG_SURFACE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
-    accent_color_ui, parse_hex_color,
+    BG_BASE, BG_ELEVATED, BG_SURFACE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, accent_color_ui,
+    parse_hex_color,
 };
 
 // ── Category enum ─────────────────────────────────────────────────────────────
@@ -306,7 +306,11 @@ pub(super) fn toggle_switch(on: &mut bool) -> impl Widget + '_ {
             let anim_id = response.id.with("toggle_anim");
             let t = ui.ctx().animate_bool_with_time(anim_id, *on, 0.15);
 
-            let bg_color = if *on { accent_color_ui(ui) } else { BG_ELEVATED };
+            let bg_color = if *on {
+                accent_color_ui(ui)
+            } else {
+                BG_ELEVATED
+            };
 
             let knob_radius = 7.0;
             let knob_x = egui::lerp(

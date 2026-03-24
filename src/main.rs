@@ -367,9 +367,8 @@ impl AppManager {
         if state.settings.general.exclude_self_from_capture
             && let Some(tx) = &state.command_tx
         {
-            let _ = tx.try_send(gstreamer::GstCommand::UpdateDisplayExclusion {
-                exclude_self: true,
-            });
+            let _ =
+                tx.try_send(gstreamer::GstCommand::UpdateDisplayExclusion { exclude_self: true });
         }
     }
 

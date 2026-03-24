@@ -12,17 +12,14 @@ use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Result, anyhow};
+use objc2::AllocAnyThread;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::AllocAnyThread;
-use objc2_foundation::{
-    NSDictionary, NSNumber, NSString, NSUserDefaults,
-};
+use objc2_foundation::{NSDictionary, NSNumber, NSString, NSUserDefaults};
 use objc2_io_surface::{
-    IOSurface, IOSurfaceLockOptions, IOSurfacePropertyKey,
-    IOSurfacePropertyKeyAllocSize, IOSurfacePropertyKeyBytesPerElement,
-    IOSurfacePropertyKeyBytesPerRow, IOSurfacePropertyKeyHeight,
-    IOSurfacePropertyKeyPixelFormat, IOSurfacePropertyKeyWidth,
+    IOSurface, IOSurfaceLockOptions, IOSurfacePropertyKey, IOSurfacePropertyKeyAllocSize,
+    IOSurfacePropertyKeyBytesPerElement, IOSurfacePropertyKeyBytesPerRow,
+    IOSurfacePropertyKeyHeight, IOSurfacePropertyKeyPixelFormat, IOSurfacePropertyKeyWidth,
 };
 
 use super::types::RgbaFrame;
@@ -85,14 +82,7 @@ pub fn start_virtual_camera(width: u32, height: u32, fps: u32) -> Result<Virtual
         let v_alloc = NSNumber::numberWithUnsignedInt(alloc_size as c_uint);
         let v_pixel_fmt = NSNumber::numberWithUnsignedInt(PIXEL_FORMAT_BGRA as c_uint);
 
-        let values: &[&AnyObject] = &[
-            &v_width,
-            &v_height,
-            &v_bpe,
-            &v_bpr,
-            &v_alloc,
-            &v_pixel_fmt,
-        ];
+        let values: &[&AnyObject] = &[&v_width, &v_height, &v_bpe, &v_bpr, &v_alloc, &v_pixel_fmt];
 
         let props: Retained<NSDictionary<IOSurfacePropertyKey, AnyObject>> =
             NSDictionary::from_slices(keys, values);
@@ -158,9 +148,9 @@ pub fn write_frame(handle: &VirtualCameraHandle, frame: &RgbaFrame) -> Result<()
                 let dst_pixel = dst_row.add(col * 4);
 
                 // RGBA -> BGRA: swap R and B, copy G and A.
-                *dst_pixel = *src_pixel.add(2);       // B
+                *dst_pixel = *src_pixel.add(2); // B
                 *dst_pixel.add(1) = *src_pixel.add(1); // G
-                *dst_pixel.add(2) = *src_pixel;        // R
+                *dst_pixel.add(2) = *src_pixel; // R
                 *dst_pixel.add(3) = *src_pixel.add(3); // A
             }
         }

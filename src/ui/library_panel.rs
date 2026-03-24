@@ -10,8 +10,7 @@ use crate::state::AppState;
 use crate::ui::draw_helpers::{draw_segmented_buttons, draw_selection_highlight, source_icon};
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{
-    BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
-    accent_dim,
+    BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, accent_dim,
 };
 use egui::{CornerRadius, Rect, Sense, Stroke, vec2};
 

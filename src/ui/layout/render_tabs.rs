@@ -4,8 +4,8 @@ use super::render::{DOCKABLE_TYPES, LayoutAction, paint_grip_dots};
 use super::tree::{DockLayout, GroupId};
 
 use crate::ui::theme::{
-    ADD_BUTTON_WIDTH, BG_ELEVATED, BG_PANEL, BG_SURFACE, DOCK_GRIP_WIDTH,
-    PANEL_PADDING, TAB_BAR_HEIGHT, TEXT_PRIMARY, TEXT_SECONDARY, accent_color_ui,
+    ADD_BUTTON_WIDTH, BG_ELEVATED, BG_PANEL, BG_SURFACE, DOCK_GRIP_WIDTH, PANEL_PADDING,
+    TAB_BAR_HEIGHT, TEXT_PRIMARY, TEXT_SECONDARY, accent_color_ui,
 };
 
 /// Context flags for tab bar rendering.

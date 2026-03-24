@@ -40,6 +40,77 @@ fn source_icon(source_type: &SourceType) -> &'static str {
     }
 }
 
+/// Draw a segmented button group: connected icon toggles with a shared background.
+/// Returns `Some(index)` if a button was clicked.
+fn draw_segmented_buttons(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    buttons: &[(&str, &str, bool)], // (icon, tooltip, is_active)
+) -> Option<usize> {
+    let mut clicked = None;
+    let btn_size = 20.0_f32;
+    let total_width = btn_size * buttons.len() as f32;
+    let height = 18.0_f32;
+
+    // Allocate the full segment rect.
+    let (seg_rect, _) = ui.allocate_exact_size(vec2(total_width, height), Sense::hover());
+
+    // Draw shared background.
+    let painter = ui.painter_at(seg_rect);
+    painter.rect_filled(
+        seg_rect,
+        CornerRadius::same(RADIUS_SM as u8),
+        BG_ELEVATED,
+    );
+
+    // Draw each button.
+    for (i, (icon, tooltip, active)) in buttons.iter().enumerate() {
+        let btn_rect = egui::Rect::from_min_size(
+            egui::pos2(seg_rect.left() + i as f32 * btn_size, seg_rect.top()),
+            vec2(btn_size, height),
+        );
+
+        // Invisible click target.
+        let btn_id = ui.make_persistent_id((id_salt, i));
+        let response = ui.interact(btn_rect, btn_id, Sense::click());
+
+        if response.clicked() {
+            clicked = Some(i);
+        }
+
+        // Active highlight.
+        if *active {
+            painter.rect_filled(
+                btn_rect,
+                CornerRadius::same(RADIUS_SM as u8),
+                accent_dim(DEFAULT_ACCENT),
+            );
+        } else if response.hovered() {
+            painter.rect_filled(
+                btn_rect,
+                CornerRadius::same(RADIUS_SM as u8),
+                BORDER,
+            );
+        }
+
+        // Icon.
+        let icon_color = if *active { TEXT_PRIMARY } else { TEXT_MUTED };
+        painter.text(
+            btn_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            *icon,
+            egui::FontId::proportional(11.0),
+            icon_color,
+        );
+
+        if response.hovered() {
+            response.on_hover_text(*tooltip);
+        }
+    }
+
+    clicked
+}
+
 /// Draw the library panel.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // Persist view mode and display mode across frames.
@@ -53,55 +124,62 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         .unwrap_or(LibraryDisplayMode::List);
 
     // ── Header row ──
-    // Left: title + add button | Right: [list] [grid]  [type] [folder]
+    // Left: [+] add source | Right: [list|grid] | [type|folder]
     ui.horizontal(|ui| {
-        // Left group: title + add source menu
-        ui.colored_label(TEXT_PRIMARY, "Library");
         draw_add_button(ui, state);
 
-        // Right group: display mode + grouping toggles
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Grouping toggles (rightmost)
-            if ui
-                .selectable_label(view == LibraryView::Folders, egui_phosphor::regular::FOLDER)
-                .on_hover_text("Group by folder")
-                .clicked()
-            {
+            // Group-by segment (rightmost)
+            let group_btns: &[(&str, &str, bool)] = &[
+                (
+                    egui_phosphor::regular::SQUARES_FOUR,
+                    "Group by type",
+                    view == LibraryView::ByType,
+                ),
+                (
+                    egui_phosphor::regular::FOLDER,
+                    "Group by folder",
+                    view == LibraryView::Folders,
+                ),
+            ];
+            let group_clicked = draw_segmented_buttons(ui, "lib_group_seg", group_btns);
+            if group_clicked == Some(0) {
+                view = LibraryView::ByType;
+            } else if group_clicked == Some(1) {
                 view = LibraryView::Folders;
             }
-            if ui
-                .selectable_label(
-                    view == LibraryView::ByType,
-                    egui_phosphor::regular::SQUARES_FOUR,
-                )
-                .on_hover_text("Group by type")
-                .clicked()
-            {
-                view = LibraryView::ByType;
-            }
 
-            ui.add_space(6.0);
+            // Separator
+            ui.add_space(2.0);
+            let sep_rect = ui.allocate_exact_size(
+                vec2(1.0, ui.available_height()),
+                Sense::hover(),
+            ).0;
+            ui.painter()
+                .line_segment(
+                    [sep_rect.left_top(), sep_rect.left_bottom()],
+                    egui::Stroke::new(1.0, BORDER),
+                );
+            ui.add_space(2.0);
 
-            // Display mode toggles
-            if ui
-                .selectable_label(
-                    display_mode == LibraryDisplayMode::Grid,
-                    egui_phosphor::regular::GRID_FOUR,
-                )
-                .on_hover_text("Icon view")
-                .clicked()
-            {
-                display_mode = LibraryDisplayMode::Grid;
-            }
-            if ui
-                .selectable_label(
-                    display_mode == LibraryDisplayMode::List,
+            // View-as segment
+            let view_btns: &[(&str, &str, bool)] = &[
+                (
                     egui_phosphor::regular::LIST,
-                )
-                .on_hover_text("List view")
-                .clicked()
-            {
+                    "List view",
+                    display_mode == LibraryDisplayMode::List,
+                ),
+                (
+                    egui_phosphor::regular::GRID_FOUR,
+                    "Icon view",
+                    display_mode == LibraryDisplayMode::Grid,
+                ),
+            ];
+            let view_clicked = draw_segmented_buttons(ui, "lib_view_seg", view_btns);
+            if view_clicked == Some(0) {
                 display_mode = LibraryDisplayMode::List;
+            } else if view_clicked == Some(1) {
+                display_mode = LibraryDisplayMode::Grid;
             }
         });
     });

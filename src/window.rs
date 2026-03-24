@@ -497,7 +497,7 @@ impl WindowState {
         let raw_input = self.egui_state.take_egui_input(self.window);
 
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            crate::ui::settings_window::render_native(ctx, state);
+            crate::ui::settings::render_native(ctx, state);
         });
 
         let pixels_per_point = full_output.pixels_per_point;

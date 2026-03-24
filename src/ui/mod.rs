@@ -7,7 +7,7 @@ pub mod library_panel;
 pub mod preview_panel;
 pub mod properties_panel;
 pub mod scenes_panel;
-pub mod settings_window;
+pub mod settings;
 pub mod sources_panel;
 pub mod stream_controls;
 pub mod toolbar;

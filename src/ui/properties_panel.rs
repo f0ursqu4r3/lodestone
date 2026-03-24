@@ -1,13 +1,14 @@
 //! Properties panel — context-sensitive property editor for the selected source.
 //!
-//! Shows transform, opacity, and source-specific settings for whichever source
-//! is selected in the Sources panel (`state.selected_source_id`).
+//! Works in two modes:
+//! - **Library mode** — source is not in the active scene: edits library defaults directly
+//! - **Scene mode** — source is in the active scene: edits scene overrides, shows override dots
 
 use crate::gstreamer::{CaptureSourceConfig, GstCommand, GstError};
 use crate::scene::{SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
-use crate::ui::theme::{TEXT_MUTED, TEXT_SECONDARY};
+use crate::ui::theme::{DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY};
 
 /// Draw the properties panel. Shows an empty-state message when no source is
 /// selected, or transform / opacity / source-specific controls when one is.
@@ -25,8 +26,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         return;
     };
 
-    // Find the source index so we can get a mutable reference later.
-    let Some(source_idx) = state.library.iter().position(|s| s.id == selected_id) else {
+    // Find the library source index.
+    let Some(lib_idx) = state.library.iter().position(|s| s.id == selected_id) else {
         ui.label(
             egui::RichText::new("Source not found")
                 .color(TEXT_MUTED)
@@ -35,16 +36,101 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         return;
     };
 
+    // Determine editing context: is this source in the active scene?
+    let in_active_scene = state
+        .active_scene()
+        .map(|s| s.sources.iter().any(|ss| ss.source_id == selected_id))
+        .unwrap_or(false);
+
+    // Show mode header.
+    if in_active_scene {
+        let scene_name = state
+            .active_scene()
+            .map(|s| s.name.clone())
+            .unwrap_or_default();
+        ui.label(
+            egui::RichText::new(format!("SCENE OVERRIDE — {}", scene_name.to_uppercase()))
+                .color(DEFAULT_ACCENT)
+                .size(9.0),
+        );
+    } else {
+        ui.label(
+            egui::RichText::new("LIBRARY DEFAULTS")
+                .color(TEXT_MUTED)
+                .size(9.0),
+        );
+    }
+
+    ui.add_space(8.0);
+
     let mut changed = false;
 
     // ── TRANSFORM ──
 
-    section_label(ui, "TRANSFORM");
+    if in_active_scene {
+        // Read current values from scene override + library.
+        let lib_source = &state.library[lib_idx];
+        let scene_source = state
+            .active_scene()
+            .and_then(|s| s.find_source(selected_id));
+        let is_overridden = scene_source
+            .map(|ss| ss.is_transform_overridden())
+            .unwrap_or(false);
+        let mut transform = scene_source
+            .map(|ss| ss.resolve_transform(lib_source))
+            .unwrap_or(lib_source.transform);
 
-    ui.add_space(4.0);
+        let text_color = if is_overridden {
+            TEXT_PRIMARY
+        } else {
+            TEXT_MUTED
+        };
 
-    {
-        let source = &mut state.library[source_idx];
+        ui.horizontal(|ui| {
+            let reset = override_dot(ui, is_overridden);
+            if reset
+                && let Some(scene) = state.active_scene_mut()
+                && let Some(ss) = scene.find_source_mut(selected_id)
+            {
+                ss.overrides.transform = None;
+                changed = true;
+            }
+            section_label(ui, "TRANSFORM");
+        });
+
+        ui.add_space(4.0);
+
+        let mut transform_changed = false;
+
+        // X / Y row
+        ui.horizontal(|ui| {
+            transform_changed |= drag_field_colored(ui, "X", &mut transform.x, text_color);
+            ui.add_space(8.0);
+            transform_changed |= drag_field_colored(ui, "Y", &mut transform.y, text_color);
+        });
+
+        ui.add_space(2.0);
+
+        // W / H row
+        ui.horizontal(|ui| {
+            transform_changed |= drag_field_colored(ui, "W", &mut transform.width, text_color);
+            ui.add_space(8.0);
+            transform_changed |= drag_field_colored(ui, "H", &mut transform.height, text_color);
+        });
+
+        if transform_changed
+            && let Some(scene) = state.active_scene_mut()
+            && let Some(ss) = scene.find_source_mut(selected_id)
+        {
+            ss.overrides.transform = Some(transform);
+            changed = true;
+        }
+    } else {
+        // Library mode: edit library source directly, no dots.
+        section_label(ui, "TRANSFORM");
+        ui.add_space(4.0);
+
+        let source = &mut state.library[lib_idx];
 
         // X / Y row
         ui.horizontal(|ui| {
@@ -67,12 +153,66 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     // ── OPACITY ──
 
-    section_label(ui, "OPACITY");
+    if in_active_scene {
+        // Read current values from scene override + library.
+        let lib_source = &state.library[lib_idx];
+        let scene_source = state
+            .active_scene()
+            .and_then(|s| s.find_source(selected_id));
+        let is_overridden = scene_source
+            .map(|ss| ss.is_opacity_overridden())
+            .unwrap_or(false);
+        let mut opacity = scene_source
+            .map(|ss| ss.resolve_opacity(lib_source))
+            .unwrap_or(lib_source.opacity);
 
-    ui.add_space(4.0);
+        let text_color = if is_overridden {
+            TEXT_PRIMARY
+        } else {
+            TEXT_MUTED
+        };
 
-    {
-        let source = &mut state.library[source_idx];
+        ui.horizontal(|ui| {
+            let reset = override_dot(ui, is_overridden);
+            if reset
+                && let Some(scene) = state.active_scene_mut()
+                && let Some(ss) = scene.find_source_mut(selected_id)
+            {
+                ss.overrides.opacity = None;
+                changed = true;
+            }
+            section_label(ui, "OPACITY");
+        });
+
+        ui.add_space(4.0);
+
+        let prev_opacity = opacity;
+        ui.horizontal(|ui| {
+            let slider = egui::Slider::new(&mut opacity, 0.0..=1.0).show_value(false);
+            if ui.add(slider).changed() {
+                // Will be handled below.
+            }
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(format!("{}%", (opacity * 100.0).round() as u32))
+                    .color(text_color)
+                    .size(10.0),
+            );
+        });
+
+        if (opacity - prev_opacity).abs() > f32::EPSILON
+            && let Some(scene) = state.active_scene_mut()
+            && let Some(ss) = scene.find_source_mut(selected_id)
+        {
+            ss.overrides.opacity = Some(opacity);
+            changed = true;
+        }
+    } else {
+        // Library mode: edit library source directly, no dots.
+        section_label(ui, "OPACITY");
+        ui.add_space(4.0);
+
+        let source = &mut state.library[lib_idx];
         ui.horizontal(|ui| {
             let slider = egui::Slider::new(&mut source.opacity, 0.0..=1.0).show_value(false);
             if ui.add(slider).changed() {
@@ -89,16 +229,16 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     ui.add_space(12.0);
 
-    // ── SOURCE ──
+    // ── SOURCE (device config — always edits library directly) ──
 
-    let source_type = state.library[source_idx].source_type.clone();
+    let source_type = state.library[lib_idx].source_type.clone();
     match source_type {
         SourceType::Display => {
             section_label(ui, "SOURCE");
             ui.add_space(4.0);
 
             let monitor_count = state.monitor_count;
-            let source = &mut state.library[source_idx];
+            let source = &mut state.library[lib_idx];
             if let SourceProperties::Display {
                 ref mut screen_index,
             } = source.properties
@@ -130,7 +270,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let cmd_tx = state.command_tx.clone();
             let src_id = selected_id;
 
-            let source = &mut state.library[source_idx];
+            let source = &mut state.library[lib_idx];
             if let SourceProperties::Image { ref mut path } = source.properties {
                 // Path text input.
                 let hint = if path.is_empty() {
@@ -165,7 +305,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                             .pick_file()
                     {
                         let picked_str = picked.to_string_lossy().to_string();
-                        load_and_send_image(state, source_idx, src_id, &cmd_tx, picked_str);
+                        load_and_send_image(state, lib_idx, src_id, &cmd_tx, picked_str);
                         changed = true;
                     }
 
@@ -179,7 +319,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         {
                             load_and_send_image(
                                 state,
-                                source_idx,
+                                lib_idx,
                                 src_id,
                                 &cmd_tx,
                                 current_path.clone(),
@@ -198,7 +338,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let windows = state.available_windows.clone();
             let cmd_tx = state.command_tx.clone();
 
-            let source = &mut state.library[source_idx];
+            let source = &mut state.library[lib_idx];
             let SourceProperties::Window {
                 ref mut window_id,
                 ref mut window_title,
@@ -273,7 +413,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let cameras = state.available_cameras.clone();
             let cmd_tx = state.command_tx.clone();
 
-            let source = &mut state.library[source_idx];
+            let source = &mut state.library[lib_idx];
             let SourceProperties::Camera {
                 ref mut device_index,
                 ref mut device_name,
@@ -332,6 +472,29 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     }
 }
 
+/// Draw a small override indicator dot. Returns `true` if the user right-clicked
+/// and chose "Reset to library default".
+fn override_dot(ui: &mut egui::Ui, is_overridden: bool) -> bool {
+    let size = 6.0;
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
+    if is_overridden {
+        ui.painter()
+            .circle_filled(rect.center(), size / 2.0, DEFAULT_ACCENT);
+    }
+    // Right-click to reset.
+    let mut reset = false;
+    if is_overridden {
+        response.context_menu(|ui| {
+            if ui.button("Reset to library default").clicked() {
+                reset = true;
+                ui.close();
+            }
+        });
+    }
+    reset
+}
+
 /// Render a section heading in the style: 9px uppercase `TEXT_MUTED` with letter spacing.
 fn section_label(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(text).color(TEXT_MUTED).size(9.0));
@@ -340,6 +503,23 @@ fn section_label(ui: &mut egui::Ui, text: &str) {
 /// Render a labeled `DragValue` field and return whether the value changed.
 fn drag_field(ui: &mut egui::Ui, label: &str, value: &mut f32) -> bool {
     ui.label(egui::RichText::new(label).color(TEXT_MUTED).size(10.0));
+    ui.add(
+        egui::DragValue::new(value)
+            .speed(1.0)
+            .update_while_editing(false),
+    )
+    .changed()
+}
+
+/// Render a labeled `DragValue` field with a specific label color, and return
+/// whether the value changed.
+fn drag_field_colored(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut f32,
+    label_color: egui::Color32,
+) -> bool {
+    ui.label(egui::RichText::new(label).color(label_color).size(10.0));
     ui.add(
         egui::DragValue::new(value)
             .speed(1.0)

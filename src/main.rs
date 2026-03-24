@@ -361,6 +361,18 @@ impl AppManager {
         log::info!("Layout reset to default");
     }
 
+    /// Refresh SCK display capture exclusion filter after a window is created or destroyed.
+    fn refresh_display_exclusion(&self) {
+        let state = self.state.lock().unwrap();
+        if state.settings.general.exclude_self_from_capture
+            && let Some(tx) = &state.command_tx
+        {
+            let _ = tx.try_send(gstreamer::GstCommand::UpdateDisplayExclusion {
+                exclude_self: true,
+            });
+        }
+    }
+
     /// Close the settings window if it's open.
     fn close_settings_window(&mut self) {
         if let Some(settings_id) = self.settings_window_id.take()
@@ -372,6 +384,7 @@ impl AppManager {
             unsafe {
                 drop(Box::from_raw(win_ptr));
             }
+            self.refresh_display_exclusion();
         }
     }
 }
@@ -581,6 +594,7 @@ impl ApplicationHandler for AppManager {
                         unsafe {
                             drop(Box::from_raw(win_ptr));
                         }
+                        self.refresh_display_exclusion();
                     }
                     self.save_layout();
                 }
@@ -907,6 +921,7 @@ impl ApplicationHandler for AppManager {
                 let window_id = window.id();
                 self.windows.insert(window_id, win_state);
                 self.settings_window_id = Some(window_id);
+                self.refresh_display_exclusion();
             }
         }
 
@@ -933,6 +948,7 @@ impl ApplicationHandler for AppManager {
                         .expect("init detached window");
                 self.windows.insert(window.id(), win_state);
             }
+            self.refresh_display_exclusion();
         }
 
         // Request redraws only when new content arrived — avoids a tight busy

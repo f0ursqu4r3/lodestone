@@ -59,20 +59,33 @@ fn draw_channel_strip(
     ui.vertical(|ui| {
         // Source label: 9px uppercase TEXT_MUTED, centered
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            ui.set_width(40.0);
+            ui.set_width(46.0);
             ui.label(egui::RichText::new(name).size(9.0).color(TEXT_MUTED));
 
             ui.add_space(4.0);
 
-            // VU meter: 8px wide, fills available height minus label/dB/mute overhead.
+            // VU meter + volume fader side by side, filling available height.
             let vu_width = 8.0_f32;
-            let fixed_overhead = 4.0 + 14.0 + 4.0 + 16.0; // spacer + dB + spacer + mute
+            let fader_width = 8.0_f32;
+            let strip_gap = 4.0_f32;
+            // overhead: spacer + dB + spacer + mute
+            let fixed_overhead = 4.0 + 14.0 + 4.0 + 16.0;
             let vu_height = (ui.available_height() - fixed_overhead).max(20.0);
             let fill_frac = ((current_db + 60.0) / 60.0).clamp(0.0, 1.0);
             let filled_height = vu_height * fill_frac;
 
-            let (rect, _) =
-                ui.allocate_exact_size(egui::vec2(vu_width, vu_height), egui::Sense::hover());
+            let total_width = vu_width + strip_gap + fader_width;
+            let (strip_rect, _) =
+                ui.allocate_exact_size(egui::vec2(total_width, vu_height), egui::Sense::hover());
+            // VU meter on the left, volume fader on the right.
+            let rect = egui::Rect::from_min_size(
+                strip_rect.min,
+                egui::vec2(vu_width, vu_height),
+            );
+            let fader_rect = egui::Rect::from_min_size(
+                egui::pos2(strip_rect.min.x + vu_width + strip_gap, strip_rect.min.y),
+                egui::vec2(fader_width, vu_height),
+            );
 
             // Background: BG_BASE with 4px corner radius
             ui.painter().rect(
@@ -139,6 +152,61 @@ fn draw_channel_strip(
                     );
                     ui.painter().rect_filled(row_rect, 0.0, color);
                 }
+            }
+
+            // ── Volume fader (right side of strip) ──
+            {
+                let painter = ui.painter();
+                // Fader track background.
+                painter.rect(
+                    fader_rect,
+                    4.0,
+                    BG_BASE,
+                    egui::Stroke::new(1.0, BORDER),
+                    StrokeKind::Outside,
+                );
+
+                // Read current volume from egui memory (0.0–1.0).
+                let vol_id = egui::Id::new(("audio_vol", name));
+                let mut volume: f32 = ui.memory(|m| m.data.get_temp(vol_id).unwrap_or(1.0));
+
+                // Fill representing current volume level.
+                let fill_h = fader_rect.height() * volume;
+                if fill_h > 0.0 {
+                    let fill_rect = egui::Rect::from_min_max(
+                        egui::pos2(fader_rect.min.x + 1.0, fader_rect.max.y - fill_h),
+                        egui::pos2(fader_rect.max.x - 1.0, fader_rect.max.y),
+                    );
+                    painter.rect_filled(fill_rect, 0.0, TEXT_MUTED);
+                }
+
+                // Thumb line at volume position.
+                let thumb_y = fader_rect.max.y - fader_rect.height() * volume;
+                let thumb_rect = egui::Rect::from_center_size(
+                    egui::pos2(fader_rect.center().x, thumb_y),
+                    egui::vec2(fader_rect.width() + 4.0, 3.0),
+                );
+                painter.rect_filled(thumb_rect, 1.0, egui::Color32::WHITE);
+
+                // Handle drag interaction on the fader area.
+                let fader_response = ui.interact(
+                    fader_rect,
+                    egui::Id::new(("audio_fader", name)),
+                    egui::Sense::drag(),
+                );
+                if fader_response.dragged()
+                    && let Some(pos) = ui.input(|i| i.pointer.hover_pos())
+                {
+                    volume = 1.0
+                        - ((pos.y - fader_rect.min.y) / fader_rect.height()).clamp(0.0, 1.0);
+                    if let Some(ref tx) = state.command_tx {
+                        let _ = tx.try_send(GstCommand::SetAudioVolume {
+                            source: kind,
+                            volume,
+                        });
+                    }
+                }
+                ui.memory_mut(|m| m.data.insert_temp(vol_id, volume));
             }
 
             ui.add_space(4.0);

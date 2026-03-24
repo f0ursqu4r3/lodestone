@@ -1,6 +1,5 @@
 use crate::gstreamer::{GstCommand, GstError};
-#[allow(deprecated)]
-use crate::scene::{Scene, SceneId, Source, SourceId};
+use crate::scene::{LibrarySource, Scene, SceneId, SourceId};
 use crate::settings::AppSettings;
 
 #[derive(Debug, Clone)]
@@ -31,7 +30,7 @@ pub enum RecordingStatus {
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub scenes: Vec<Scene>,
-    pub sources: Vec<Source>,
+    pub sources: Vec<LibrarySource>,
     pub active_scene_id: Option<SceneId>,
     pub selected_source_id: Option<SourceId>,
     pub audio_levels: crate::gstreamer::AudioLevelUpdate,

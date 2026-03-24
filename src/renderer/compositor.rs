@@ -6,8 +6,7 @@ use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Device, Queue, TextureFormat};
 
 use crate::gstreamer::RgbaFrame;
-#[allow(deprecated)]
-use crate::scene::{Source, SourceId};
+use crate::scene::{LibrarySource, SourceId};
 
 // ---------------------------------------------------------------------------
 // WGSL shaders
@@ -622,7 +621,7 @@ impl Compositor {
     ///
     /// Always clears the canvas to black first, then draws each visible source
     /// with its own per-source uniform buffer to avoid data races.
-    pub fn compose(&self, queue: &Queue, encoder: &mut wgpu::CommandEncoder, sources: &[&Source]) {
+    pub fn compose(&self, queue: &Queue, encoder: &mut wgpu::CommandEncoder, sources: &[&LibrarySource]) {
         let cw = self.canvas_width as f32;
         let ch = self.canvas_height as f32;
 

@@ -748,7 +748,7 @@ impl ApplicationHandler for AppManager {
         if let Some(ref gpu) = self.gpu {
             let app_state = self.state.lock().expect("lock AppState");
             if let Some(active_scene_id) = app_state.active_scene_id {
-                // Resolve source IDs to Source references.
+                // Resolve source IDs to LibrarySource references.
                 let source_ids: Vec<_> = app_state
                     .scenes
                     .iter()
@@ -756,8 +756,7 @@ impl ApplicationHandler for AppManager {
                     .map(|s| s.source_ids())
                     .unwrap_or_default();
 
-                #[allow(deprecated)]
-                let resolved_sources: Vec<&crate::scene::Source> = source_ids
+                let resolved_sources: Vec<&crate::scene::LibrarySource> = source_ids
                     .iter()
                     .filter_map(|sid| app_state.sources.iter().find(|s| s.id == *sid))
                     .collect();

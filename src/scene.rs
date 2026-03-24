@@ -10,6 +10,7 @@ pub struct SourceId(pub u64);
 
 /// Backward-compatible alias for `LibrarySource`. Will be removed in Task 3.
 #[deprecated(note = "Use LibrarySource instead — will be removed in Task 3")]
+#[allow(dead_code)] // Kept for external/migration compatibility until Task 3
 pub type Source = LibrarySource;
 
 /// A scene contains an ordered list of source references with optional per-scene overrides.
@@ -113,6 +114,7 @@ impl Default for SourceProperties {
     }
 }
 
+#[allow(dead_code)] // Resolve/override methods will be used by compositor and UI override tasks
 impl SceneSource {
     /// Create a new scene source reference with no overrides.
     pub fn new(source_id: SourceId) -> Self {
@@ -198,11 +200,13 @@ impl Scene {
     }
 
     /// Find a scene source reference by its source ID.
+    #[allow(dead_code)] // Will be used by scene composition and override UI tasks
     pub fn find_source(&self, source_id: SourceId) -> Option<&SceneSource> {
         self.sources.iter().find(|s| s.source_id == source_id)
     }
 
     /// Find a mutable scene source reference by its source ID.
+    #[allow(dead_code)] // Will be used by scene composition and override UI tasks
     pub fn find_source_mut(&mut self, source_id: SourceId) -> Option<&mut SceneSource> {
         self.sources.iter_mut().find(|s| s.source_id == source_id)
     }
@@ -247,12 +251,14 @@ fn default_native_size() -> (f32, f32) {
 impl SceneCollection {
     /// Backward-compatible accessor for the source library. Will be removed in Task 3.
     #[deprecated(note = "Use .library instead — will be removed in Task 3")]
+    #[allow(dead_code)] // Will be used by migration path in Task 2
     pub fn sources(&self) -> &Vec<LibrarySource> {
         &self.library
     }
 
     /// Backward-compatible mutable accessor for the source library. Will be removed in Task 3.
     #[deprecated(note = "Use .library instead — will be removed in Task 3")]
+    #[allow(dead_code)] // Will be used by migration path in Task 2
     pub fn sources_mut(&mut self) -> &mut Vec<LibrarySource> {
         &mut self.library
     }

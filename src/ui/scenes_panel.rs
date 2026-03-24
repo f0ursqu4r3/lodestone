@@ -225,7 +225,7 @@ fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hov
 /// Send `AddCaptureSource` / `RemoveCaptureSource` commands for the delta between two scenes.
 fn apply_scene_diff(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    #[allow(deprecated)] sources: &[crate::scene::Source],
+    sources: &[crate::scene::LibrarySource],
     old_scene: Option<&Scene>,
     new_scene: Option<&Scene>,
 ) {
@@ -327,7 +327,7 @@ fn delete_scene_by_id(
 /// Start capture for all sources in a scene, or `StopCapture` if it has none.
 fn send_capture_for_scene(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    #[allow(deprecated)] sources: &[crate::scene::Source],
+    sources: &[crate::scene::LibrarySource],
     scene: &Scene,
 ) {
     let Some(tx) = cmd_tx else { return };

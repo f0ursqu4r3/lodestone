@@ -4,8 +4,7 @@
 //! Supports selection, reordering, add, and remove.
 
 use crate::gstreamer::{CaptureSourceConfig, GstCommand};
-#[allow(deprecated)]
-use crate::scene::{SceneSource, Source, SourceId, SourceProperties, SourceType, Transform};
+use crate::scene::{LibrarySource, SceneSource, SourceId, SourceProperties, SourceType, Transform};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{
@@ -308,7 +307,7 @@ fn add_display_source(
         .find(|s| s.id == active_id)
         .map(|s| s.sources.len())
         .unwrap_or(0);
-    let new_source = Source {
+    let new_source = LibrarySource {
         id: new_src_id,
         name: format!("Display {}", source_count + 1),
         source_type: SourceType::Display,
@@ -347,7 +346,7 @@ fn add_window_source(state: &mut AppState, active_id: crate::scene::SceneId) {
         .find(|s| s.id == active_id)
         .map(|s| s.sources.len())
         .unwrap_or(0);
-    let new_source = Source {
+    let new_source = LibrarySource {
         id: new_src_id,
         name: format!("Window {}", source_count + 1),
         source_type: SourceType::Window,
@@ -393,7 +392,7 @@ fn add_camera_source(
         .first()
         .map(|c| c.name.clone())
         .unwrap_or_else(|| "Camera".to_string());
-    let new_source = Source {
+    let new_source = LibrarySource {
         id: new_src_id,
         name: format!("Camera {}", source_count + 1),
         source_type: SourceType::Camera,
@@ -433,7 +432,7 @@ fn add_image_source(
 ) {
     let new_src_id = SourceId(state.next_source_id);
     state.next_source_id += 1;
-    let source = Source {
+    let source = LibrarySource {
         id: new_src_id,
         name: "Image".to_string(),
         source_type: SourceType::Image,

@@ -1,7 +1,7 @@
 //! Floating window chrome rendering for dockview floating groups.
 
 use super::render::LayoutAction;
-use super::render_tabs::{render_content, render_tab_bar, TabBarContext};
+use super::render_tabs::{TabBarContext, render_content, render_tab_bar};
 use super::tree::DockLayout;
 
 use crate::ui::theme::{

@@ -82,8 +82,7 @@ pub(crate) fn apply_layout_actions(
             }
             LayoutAction::DropOnZone { target_group, zone } => {
                 if let Some(drag) = win.layout.drag.take()
-                    && let Some(entry) =
-                        win.layout.take_tab(drag.source_group, drag.tab_index)
+                    && let Some(entry) = win.layout.take_tab(drag.source_group, drag.tab_index)
                 {
                     // Floating groups can't be split — always add as a tab
                     let is_floating = win.layout.is_floating(target_group);
@@ -150,8 +149,7 @@ pub(crate) fn apply_layout_actions(
             }
             LayoutAction::DropOnEmpty { pos } => {
                 if let Some(drag) = win.layout.drag.take()
-                    && let Some(entry) =
-                        win.layout.take_tab(drag.source_group, drag.tab_index)
+                    && let Some(entry) = win.layout.take_tab(drag.source_group, drag.tab_index)
                 {
                     win.layout.add_floating_group(entry, pos);
                 }

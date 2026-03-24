@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use super::tree::{
-    DockLayout, FloatingGroup, Group, GroupId, NodeId, PanelId, PanelType, SplitDirection,
-    SplitNode, TabEntry, DEFAULT_FLOAT_SIZE,
+    DEFAULT_FLOAT_SIZE, DockLayout, FloatingGroup, Group, GroupId, NodeId, PanelId, PanelType,
+    SplitDirection, SplitNode, TabEntry,
 };
 
 #[allow(dead_code)]

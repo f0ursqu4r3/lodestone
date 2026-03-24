@@ -179,7 +179,10 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
 
     // ── Drop zone: accept SourceId dragged from library panel ──
     // Show highlight border when hovering with a library drag payload.
-    if panel_response.dnd_hover_payload::<crate::scene::SourceId>().is_some() {
+    if panel_response
+        .dnd_hover_payload::<crate::scene::SourceId>()
+        .is_some()
+    {
         ui.painter().rect_stroke(
             preview_rect,
             0.0,
@@ -207,45 +210,37 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
             if let Some(properties) = props
                 && let Some(cmd_tx) = &state.command_tx
             {
-                    match &properties {
-                        crate::scene::SourceProperties::Display { screen_index } => {
-                            let _ = cmd_tx.try_send(
-                                crate::gstreamer::GstCommand::AddCaptureSource {
-                                    source_id: src_id,
-                                    config: crate::gstreamer::CaptureSourceConfig::Screen {
-                                        screen_index: *screen_index,
-                                    },
-                                },
-                            );
-                            state.capture_active = true;
-                        }
-                        crate::scene::SourceProperties::Window { window_id, .. }
-                            if *window_id != 0 =>
-                        {
-                            let _ = cmd_tx.try_send(
-                                crate::gstreamer::GstCommand::AddCaptureSource {
-                                    source_id: src_id,
-                                    config: crate::gstreamer::CaptureSourceConfig::Window {
-                                        window_id: *window_id,
-                                    },
-                                },
-                            );
-                            state.capture_active = true;
-                        }
-                        crate::scene::SourceProperties::Camera { device_index, .. } => {
-                            let _ = cmd_tx.try_send(
-                                crate::gstreamer::GstCommand::AddCaptureSource {
-                                    source_id: src_id,
-                                    config: crate::gstreamer::CaptureSourceConfig::Camera {
-                                        device_index: *device_index,
-                                    },
-                                },
-                            );
-                            state.capture_active = true;
-                        }
-                        _ => {}
+                match &properties {
+                    crate::scene::SourceProperties::Display { screen_index } => {
+                        let _ = cmd_tx.try_send(crate::gstreamer::GstCommand::AddCaptureSource {
+                            source_id: src_id,
+                            config: crate::gstreamer::CaptureSourceConfig::Screen {
+                                screen_index: *screen_index,
+                            },
+                        });
+                        state.capture_active = true;
                     }
+                    crate::scene::SourceProperties::Window { window_id, .. } if *window_id != 0 => {
+                        let _ = cmd_tx.try_send(crate::gstreamer::GstCommand::AddCaptureSource {
+                            source_id: src_id,
+                            config: crate::gstreamer::CaptureSourceConfig::Window {
+                                window_id: *window_id,
+                            },
+                        });
+                        state.capture_active = true;
+                    }
+                    crate::scene::SourceProperties::Camera { device_index, .. } => {
+                        let _ = cmd_tx.try_send(crate::gstreamer::GstCommand::AddCaptureSource {
+                            source_id: src_id,
+                            config: crate::gstreamer::CaptureSourceConfig::Camera {
+                                device_index: *device_index,
+                            },
+                        });
+                        state.capture_active = true;
+                    }
+                    _ => {}
                 }
+            }
             state.selected_source_id = Some(src_id);
             state.selected_library_source_id = None;
             state.scenes_dirty = true;

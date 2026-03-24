@@ -108,10 +108,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         // Look up the source name for the ghost label.
         let src_id = *payload;
         if let Some(row) = rows.iter().find(|r| r.id == src_id) {
-            let ghost_layer = egui::LayerId::new(
-                egui::Order::Tooltip,
-                egui::Id::new("library_drag_ghost"),
-            );
+            let ghost_layer =
+                egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("library_drag_ghost"));
             let painter = ui.ctx().layer_painter(ghost_layer);
             let icon = source_icon(&row.source_type);
             let text = format!("{} {}", icon, row.name);
@@ -120,11 +118,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let text_rect =
                 egui::Rect::from_min_size(pointer_pos + vec2(12.0, -8.0), galley.size())
                     .expand(4.0);
-            painter.rect_filled(
-                text_rect,
-                CornerRadius::same(RADIUS_SM as u8),
-                BG_ELEVATED,
-            );
+            painter.rect_filled(text_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
             painter.rect_stroke(
                 text_rect,
                 CornerRadius::same(RADIUS_SM as u8),
@@ -519,20 +513,18 @@ fn draw_source_grid(
                 let is_selected = state.selected_library_source_id == Some(row.id);
 
                 ui.push_id(row.id.0, |ui| {
-                    let (tile_rect, tile_response) = ui.allocate_exact_size(
-                        vec2(tile_size, tile_size),
-                        Sense::click_and_drag(),
-                    );
+                    let (tile_rect, tile_response) =
+                        ui.allocate_exact_size(vec2(tile_size, tile_size), Sense::click_and_drag());
 
                     let painter = ui.painter_at(tile_rect);
 
                     // Background.
-                    let bg = if is_selected { selected_bg } else { BG_ELEVATED };
-                    painter.rect_filled(
-                        tile_rect,
-                        CornerRadius::same(RADIUS_SM as u8),
-                        bg,
-                    );
+                    let bg = if is_selected {
+                        selected_bg
+                    } else {
+                        BG_ELEVATED
+                    };
+                    painter.rect_filled(tile_rect, CornerRadius::same(RADIUS_SM as u8), bg);
 
                     // Border on hover.
                     if tile_response.hovered() {
@@ -628,13 +620,10 @@ fn draw_source_grid(
                             egui::pos2(tile_rect.left() + 2.0, tile_rect.bottom() - 18.0),
                             vec2(tile_size - 4.0, 16.0),
                         );
-                        let mut child_ui = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(te_rect)
-                                .layout(egui::Layout::centered_and_justified(
-                                    egui::Direction::LeftToRight,
-                                )),
-                        );
+                        let mut child_ui =
+                            ui.new_child(egui::UiBuilder::new().max_rect(te_rect).layout(
+                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            ));
                         let te = egui::TextEdit::singleline(&mut state.rename_buffer)
                             .desired_width(tile_size - 8.0)
                             .font(egui::FontId::proportional(8.0))
@@ -644,10 +633,8 @@ fn draw_source_grid(
                         // that resets each time a rename starts.
                         let gen_id = egui::Id::new("rename_gen");
                         let focused_gen_id = egui::Id::new(("rename_focused_gen", row.id.0));
-                        let current_gen: u64 =
-                            ui.data(|d| d.get_temp(gen_id).unwrap_or(0));
-                        let focused_gen: u64 =
-                            ui.data(|d| d.get_temp(focused_gen_id).unwrap_or(0));
+                        let current_gen: u64 = ui.data(|d| d.get_temp(gen_id).unwrap_or(0));
+                        let focused_gen: u64 = ui.data(|d| d.get_temp(focused_gen_id).unwrap_or(0));
                         if focused_gen != current_gen {
                             te_response.request_focus();
                             ui.data_mut(|d| d.insert_temp(focused_gen_id, current_gen));
@@ -790,8 +777,8 @@ fn draw_source_row(
             }
 
             // Confirm on Enter or loss of focus, cancel on Escape.
-            let confirmed = te_response.lost_focus()
-                && !ui.input(|i| i.key_pressed(egui::Key::Escape));
+            let confirmed =
+                te_response.lost_focus() && !ui.input(|i| i.key_pressed(egui::Key::Escape));
             let cancelled = ui.input(|i| i.key_pressed(egui::Key::Escape));
 
             if confirmed {

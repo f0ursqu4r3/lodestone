@@ -168,11 +168,7 @@ fn draw_scene_card(
     let painter = ui.painter_at(thumb_rect.expand2(egui::vec2(0.0, label_height + 4.0)));
 
     // Thumbnail background.
-    painter.rect_filled(
-        thumb_rect,
-        CornerRadius::same(RADIUS_SM as u8),
-        BG_ELEVATED,
-    );
+    painter.rect_filled(thumb_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
 
     // Border: active = TEXT_PRIMARY, hovered = TEXT_MUTED, default = BORDER.
     let border_color = if is_active {
@@ -204,17 +200,11 @@ fn draw_scene_card(
 
     // Label below thumbnail: inline TextEdit when renaming.
     if is_renaming {
-        let label_rect = egui::Rect::from_center_size(
-            label_pos,
-            egui::vec2(col_width, label_height),
-        );
-        let mut child_ui = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(label_rect)
-                .layout(egui::Layout::centered_and_justified(
-                    egui::Direction::LeftToRight,
-                )),
-        );
+        let label_rect =
+            egui::Rect::from_center_size(label_pos, egui::vec2(col_width, label_height));
+        let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(label_rect).layout(
+            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+        ));
         let te = egui::TextEdit::singleline(&mut state.rename_buffer)
             .desired_width(col_width - 4.0)
             .font(egui::FontId::proportional(9.0))
@@ -229,8 +219,7 @@ fn draw_scene_card(
             te_response.request_focus();
             ui.data_mut(|d| d.insert_temp(focused_gen_id, current_gen));
         }
-        let confirmed = te_response.lost_focus()
-            && !ui.input(|i| i.key_pressed(egui::Key::Escape));
+        let confirmed = te_response.lost_focus() && !ui.input(|i| i.key_pressed(egui::Key::Escape));
         let cancelled = ui.input(|i| i.key_pressed(egui::Key::Escape));
         if confirmed {
             let new_name = state.rename_buffer.trim().to_string();
@@ -309,7 +298,9 @@ fn draw_scene_card(
             // `pending_action` being set via a workaround. Since closures here
             // don't have access to the outer `action`, delete is handled by
             // storing intent in egui temp storage and reading it back.
-            ui.data_mut(|d| d.insert_temp::<bool>(egui::Id::new(("scene_delete", scene_id.0)), true));
+            ui.data_mut(|d| {
+                d.insert_temp::<bool>(egui::Id::new(("scene_delete", scene_id.0)), true)
+            });
             ui.close();
         }
     });

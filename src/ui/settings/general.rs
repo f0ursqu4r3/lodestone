@@ -2,7 +2,9 @@ use egui::{Align, Layout, Ui};
 
 use crate::settings::GeneralSettings;
 
-use super::{draw_toggle, draw_toggle_unimplemented, labeled_row, labeled_row_unimplemented, section_header};
+use super::{
+    draw_toggle, draw_toggle_unimplemented, labeled_row, labeled_row_unimplemented, section_header,
+};
 
 pub(super) fn draw(ui: &mut Ui, settings: &mut GeneralSettings) -> bool {
     let mut changed = false;

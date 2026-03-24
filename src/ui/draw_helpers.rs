@@ -38,11 +38,7 @@ pub fn draw_segmented_buttons(
 
     // Draw shared background.
     let painter = ui.painter_at(seg_rect);
-    painter.rect_filled(
-        seg_rect,
-        CornerRadius::same(RADIUS_SM as u8),
-        BG_ELEVATED,
-    );
+    painter.rect_filled(seg_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
 
     // Draw each button.
     for (i, (icon, tooltip, active)) in buttons.iter().enumerate() {
@@ -67,11 +63,7 @@ pub fn draw_segmented_buttons(
                 accent_dim(DEFAULT_ACCENT),
             );
         } else if response.hovered() {
-            painter.rect_filled(
-                btn_rect,
-                CornerRadius::same(RADIUS_SM as u8),
-                BORDER,
-            );
+            painter.rect_filled(btn_rect, CornerRadius::same(RADIUS_SM as u8), BORDER);
         }
 
         // Icon.
@@ -112,6 +104,11 @@ pub fn draw_selection_highlight(painter: &Painter, rect: Rect, color: Color32) {
 pub fn draw_styled_rect(painter: &Painter, rect: Rect, fill: Color32, border: Option<Stroke>) {
     painter.rect_filled(rect, CornerRadius::same(RADIUS_SM as u8), fill);
     if let Some(stroke) = border {
-        painter.rect_stroke(rect, CornerRadius::same(RADIUS_SM as u8), stroke, egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect,
+            CornerRadius::same(RADIUS_SM as u8),
+            stroke,
+            egui::StrokeKind::Inside,
+        );
     }
 }

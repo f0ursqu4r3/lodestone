@@ -1,6 +1,6 @@
 //! Tab bar and content area rendering for dockview groups.
 
-use super::render::{paint_grip_dots, LayoutAction, DOCKABLE_TYPES};
+use super::render::{DOCKABLE_TYPES, LayoutAction, paint_grip_dots};
 use super::tree::{DockLayout, GroupId};
 
 use crate::ui::theme::{

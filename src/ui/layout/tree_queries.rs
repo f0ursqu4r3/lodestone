@@ -1,6 +1,4 @@
-use super::tree::{
-    split_rect, DockLayout, GroupId, NodeId, PanelId, PanelType, SplitNode,
-};
+use super::tree::{DockLayout, GroupId, NodeId, PanelId, PanelType, SplitNode, split_rect};
 
 #[allow(dead_code)]
 impl DockLayout {

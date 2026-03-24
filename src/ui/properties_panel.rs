@@ -14,23 +14,22 @@ use crate::ui::theme::{DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY}
 /// selected, or transform / opacity / source-specific controls when one is.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // Determine which source is selected: prefer scene selection, fall back to library.
-    let (selected_id, from_library_selection) =
-        if let Some(id) = state.selected_source_id {
-            (id, false)
-        } else if let Some(id) = state.selected_library_source_id {
-            (id, true)
-        } else {
-            // Empty state: centered muted label.
-            ui.vertical_centered(|ui| {
-                ui.add_space(ui.available_height() / 3.0);
-                ui.label(
-                    egui::RichText::new("Select a source to view properties")
-                        .color(TEXT_MUTED)
-                        .size(11.0),
-                );
-            });
-            return;
-        };
+    let (selected_id, from_library_selection) = if let Some(id) = state.selected_source_id {
+        (id, false)
+    } else if let Some(id) = state.selected_library_source_id {
+        (id, true)
+    } else {
+        // Empty state: centered muted label.
+        ui.vertical_centered(|ui| {
+            ui.add_space(ui.available_height() / 3.0);
+            ui.label(
+                egui::RichText::new("Select a source to view properties")
+                    .color(TEXT_MUTED)
+                    .size(11.0),
+            );
+        });
+        return;
+    };
 
     // Find the library source index.
     let Some(lib_idx) = state.library.iter().position(|s| s.id == selected_id) else {

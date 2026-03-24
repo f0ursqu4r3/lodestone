@@ -6,8 +6,8 @@ use winit::window::Window;
 use crate::renderer::SharedGpuState;
 use crate::state::AppState;
 use crate::ui::layout::tree::{DockLayout, GroupId, PanelId, PanelType};
-use crate::window_actions::apply_layout_actions;
 use crate::ui::preview_panel::PreviewResources;
+use crate::window_actions::apply_layout_actions;
 
 /// A request to create a new OS-level window for a detached panel.
 pub struct DetachRequest {

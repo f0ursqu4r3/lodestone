@@ -187,8 +187,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let target_offset = match (dragged_id, insert_idx) {
                 (Some(did), Some(ins)) if row.id != did => {
                     // Find the dragged row's display index.
-                    let dragged_display_idx =
-                        rows.iter().position(|r| r.id == did).unwrap_or(0);
+                    let dragged_display_idx = rows.iter().position(|r| r.id == did).unwrap_or(0);
                     // Rows between the drag origin and insertion point shift by one row height.
                     if dragged_display_idx < ins {
                         // Dragging down: rows between (drag+1..ins) shift up.
@@ -266,30 +265,30 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     if let Some((dragged_id, display_insert_idx)) = reorder_drop
         && let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id)
     {
-            let data_len = scene.sources.len();
-            // Find current position in data.
-            if let Some(from_data) = scene
-                .sources
-                .iter()
-                .position(|ss| ss.source_id == dragged_id)
-            {
-                // Convert display insert index to data insert index.
-                // Display idx 0 = top of list = data idx (data_len - 1), etc.
-                let to_data = data_len.saturating_sub(display_insert_idx);
-                // Clamp and skip no-ops.
-                let to_data = to_data.min(data_len);
-                if from_data != to_data && from_data + 1 != to_data {
-                    let entry = scene.sources.remove(from_data);
-                    let adjusted = if to_data > from_data {
-                        to_data - 1
-                    } else {
-                        to_data
-                    };
-                    scene.sources.insert(adjusted, entry);
-                    state.scenes_dirty = true;
-                    state.scenes_last_changed = std::time::Instant::now();
-                }
+        let data_len = scene.sources.len();
+        // Find current position in data.
+        if let Some(from_data) = scene
+            .sources
+            .iter()
+            .position(|ss| ss.source_id == dragged_id)
+        {
+            // Convert display insert index to data insert index.
+            // Display idx 0 = top of list = data idx (data_len - 1), etc.
+            let to_data = data_len.saturating_sub(display_insert_idx);
+            // Clamp and skip no-ops.
+            let to_data = to_data.min(data_len);
+            if from_data != to_data && from_data + 1 != to_data {
+                let entry = scene.sources.remove(from_data);
+                let adjusted = if to_data > from_data {
+                    to_data - 1
+                } else {
+                    to_data
+                };
+                scene.sources.insert(adjusted, entry);
+                state.scenes_dirty = true;
+                state.scenes_last_changed = std::time::Instant::now();
             }
+        }
     }
 
     // ── Drop zone: accept SourceId dragged from library panel ──
@@ -532,10 +531,8 @@ fn draw_source_row(
     } else {
         egui_phosphor::regular::EYE_SLASH
     };
-    let eye_rect = Rect::from_center_size(
-        egui::pos2(right_x - 8.0, center_y),
-        vec2(16.0, row_height),
-    );
+    let eye_rect =
+        Rect::from_center_size(egui::pos2(right_x - 8.0, center_y), vec2(16.0, row_height));
     let eye_hovered = ui.rect_contains_pointer(eye_rect);
     let eye_color = if eye_hovered {
         with_opacity(TEXT_PRIMARY, effective_opacity)
@@ -554,8 +551,7 @@ fn draw_source_row(
     if eye_hovered && row_response.clicked() {
         let current_visible = row.visible;
         if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id)
-            && let Some(scene_src) =
-                scene.sources.iter_mut().find(|ss| ss.source_id == row.id)
+            && let Some(scene_src) = scene.sources.iter_mut().find(|ss| ss.source_id == row.id)
         {
             scene_src.overrides.visible = Some(!current_visible);
         }
@@ -683,4 +679,3 @@ fn remove_source_from_scene(
     state.scenes_dirty = true;
     state.scenes_last_changed = std::time::Instant::now();
 }
-

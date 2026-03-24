@@ -11,7 +11,7 @@
 use super::interactions::{drop_zone_highlight_rect, hit_test_drop_zone};
 use super::render_floating::render_floating_chrome;
 use super::render_grid::render_dividers;
-use super::render_tabs::{render_content, render_tab_bar, TabBarContext};
+use super::render_tabs::{TabBarContext, render_content, render_tab_bar};
 use super::tree::{DockLayout, DropZone, GroupId, NodeId, PanelType};
 
 use crate::ui::theme::{DEFAULT_ACCENT, TAB_BAR_HEIGHT, TEXT_PRIMARY};

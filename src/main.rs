@@ -33,7 +33,7 @@ struct NativeMenu {
     #[allow(dead_code)]
     menu: Menu,
     add_preview: MenuId,
-    add_scene_editor: MenuId,
+    add_library: MenuId,
     add_audio_mixer: MenuId,
     add_stream_controls: MenuId,
     reset_layout: MenuId,
@@ -79,12 +79,12 @@ impl NativeMenu {
         let add_panel_menu = Submenu::new("Add Panel", true);
 
         let add_preview = MenuItem::new("Preview", true, None);
-        let add_scene_editor = MenuItem::new("Scene Editor", true, None);
+        let add_library = MenuItem::new("Library", true, None);
         let add_audio_mixer = MenuItem::new("Audio Mixer", true, None);
         let add_stream_controls = MenuItem::new("Stream Controls", true, None);
 
         add_panel_menu.append(&add_preview).ok();
-        add_panel_menu.append(&add_scene_editor).ok();
+        add_panel_menu.append(&add_library).ok();
         add_panel_menu.append(&add_audio_mixer).ok();
         add_panel_menu.append(&add_stream_controls).ok();
 
@@ -106,7 +106,7 @@ impl NativeMenu {
         Self {
             menu,
             add_preview: add_preview.id().clone(),
-            add_scene_editor: add_scene_editor.id().clone(),
+            add_library: add_library.id().clone(),
             add_audio_mixer: add_audio_mixer.id().clone(),
             add_stream_controls: add_stream_controls.id().clone(),
             reset_layout: reset_layout.id().clone(),
@@ -117,8 +117,8 @@ impl NativeMenu {
     fn panel_type_for_id(&self, id: &MenuId) -> Option<PanelType> {
         if *id == self.add_preview {
             Some(PanelType::Preview)
-        } else if *id == self.add_scene_editor {
-            Some(PanelType::SceneEditor)
+        } else if *id == self.add_library {
+            Some(PanelType::Library)
         } else if *id == self.add_audio_mixer {
             Some(PanelType::AudioMixer)
         } else if *id == self.add_stream_controls {

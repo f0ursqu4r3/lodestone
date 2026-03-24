@@ -13,18 +13,24 @@ use crate::ui::theme::{DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY}
 /// Draw the properties panel. Shows an empty-state message when no source is
 /// selected, or transform / opacity / source-specific controls when one is.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
-    let Some(selected_id) = state.selected_source_id else {
-        // Empty state: centered muted label.
-        ui.vertical_centered(|ui| {
-            ui.add_space(ui.available_height() / 3.0);
-            ui.label(
-                egui::RichText::new("Select a source to view properties")
-                    .color(TEXT_MUTED)
-                    .size(11.0),
-            );
-        });
-        return;
-    };
+    // Determine which source is selected: prefer scene selection, fall back to library.
+    let (selected_id, from_library_selection) =
+        if let Some(id) = state.selected_source_id {
+            (id, false)
+        } else if let Some(id) = state.selected_library_source_id {
+            (id, true)
+        } else {
+            // Empty state: centered muted label.
+            ui.vertical_centered(|ui| {
+                ui.add_space(ui.available_height() / 3.0);
+                ui.label(
+                    egui::RichText::new("Select a source to view properties")
+                        .color(TEXT_MUTED)
+                        .size(11.0),
+                );
+            });
+            return;
+        };
 
     // Find the library source index.
     let Some(lib_idx) = state.library.iter().position(|s| s.id == selected_id) else {
@@ -36,11 +42,13 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         return;
     };
 
-    // Determine editing context: is this source in the active scene?
-    let in_active_scene = state
-        .active_scene()
-        .map(|s| s.sources.iter().any(|ss| ss.source_id == selected_id))
-        .unwrap_or(false);
+    // Determine editing context: show scene overrides only when selected from the scene,
+    // never when selected from the library panel.
+    let in_active_scene = !from_library_selection
+        && state
+            .active_scene()
+            .map(|s| s.sources.iter().any(|ss| ss.source_id == selected_id))
+            .unwrap_or(false);
 
     // Show mode header.
     if in_active_scene {

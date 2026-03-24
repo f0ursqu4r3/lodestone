@@ -175,5 +175,81 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     );
 
     // Allocate the space so egui knows it's used
-    ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());
+    let panel_response = ui.allocate_rect(panel_rect, egui::Sense::hover());
+
+    // ── Drop zone: accept SourceId dragged from library panel ──
+    // Show highlight border when hovering with a library drag payload.
+    if panel_response.dnd_hover_payload::<crate::scene::SourceId>().is_some() {
+        ui.painter().rect_stroke(
+            preview_rect,
+            0.0,
+            egui::Stroke::new(2.0, crate::ui::theme::DEFAULT_ACCENT),
+            egui::StrokeKind::Inside,
+        );
+    }
+
+    // Accept the drop — add source to the active scene at top of z-order.
+    if let Some(payload) = panel_response.dnd_release_payload::<crate::scene::SourceId>() {
+        let src_id = *payload;
+        let already_in_scene = state
+            .active_scene()
+            .map(|s| s.sources.iter().any(|ss| ss.source_id == src_id))
+            .unwrap_or(false);
+        if !already_in_scene {
+            let props = state
+                .library
+                .iter()
+                .find(|l| l.id == src_id)
+                .map(|l| l.properties.clone());
+            if let Some(scene) = state.active_scene_mut() {
+                scene.sources.push(crate::scene::SceneSource::new(src_id));
+            }
+            if let Some(properties) = props
+                && let Some(cmd_tx) = &state.command_tx
+            {
+                    match &properties {
+                        crate::scene::SourceProperties::Display { screen_index } => {
+                            let _ = cmd_tx.try_send(
+                                crate::gstreamer::GstCommand::AddCaptureSource {
+                                    source_id: src_id,
+                                    config: crate::gstreamer::CaptureSourceConfig::Screen {
+                                        screen_index: *screen_index,
+                                    },
+                                },
+                            );
+                            state.capture_active = true;
+                        }
+                        crate::scene::SourceProperties::Window { window_id, .. }
+                            if *window_id != 0 =>
+                        {
+                            let _ = cmd_tx.try_send(
+                                crate::gstreamer::GstCommand::AddCaptureSource {
+                                    source_id: src_id,
+                                    config: crate::gstreamer::CaptureSourceConfig::Window {
+                                        window_id: *window_id,
+                                    },
+                                },
+                            );
+                            state.capture_active = true;
+                        }
+                        crate::scene::SourceProperties::Camera { device_index, .. } => {
+                            let _ = cmd_tx.try_send(
+                                crate::gstreamer::GstCommand::AddCaptureSource {
+                                    source_id: src_id,
+                                    config: crate::gstreamer::CaptureSourceConfig::Camera {
+                                        device_index: *device_index,
+                                    },
+                                },
+                            );
+                            state.capture_active = true;
+                        }
+                        _ => {}
+                    }
+                }
+            state.selected_source_id = Some(src_id);
+            state.selected_library_source_id = None;
+            state.scenes_dirty = true;
+            state.scenes_last_changed = std::time::Instant::now();
+        }
+    }
 }

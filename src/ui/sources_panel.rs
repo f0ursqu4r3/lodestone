@@ -162,7 +162,6 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         ui.centered_and_justified(|ui| {
             ui.colored_label(TEXT_MUTED, "No sources. Click + to add one.");
         });
-        return;
     }
 
     let mut move_up: Option<SourceId> = None;
@@ -214,9 +213,37 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     );
                 }
 
-                // Handle click for selection.
+                // Flash highlight when selected in library.
+                if state.flash_source_id == Some(row.id)
+                    && let Some(start) = state.flash_start
+                {
+                    let elapsed = start.elapsed().as_secs_f32();
+                    let duration = 0.6;
+                    if elapsed < duration {
+                        let alpha = (1.0 - elapsed / duration) * 0.4;
+                        let flash_color = Color32::from_rgba_premultiplied(
+                            (DEFAULT_ACCENT.r() as f32 * alpha) as u8,
+                            (DEFAULT_ACCENT.g() as f32 * alpha) as u8,
+                            (DEFAULT_ACCENT.b() as f32 * alpha) as u8,
+                            (255.0 * alpha) as u8,
+                        );
+                        ui.painter().rect_filled(
+                            row_rect,
+                            CornerRadius::same(RADIUS_SM as u8),
+                            flash_color,
+                        );
+                        ui.ctx().request_repaint();
+                    } else {
+                        // Flash finished — clear it.
+                        state.flash_source_id = None;
+                        state.flash_start = None;
+                    }
+                }
+
+                // Handle click for selection (scene selection, clears library selection).
                 if row_response.clicked() {
                     state.selected_source_id = Some(row.id);
+                    state.selected_library_source_id = None;
                 }
 
                 // Paint the row contents.
@@ -360,6 +387,50 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         }
         state.scenes_dirty = true;
         state.scenes_last_changed = std::time::Instant::now();
+    }
+
+    // ── Drop zone: accept SourceId dragged from library panel ──
+    // Allocate remaining space as an invisible drop target.
+    let remaining = ui.available_size();
+    let (drop_rect, drop_response) =
+        ui.allocate_exact_size(remaining, Sense::hover());
+
+    // Show visual hint when a library source is being dragged over.
+    if drop_response.dnd_hover_payload::<SourceId>().is_some() {
+        ui.painter().rect_stroke(
+            drop_rect,
+            CornerRadius::same(RADIUS_SM as u8),
+            Stroke::new(1.0, DEFAULT_ACCENT),
+            egui::StrokeKind::Inside,
+        );
+    }
+
+    // Accept the drop.
+    if let Some(payload) = drop_response.dnd_release_payload::<SourceId>() {
+        let src_id = *payload;
+        let already_in_scene = state
+            .active_scene()
+            .map(|s| s.sources.iter().any(|ss| ss.source_id == src_id))
+            .unwrap_or(false);
+        if !already_in_scene {
+            let props = state
+                .library
+                .iter()
+                .find(|l| l.id == src_id)
+                .map(|l| l.properties.clone());
+            if let Some(scene) = state.active_scene_mut() {
+                scene.sources.push(SceneSource {
+                    source_id: src_id,
+                    overrides: SourceOverrides::default(),
+                });
+            }
+            if let Some(properties) = props {
+                start_capture_from_properties(state, &cmd_tx, src_id, &properties);
+            }
+            state.selected_source_id = Some(src_id);
+            state.scenes_dirty = true;
+            state.scenes_last_changed = std::time::Instant::now();
+        }
     }
 }
 

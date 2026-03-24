@@ -93,12 +93,12 @@ fn paint_grip_dots(painter: &egui::Painter, center: egui::Pos2, color: egui::Col
 /// All dockable panel types for the type selector dropdown.
 pub const DOCKABLE_TYPES: &[PanelType] = &[
     PanelType::Preview,
-    PanelType::SceneEditor,
-    PanelType::AudioMixer,
-    PanelType::StreamControls,
+    PanelType::Library,
     PanelType::Sources,
     PanelType::Scenes,
     PanelType::Properties,
+    PanelType::AudioMixer,
+    PanelType::StreamControls,
 ];
 
 // ---------------------------------------------------------------------------

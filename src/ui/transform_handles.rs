@@ -1,6 +1,6 @@
 //! Interactive transform handles for repositioning and resizing sources in the preview.
 
-use egui::{Pos2, Rect, StrokeKind, Vec2};
+use egui::{Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 use crate::scene::Transform;
 use crate::state::AppState;
@@ -469,6 +469,9 @@ pub fn draw_transform_handles(
                     .map(|(id, _)| *id);
 
                 state.selected_source_id = hit; // None = deselect
+                if hit.is_some() {
+                    state.selected_library_source_id = None;
+                }
             }
         }
 
@@ -480,6 +483,7 @@ pub fn draw_transform_handles(
                 .map(|(id, _)| *id);
             if let Some(hit_id) = hit {
                 state.selected_source_id = Some(hit_id);
+                state.selected_library_source_id = None;
             }
         }
     }
@@ -552,6 +556,39 @@ pub fn draw_transform_handles(
 
     let ctx_menu_open = ctx_state.open;
     ui.memory_mut(|m| m.data.insert_temp(ctx_state_id, ctx_state));
+
+    // ── Flash outline for library-selected source ──
+    if let Some(flash_id) = state.flash_source_id
+        && let Some(start) = state.flash_start
+    {
+        let elapsed = start.elapsed().as_secs_f32();
+        let duration = 0.6;
+        if elapsed < duration {
+            // Find the source's resolved transform in the active scene.
+            let flash_transform = state.active_scene().and_then(|scene| {
+                let ss = scene.find_source(flash_id)?;
+                let lib = state.library.iter().find(|s| s.id == flash_id)?;
+                Some(ss.resolve_transform(lib))
+            });
+            if let Some(t) = flash_transform {
+                let r = transform_to_screen_rect(&t, viewport_rect, canvas_size);
+                let alpha = 1.0 - elapsed / duration;
+                let color = egui::Color32::from_rgba_unmultiplied(
+                    crate::ui::theme::DEFAULT_ACCENT.r(),
+                    crate::ui::theme::DEFAULT_ACCENT.g(),
+                    crate::ui::theme::DEFAULT_ACCENT.b(),
+                    (255.0 * alpha) as u8,
+                );
+                ui.painter().rect_stroke(
+                    r,
+                    0.0,
+                    Stroke::new(2.0, color),
+                    egui::StrokeKind::Outside,
+                );
+                ui.ctx().request_repaint();
+            }
+        }
+    }
 
     // ── Handles + dragging for selected source ──
     let Some(selected_id) = state.selected_source_id else {

@@ -32,7 +32,14 @@ pub struct AppState {
     pub scenes: Vec<Scene>,
     pub library: Vec<LibrarySource>,
     pub active_scene_id: Option<SceneId>,
+    /// Source selected in the scene (sources panel / preview). Drives transform handles.
     pub selected_source_id: Option<SourceId>,
+    /// Source selected in the library panel. Drives properties panel in "Library Defaults" mode.
+    pub selected_library_source_id: Option<SourceId>,
+    /// Source to flash briefly in the scene (sources panel + preview) when selected in library.
+    pub flash_source_id: Option<SourceId>,
+    /// When the flash started, for animation timing.
+    pub flash_start: Option<std::time::Instant>,
     pub audio_levels: crate::gstreamer::AudioLevelUpdate,
     pub available_audio_devices: Vec<crate::gstreamer::AudioDevice>,
     pub available_cameras: Vec<crate::gstreamer::CameraDevice>,
@@ -59,6 +66,9 @@ impl Default for AppState {
             library: Vec::new(),
             active_scene_id: None,
             selected_source_id: None,
+            selected_library_source_id: None,
+            flash_source_id: None,
+            flash_start: None,
             audio_levels: crate::gstreamer::AudioLevelUpdate::default(),
             available_audio_devices: Vec::new(),
             available_cameras: Vec::new(),

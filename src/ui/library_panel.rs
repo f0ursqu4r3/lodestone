@@ -109,6 +109,40 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     if let Some(src_id) = delete_source {
         delete_source_cascade(state, src_id);
     }
+
+    // ── Drag ghost: floating label following cursor ──
+    if let Some(payload) = egui::DragAndDrop::payload::<SourceId>(ui.ctx())
+        && let Some(pointer_pos) = ui.ctx().pointer_interact_pos()
+    {
+        // Look up the source name for the ghost label.
+        let src_id = *payload;
+        if let Some(row) = rows.iter().find(|r| r.id == src_id) {
+            let ghost_layer = egui::LayerId::new(
+                egui::Order::Tooltip,
+                egui::Id::new("library_drag_ghost"),
+            );
+            let painter = ui.ctx().layer_painter(ghost_layer);
+            let icon = source_icon(&row.source_type);
+            let text = format!("{} {}", icon, row.name);
+            let font = egui::FontId::proportional(11.0);
+            let galley = painter.layout_no_wrap(text, font, TEXT_PRIMARY);
+            let text_rect =
+                egui::Rect::from_min_size(pointer_pos + vec2(12.0, -8.0), galley.size())
+                    .expand(4.0);
+            painter.rect_filled(
+                text_rect,
+                CornerRadius::same(RADIUS_SM as u8),
+                BG_ELEVATED,
+            );
+            painter.rect_stroke(
+                text_rect,
+                CornerRadius::same(RADIUS_SM as u8),
+                egui::Stroke::new(1.0, BORDER),
+                egui::StrokeKind::Outside,
+            );
+            painter.galley(text_rect.min + vec2(4.0, 4.0), galley, TEXT_PRIMARY);
+        }
+    }
 }
 
 /// Draw the "+" button with a popup to create new sources.
@@ -227,7 +261,7 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
     };
 
     state.library.push(lib_source);
-    state.selected_source_id = Some(new_id);
+    state.selected_library_source_id = Some(new_id);
     state.scenes_dirty = true;
     state.scenes_last_changed = std::time::Instant::now();
 }
@@ -250,6 +284,9 @@ fn delete_source_cascade(state: &mut AppState, src_id: SourceId) {
     // Clear selection if deleted.
     if state.selected_source_id == Some(src_id) {
         state.selected_source_id = None;
+    }
+    if state.selected_library_source_id == Some(src_id) {
+        state.selected_library_source_id = None;
     }
 
     state.scenes_dirty = true;
@@ -383,14 +420,14 @@ fn draw_source_row(
     total: usize,
     delete_source: &mut Option<SourceId>,
 ) {
-    let is_selected = state.selected_source_id == Some(row.id);
+    let is_selected = state.selected_library_source_id == Some(row.id);
     let selected_bg = accent_dim(DEFAULT_ACCENT);
 
     ui.push_id(row.id.0, |ui| {
         let row_height = 28.0;
         let available_width = ui.available_width();
         let (row_rect, row_response) =
-            ui.allocate_exact_size(vec2(available_width, row_height), Sense::click());
+            ui.allocate_exact_size(vec2(available_width, row_height), Sense::click_and_drag());
 
         // Selection highlight background.
         if is_selected {
@@ -398,9 +435,25 @@ fn draw_source_row(
                 .rect_filled(row_rect, CornerRadius::same(RADIUS_SM as u8), selected_bg);
         }
 
-        // Handle click for selection.
+        // Handle click for selection (library selection, not scene selection).
         if row_response.clicked() {
-            state.selected_source_id = Some(row.id);
+            state.selected_library_source_id = Some(row.id);
+            // Clear scene selection so transform handles don't show.
+            state.selected_source_id = None;
+            // Trigger flash on matching items in the scene.
+            let in_active_scene = state
+                .active_scene()
+                .map(|s| s.sources.iter().any(|ss| ss.source_id == row.id))
+                .unwrap_or(false);
+            if in_active_scene {
+                state.flash_source_id = Some(row.id);
+                state.flash_start = Some(std::time::Instant::now());
+            }
+        }
+
+        // Set drag payload so sources panel can receive the drop.
+        if row_response.drag_started() {
+            row_response.dnd_set_drag_payload(row.id);
         }
 
         // Context menu (right-click).

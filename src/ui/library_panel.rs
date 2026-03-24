@@ -644,8 +644,10 @@ fn draw_source_grid(
                         );
                     }
 
+                    let is_renaming = state.renaming_source_id == Some(row.id);
+
                     // Click to select.
-                    if tile_response.clicked() {
+                    if tile_response.clicked() && !is_renaming {
                         state.selected_library_source_id = Some(row.id);
                         state.selected_source_id = None;
                         let in_active_scene = state
@@ -658,18 +660,70 @@ fn draw_source_grid(
                         }
                     }
 
-                    // Drag payload.
-                    if tile_response.drag_started() {
+                    // Double-click to rename.
+                    if tile_response.double_clicked() {
+                        state.renaming_source_id = Some(row.id);
+                        state.rename_buffer = row.name.clone();
+                    }
+
+                    // Drag payload (only when not renaming).
+                    if tile_response.drag_started() && !is_renaming {
                         tile_response.dnd_set_drag_payload(row.id);
                     }
 
                     // Context menu.
                     tile_response.context_menu(|ui| {
+                        if ui.button("Rename").clicked() {
+                            state.renaming_source_id = Some(row.id);
+                            state.rename_buffer = row.name.clone();
+                            ui.close();
+                        }
                         if ui.button("Delete").clicked() {
                             *delete_source = Some(row.id);
                             ui.close();
                         }
                     });
+
+                    // Inline rename for grid tile: overlay a TextEdit on the name area.
+                    if is_renaming {
+                        let te_rect = Rect::from_min_size(
+                            egui::pos2(tile_rect.left() + 2.0, tile_rect.bottom() - 18.0),
+                            vec2(tile_size - 4.0, 16.0),
+                        );
+                        let mut child_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(te_rect)
+                                .layout(egui::Layout::centered_and_justified(
+                                    egui::Direction::LeftToRight,
+                                )),
+                        );
+                        let te = egui::TextEdit::singleline(&mut state.rename_buffer)
+                            .desired_width(tile_size - 8.0)
+                            .font(egui::FontId::proportional(8.0))
+                            .horizontal_align(egui::Align::Center);
+                        let te_response = child_ui.add(te);
+                        if !te_response.has_focus() {
+                            te_response.request_focus();
+                        }
+                        let confirmed = te_response.lost_focus()
+                            && !ui.input(|i| i.key_pressed(egui::Key::Escape));
+                        let cancelled = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                        if confirmed {
+                            let new_name = state.rename_buffer.trim().to_string();
+                            if !new_name.is_empty() {
+                                if let Some(lib_src) =
+                                    state.library.iter_mut().find(|s| s.id == row.id)
+                                {
+                                    lib_src.name = new_name;
+                                }
+                                state.scenes_dirty = true;
+                                state.scenes_last_changed = std::time::Instant::now();
+                            }
+                            state.renaming_source_id = None;
+                        } else if cancelled {
+                            state.renaming_source_id = None;
+                        }
+                    }
                 });
 
                 if col_idx + 1 < cols && item_idx + 1 < items.len() {
@@ -707,12 +761,12 @@ fn draw_source_row(
                 .rect_filled(row_rect, CornerRadius::same(RADIUS_SM as u8), selected_bg);
         }
 
+        let is_renaming = state.renaming_source_id == Some(row.id);
+
         // Handle click for selection (library selection, not scene selection).
-        if row_response.clicked() {
+        if row_response.clicked() && !is_renaming {
             state.selected_library_source_id = Some(row.id);
-            // Clear scene selection so transform handles don't show.
             state.selected_source_id = None;
-            // Trigger flash on matching items in the scene.
             let in_active_scene = state
                 .active_scene()
                 .map(|s| s.sources.iter().any(|ss| ss.source_id == row.id))
@@ -723,13 +777,24 @@ fn draw_source_row(
             }
         }
 
-        // Set drag payload so sources panel can receive the drop.
-        if row_response.drag_started() {
+        // Double-click to start rename.
+        if row_response.double_clicked() {
+            state.renaming_source_id = Some(row.id);
+            state.rename_buffer = row.name.clone();
+        }
+
+        // Set drag payload (only when not renaming).
+        if row_response.drag_started() && !is_renaming {
             row_response.dnd_set_drag_payload(row.id);
         }
 
         // Context menu (right-click).
         row_response.context_menu(|ui| {
+            if ui.button("Rename").clicked() {
+                state.renaming_source_id = Some(row.id);
+                state.rename_buffer = row.name.clone();
+                ui.close();
+            }
             if ui.button("Delete").clicked() {
                 *delete_source = Some(row.id);
                 ui.close();
@@ -748,24 +813,65 @@ fn draw_source_row(
             vec2(icon_size, icon_size),
         );
         painter.rect_filled(icon_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
-        let icon_text = source_icon(&row.source_type);
         painter.text(
             icon_rect.center(),
             egui::Align2::CENTER_CENTER,
-            icon_text,
+            source_icon(&row.source_type),
             egui::FontId::proportional(10.0),
             TEXT_PRIMARY,
         );
         cursor_x += icon_size + 6.0;
 
-        // ── Name (TEXT_PRIMARY, 11px) ──
-        painter.text(
-            egui::pos2(cursor_x, center_y),
-            egui::Align2::LEFT_CENTER,
-            &row.name,
-            egui::FontId::proportional(11.0),
-            TEXT_PRIMARY,
-        );
+        // ── Name: inline TextEdit when renaming, painted text otherwise ──
+        if is_renaming {
+            // Place a TextEdit at the name position.
+            let name_width = row_rect.right() - cursor_x - 30.0;
+            let text_edit_rect = Rect::from_min_size(
+                egui::pos2(cursor_x, row_rect.top() + 2.0),
+                vec2(name_width, row_height - 4.0),
+            );
+            let mut child_ui = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(text_edit_rect)
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            let te = egui::TextEdit::singleline(&mut state.rename_buffer)
+                .desired_width(name_width)
+                .font(egui::FontId::proportional(11.0));
+            let te_response = child_ui.add(te);
+
+            // Auto-focus on first frame.
+            if te_response.gained_focus() || !te_response.has_focus() {
+                te_response.request_focus();
+            }
+
+            // Confirm on Enter or loss of focus, cancel on Escape.
+            let confirmed = te_response.lost_focus()
+                && !ui.input(|i| i.key_pressed(egui::Key::Escape));
+            let cancelled = ui.input(|i| i.key_pressed(egui::Key::Escape));
+
+            if confirmed {
+                let new_name = state.rename_buffer.trim().to_string();
+                if !new_name.is_empty() {
+                    if let Some(lib_src) = state.library.iter_mut().find(|s| s.id == row.id) {
+                        lib_src.name = new_name;
+                    }
+                    state.scenes_dirty = true;
+                    state.scenes_last_changed = std::time::Instant::now();
+                }
+                state.renaming_source_id = None;
+            } else if cancelled {
+                state.renaming_source_id = None;
+            }
+        } else {
+            painter.text(
+                egui::pos2(cursor_x, center_y),
+                egui::Align2::LEFT_CENTER,
+                &row.name,
+                egui::FontId::proportional(11.0),
+                TEXT_PRIMARY,
+            );
+        }
 
         // ── Usage count badge (right-aligned) ──
         if row.usage_count > 0 {

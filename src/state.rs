@@ -40,6 +40,12 @@ pub struct AppState {
     pub flash_source_id: Option<SourceId>,
     /// When the flash started, for animation timing.
     pub flash_start: Option<std::time::Instant>,
+    /// Source currently being renamed (library panel inline edit). None = not renaming.
+    pub renaming_source_id: Option<SourceId>,
+    /// Scene currently being renamed (scenes panel inline edit). None = not renaming.
+    pub renaming_scene_id: Option<SceneId>,
+    /// Buffer for the inline rename text edit.
+    pub rename_buffer: String,
     pub audio_levels: crate::gstreamer::AudioLevelUpdate,
     pub available_audio_devices: Vec<crate::gstreamer::AudioDevice>,
     pub available_cameras: Vec<crate::gstreamer::CameraDevice>,
@@ -69,6 +75,9 @@ impl Default for AppState {
             selected_library_source_id: None,
             flash_source_id: None,
             flash_start: None,
+            renaming_source_id: None,
+            renaming_scene_id: None,
+            rename_buffer: String::new(),
             audio_levels: crate::gstreamer::AudioLevelUpdate::default(),
             available_audio_devices: Vec::new(),
             available_cameras: Vec::new(),

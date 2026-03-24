@@ -94,27 +94,81 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                             egui::StrokeKind::Outside,
                         );
 
-                        // Label below thumbnail.
-                        let label_color = if is_active {
-                            TEXT_PRIMARY
+                        let is_renaming = state.renaming_scene_id == Some(*scene_id);
+
+                        // Label below thumbnail: inline TextEdit when renaming.
+                        if is_renaming {
+                            let label_width = col_width;
+                            let label_rect = egui::Rect::from_center_size(
+                                label_pos,
+                                egui::vec2(label_width, label_height),
+                            );
+                            let mut child_ui = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .max_rect(label_rect)
+                                    .layout(egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    )),
+                            );
+                            let te = egui::TextEdit::singleline(&mut state.rename_buffer)
+                                .desired_width(label_width - 4.0)
+                                .font(egui::FontId::proportional(9.0))
+                                .horizontal_align(egui::Align::Center);
+                            let te_response = child_ui.add(te);
+                            if !te_response.has_focus() {
+                                te_response.request_focus();
+                            }
+                            let confirmed = te_response.lost_focus()
+                                && !ui.input(|i| i.key_pressed(egui::Key::Escape));
+                            let cancelled = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                            if confirmed {
+                                let new_name = state.rename_buffer.trim().to_string();
+                                if !new_name.is_empty() {
+                                    if let Some(scene) =
+                                        state.scenes.iter_mut().find(|s| s.id == *scene_id)
+                                    {
+                                        scene.name = new_name;
+                                    }
+                                    state.scenes_dirty = true;
+                                    state.scenes_last_changed = std::time::Instant::now();
+                                }
+                                state.renaming_scene_id = None;
+                            } else if cancelled {
+                                state.renaming_scene_id = None;
+                            }
                         } else {
-                            TEXT_SECONDARY
-                        };
-                        painter.text(
-                            label_pos,
-                            egui::Align2::CENTER_CENTER,
-                            scene_name,
-                            egui::FontId::proportional(9.0),
-                            label_color,
-                        );
+                            let label_color = if is_active {
+                                TEXT_PRIMARY
+                            } else {
+                                TEXT_SECONDARY
+                            };
+                            painter.text(
+                                label_pos,
+                                egui::Align2::CENTER_CENTER,
+                                scene_name,
+                                egui::FontId::proportional(9.0),
+                                label_color,
+                            );
+                        }
 
                         // Click to switch active scene.
-                        if response.clicked() && !is_active {
+                        if response.clicked() && !is_active && !is_renaming {
                             switch_to = Some(*scene_id);
                         }
 
-                        // Context menu for delete.
+                        // Double-click to rename.
+                        if response.double_clicked() {
+                            state.renaming_scene_id = Some(*scene_id);
+                            state.rename_buffer = scene_name.clone();
+                        }
+
+                        // Context menu.
                         response.context_menu(|ui| {
+                            if ui.button("Rename").clicked() {
+                                state.renaming_scene_id = Some(*scene_id);
+                                state.rename_buffer = scene_name.clone();
+                                ui.close();
+                            }
                             if ui.button("Delete").clicked() {
                                 delete_scene = Some(*scene_id);
                                 ui.close();

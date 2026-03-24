@@ -3,6 +3,9 @@ pub mod commands;
 pub mod devices;
 pub mod encode;
 pub mod error;
+#[cfg(target_os = "macos")]
+#[allow(non_snake_case)]
+pub mod screencapturekit;
 pub mod thread;
 pub mod types;
 

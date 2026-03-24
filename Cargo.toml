@@ -32,5 +32,13 @@ core-foundation = "0.10.1"
 image = "0.25.10"
 rfd = "0.17.2"
 
+# macOS ScreenCaptureKit bindings (objc2 ecosystem)
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSError", "NSString", "NSThread"] }
+objc2-screen-capture-kit = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+
 [dev-dependencies]
 tempfile = "3"

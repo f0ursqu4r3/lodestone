@@ -25,7 +25,7 @@ impl PanelType {
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::Preview => "Preview",
-            Self::SceneEditor => "Scene Editor",
+            Self::SceneEditor => "Sources", // Legacy compat — renders as Sources panel
             Self::AudioMixer => "Audio",
             Self::StreamControls => "Stream Controls",
             Self::Sources => "Sources",

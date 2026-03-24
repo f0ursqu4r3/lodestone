@@ -1,5 +1,8 @@
 pub mod interactions;
 pub mod render;
+pub mod render_floating;
+pub mod render_grid;
+pub mod render_tabs;
 pub mod serialize;
 pub mod tree;
 

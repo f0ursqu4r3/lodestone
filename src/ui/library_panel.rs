@@ -52,32 +52,43 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         .data(|d| d.get_temp::<LibraryDisplayMode>(display_id))
         .unwrap_or(LibraryDisplayMode::List);
 
-    // ── Header row: title + view toggles + "+" button ──
+    // ── Header row ──
+    // Left: title + add button | Right: [list] [grid]  [type] [folder]
     ui.horizontal(|ui| {
+        // Left group: title + add source menu
         ui.colored_label(TEXT_PRIMARY, "Library");
+        draw_add_button(ui, state);
 
+        // Right group: display mode + grouping toggles
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // "+" button to create new source
-            draw_add_button(ui, state);
-
-            ui.add_space(4.0);
-
-            // Grouping toggle: Folders
+            // Grouping toggles (rightmost)
             if ui
                 .selectable_label(view == LibraryView::Folders, egui_phosphor::regular::FOLDER)
-                .on_hover_text("Folders")
+                .on_hover_text("Group by folder")
                 .clicked()
             {
                 view = LibraryView::Folders;
             }
+            if ui
+                .selectable_label(
+                    view == LibraryView::ByType,
+                    egui_phosphor::regular::SQUARES_FOUR,
+                )
+                .on_hover_text("Group by type")
+                .clicked()
+            {
+                view = LibraryView::ByType;
+            }
 
-            // Display mode toggles: Grid / List
+            ui.add_space(6.0);
+
+            // Display mode toggles
             if ui
                 .selectable_label(
                     display_mode == LibraryDisplayMode::Grid,
                     egui_phosphor::regular::GRID_FOUR,
                 )
-                .on_hover_text("Grid view")
+                .on_hover_text("Icon view")
                 .clicked()
             {
                 display_mode = LibraryDisplayMode::Grid;

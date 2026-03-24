@@ -410,24 +410,27 @@ pub fn draw_transform_handles(
     // Collect visible source rects for hit testing (top-to-bottom draw order,
     // reversed so topmost source wins).
     let active_scene_sources: Vec<(SourceId, Rect)> = state
-        .active_scene_id
-        .and_then(|sid| state.scenes.iter().find(|s| s.id == sid))
+        .active_scene()
         .map(|scene| {
             scene
                 .sources
                 .iter()
                 .rev() // topmost source first
                 .filter_map(|ss| {
-                    let src_id = ss.source_id;
                     state
                         .library
                         .iter()
-                        .find(|s| s.id == src_id && s.visible)
-                        .map(|s| {
-                            (
-                                src_id,
-                                transform_to_screen_rect(&s.transform, viewport_rect, canvas_size),
-                            )
+                        .find(|s| s.id == ss.source_id)
+                        .and_then(|lib| {
+                            let visible = ss.resolve_visible(lib);
+                            if !visible {
+                                return None;
+                            }
+                            let transform = ss.resolve_transform(lib);
+                            Some((
+                                ss.source_id,
+                                transform_to_screen_rect(&transform, viewport_rect, canvas_size),
+                            ))
                         })
                 })
                 .collect()
@@ -439,10 +442,14 @@ pub fn draw_transform_handles(
         if primary_clicked && panel_rect.contains(mouse_pos) {
             // Check if we clicked a handle on the selected source first — don't re-select.
             let clicked_handle = state.selected_source_id.and_then(|sel_id| {
-                state.library.iter().find(|s| s.id == sel_id).and_then(|s| {
-                    let r = transform_to_screen_rect(&s.transform, viewport_rect, canvas_size);
-                    hit_test_handles(mouse_pos, r)
-                })
+                let lib = state.library.iter().find(|s| s.id == sel_id)?;
+                let scene = state.active_scene();
+                let transform = scene
+                    .and_then(|s| s.find_source(sel_id))
+                    .map(|ss| ss.resolve_transform(lib))
+                    .unwrap_or(lib.transform);
+                let r = transform_to_screen_rect(&transform, viewport_rect, canvas_size);
+                hit_test_handles(mouse_pos, r)
             });
 
             if clicked_handle.is_none() {
@@ -544,7 +551,11 @@ pub fn draw_transform_handles(
     let Some(source) = state.library.iter().find(|s| s.id == selected_id) else {
         return;
     };
-    let transform = source.transform;
+    let transform = state
+        .active_scene()
+        .and_then(|s| s.find_source(selected_id))
+        .map(|ss| ss.resolve_transform(source))
+        .unwrap_or(source.transform);
     let screen_rect = transform_to_screen_rect(&transform, viewport_rect, canvas_size);
 
     draw_handles(ui.painter(), screen_rect);
@@ -578,10 +589,13 @@ pub fn draw_transform_handles(
             } => {
                 let delta = screen_to_canvas(mouse_pos, viewport_rect, canvas_size)
                     - screen_to_canvas(*start_mouse, viewport_rect, canvas_size);
-                if let Some(s) = state.library.iter_mut().find(|s| s.id == selected_id) {
-                    s.transform.x = start_transform.x + delta.x;
-                    s.transform.y = start_transform.y + delta.y;
-                }
+                let mut new_transform = *start_transform;
+                new_transform.x = start_transform.x + delta.x;
+                new_transform.y = start_transform.y + delta.y;
+                if let Some(scene) = state.active_scene_mut()
+                    && let Some(ss) = scene.find_source_mut(selected_id) {
+                        ss.overrides.transform = Some(new_transform);
+                    }
             }
             DragMode::Resize {
                 handle,
@@ -591,16 +605,19 @@ pub fn draw_transform_handles(
             } => {
                 let delta = screen_to_canvas(mouse_pos, viewport_rect, canvas_size)
                     - screen_to_canvas(*start_mouse, viewport_rect, canvas_size);
-                if let Some(s) = state.library.iter_mut().find(|s| s.id == selected_id) {
-                    apply_resize(
-                        &mut s.transform,
-                        start_transform,
-                        *handle,
-                        delta,
-                        shift_held,
-                        *aspect_ratio,
-                    );
-                }
+                let mut new_transform = *start_transform;
+                apply_resize(
+                    &mut new_transform,
+                    start_transform,
+                    *handle,
+                    delta,
+                    shift_held,
+                    *aspect_ratio,
+                );
+                if let Some(scene) = state.active_scene_mut()
+                    && let Some(ss) = scene.find_source_mut(selected_id) {
+                        ss.overrides.transform = Some(new_transform);
+                    }
             }
         }
 
@@ -609,26 +626,41 @@ pub fn draw_transform_handles(
         if is_dragging && state.settings.general.snap_to_grid {
             let grid = state.settings.general.snap_grid_size;
 
+            // Collect resolved transforms for other visible sources in the scene.
             let other_transforms: Vec<Transform> = state
-                .library
-                .iter()
-                .filter(|s| s.id != selected_id && s.visible)
-                .map(|s| s.transform)
-                .collect();
+                .active_scene()
+                .map(|scene| {
+                    scene
+                        .sources
+                        .iter()
+                        .filter_map(|ss| {
+                            if ss.source_id == selected_id {
+                                return None;
+                            }
+                            state.library.iter().find(|s| s.id == ss.source_id).and_then(|lib| {
+                                if !ss.resolve_visible(lib) {
+                                    return None;
+                                }
+                                Some(ss.resolve_transform(lib))
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             let other_refs: Vec<&Transform> = other_transforms.iter().collect();
 
-            if let Some(s) = state.library.iter_mut().find(|s| s.id == selected_id) {
-                snap_transform(&mut s.transform, canvas_size, grid, &other_refs);
-            }
-
-            if let Some(s) = state.library.iter().find(|s| s.id == selected_id) {
-                draw_snap_guides(
-                    ui.painter(),
-                    &s.transform,
-                    canvas_size,
-                    viewport_rect,
-                    &other_refs,
-                );
+            // Read the current scene override transform, snap it, then write back.
+            let current_transform = state
+                .active_scene()
+                .and_then(|s| s.find_source(selected_id))
+                .and_then(|ss| ss.overrides.transform);
+            if let Some(mut t) = current_transform {
+                snap_transform(&mut t, canvas_size, grid, &other_refs);
+                if let Some(scene) = state.active_scene_mut()
+                    && let Some(ss) = scene.find_source_mut(selected_id) {
+                        ss.overrides.transform = Some(t);
+                    }
+                draw_snap_guides(ui.painter(), &t, canvas_size, viewport_rect, &other_refs);
             }
         }
 
@@ -672,7 +704,14 @@ pub fn show_source_context_menu_items(
         .library
         .iter()
         .find(|s| s.id == source_id)
-        .map(|s| (s.transform.width, s.transform.height))
+        .map(|lib| {
+            let transform = state
+                .active_scene()
+                .and_then(|s| s.find_source(source_id))
+                .map(|ss| ss.resolve_transform(lib))
+                .unwrap_or(lib.transform);
+            (transform.width, transform.height)
+        })
         .unwrap_or((cw, ch));
     let src_aspect = src_w / src_h.max(1.0);
     let canvas_aspect = cw / ch.max(1.0);
@@ -709,50 +748,53 @@ pub fn show_source_context_menu_items(
         }
     });
 
-    // Apply the action.
+    // Apply the action — compute the new transform locally, then write as scene override.
     if let Some(act) = action {
-        if let Some(s) = state.library.iter_mut().find(|s| s.id == source_id) {
-            match act {
+        // Read current resolved transform and native size from the library source.
+        let lib_data = state.library.iter().find(|s| s.id == source_id).map(|lib| {
+            let current = state
+                .active_scene()
+                .and_then(|s| s.find_source(source_id))
+                .map(|ss| ss.resolve_transform(lib))
+                .unwrap_or(lib.transform);
+            (current, lib.native_size)
+        });
+
+        if let Some((current, native_size)) = lib_data {
+            let new_transform = match act {
                 Action::Fit => {
                     let (w, h) = if src_aspect > canvas_aspect {
                         (cw, cw / src_aspect)
                     } else {
                         (ch * src_aspect, ch)
                     };
-                    s.transform.x = (cw - w) / 2.0;
-                    s.transform.y = (ch - h) / 2.0;
-                    s.transform.width = w;
-                    s.transform.height = h;
+                    Transform::new((cw - w) / 2.0, (ch - h) / 2.0, w, h)
                 }
-                Action::Stretch => {
-                    s.transform.x = 0.0;
-                    s.transform.y = 0.0;
-                    s.transform.width = cw;
-                    s.transform.height = ch;
-                }
+                Action::Stretch => Transform::new(0.0, 0.0, cw, ch),
                 Action::Fill => {
                     let (w, h) = if src_aspect > canvas_aspect {
                         (ch * src_aspect, ch)
                     } else {
                         (cw, cw / src_aspect)
                     };
-                    s.transform.x = (cw - w) / 2.0;
-                    s.transform.y = (ch - h) / 2.0;
-                    s.transform.width = w;
-                    s.transform.height = h;
+                    Transform::new((cw - w) / 2.0, (ch - h) / 2.0, w, h)
                 }
-                Action::Center => {
-                    s.transform.x = (cw - s.transform.width) / 2.0;
-                    s.transform.y = (ch - s.transform.height) / 2.0;
-                }
+                Action::Center => Transform::new(
+                    (cw - current.width) / 2.0,
+                    (ch - current.height) / 2.0,
+                    current.width,
+                    current.height,
+                ),
                 Action::Reset => {
-                    let (nw, nh) = s.native_size;
-                    s.transform.width = nw;
-                    s.transform.height = nh;
-                    s.transform.x = (cw - nw) / 2.0;
-                    s.transform.y = (ch - nh) / 2.0;
+                    let (nw, nh) = native_size;
+                    Transform::new((cw - nw) / 2.0, (ch - nh) / 2.0, nw, nh)
                 }
-            }
+            };
+
+            if let Some(scene) = state.active_scene_mut()
+                && let Some(ss) = scene.find_source_mut(source_id) {
+                    ss.overrides.transform = Some(new_transform);
+                }
         }
         mark_dirty(state);
     }

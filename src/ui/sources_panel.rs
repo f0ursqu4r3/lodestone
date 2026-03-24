@@ -36,16 +36,24 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         return;
     };
 
-    // ── Header row: title + add/remove buttons ──
+    // ── Header row: scene name + add/remove buttons ──
+    let scene_name = state
+        .scenes
+        .iter()
+        .find(|s| s.id == active_id)
+        .map(|s| s.name.clone())
+        .unwrap_or_else(|| "Sources".to_string());
     ui.horizontal(|ui| {
-        ui.colored_label(TEXT_PRIMARY, "Sources");
+        ui.colored_label(TEXT_PRIMARY, &scene_name);
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Remove selected source from scene
+            // Remove selected source from scene (small icon button)
             let has_selection = state.selected_source_id.is_some();
             ui.add_enabled_ui(has_selection, |ui| {
                 if ui
-                    .button(egui_phosphor::regular::MINUS)
+                    .add(egui::Button::new(
+                        egui::RichText::new(egui_phosphor::regular::MINUS).size(10.0),
+                    ))
                     .on_hover_text("Remove from scene")
                     .clicked()
                     && let Some(src_id) = state.selected_source_id
@@ -54,9 +62,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 }
             });
 
-            // Add source from library (popup menu)
+            // Add source from library (small icon button + popup menu)
             let add_response = ui
-                .button(egui_phosphor::regular::PLUS)
+                .add(egui::Button::new(
+                    egui::RichText::new(egui_phosphor::regular::PLUS).size(10.0),
+                ))
                 .on_hover_text("Add from library");
 
             let popup_id = ui.make_persistent_id("add_source_menu");
@@ -177,8 +187,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         visible: bool,
     }
 
+    // Reverse the list so top-most source (highest z-order) appears at the top.
     let rows: Vec<SourceRow> = scene_sources
         .iter()
+        .rev()
         .filter_map(|(src_id, resolved_visible)| {
             let lib = state.library.iter().find(|l| l.id == *src_id)?;
             Some(SourceRow {
@@ -281,6 +293,53 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
                 // ── Right-aligned controls ──
                 let right_x = row_rect.right() - 4.0;
+                let row_hovered = ui.rect_contains_pointer(row_rect);
+
+                // Reorder arrows (visible on hover only, right of name, left of eye).
+                if row_hovered {
+                    let arrow_size = 12.0;
+                    let arrows_x = right_x - 16.0 - arrow_size * 2.0 - 4.0;
+
+                    // Up arrow (move forward in z-order = move_source_down in data)
+                    let up_rect = Rect::from_center_size(
+                        egui::pos2(arrows_x, center_y),
+                        vec2(arrow_size, row_height),
+                    );
+                    let up_hovered = ui.rect_contains_pointer(up_rect);
+                    if idx > 0 {
+                        let up_color = if up_hovered { TEXT_PRIMARY } else { TEXT_MUTED };
+                        painter.text(
+                            up_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            egui_phosphor::regular::ARROW_UP,
+                            egui::FontId::proportional(9.0),
+                            up_color,
+                        );
+                        if up_hovered && row_response.clicked() {
+                            move_down = Some(row.id);
+                        }
+                    }
+
+                    // Down arrow (move backward in z-order = move_source_up in data)
+                    let down_rect = Rect::from_center_size(
+                        egui::pos2(arrows_x + arrow_size + 2.0, center_y),
+                        vec2(arrow_size, row_height),
+                    );
+                    let down_hovered = ui.rect_contains_pointer(down_rect);
+                    if idx + 1 < source_count {
+                        let down_color = if down_hovered { TEXT_PRIMARY } else { TEXT_MUTED };
+                        painter.text(
+                            down_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            egui_phosphor::regular::ARROW_DOWN,
+                            egui::FontId::proportional(9.0),
+                            down_color,
+                        );
+                        if down_hovered && row_response.clicked() {
+                            move_up = Some(row.id);
+                        }
+                    }
+                }
 
                 // Visibility toggle eye icon.
                 let eye_text = if row.visible {
@@ -345,33 +404,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         }
     });
 
-    // ── Reorder buttons for selected source ──
-    if let Some(selected_id) = state.selected_source_id {
-        let source_ids: Vec<SourceId> = rows.iter().map(|r| r.id).collect();
-        if let Some(idx) = source_ids.iter().position(|&id| id == selected_id) {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.add_enabled_ui(idx > 0, |ui| {
-                    if ui
-                        .button(egui_phosphor::regular::ARROW_UP)
-                        .on_hover_text("Move up")
-                        .clicked()
-                    {
-                        move_up = Some(selected_id);
-                    }
-                });
-                ui.add_enabled_ui(idx + 1 < source_count, |ui| {
-                    if ui
-                        .button(egui_phosphor::regular::ARROW_DOWN)
-                        .on_hover_text("Move down")
-                        .clicked()
-                    {
-                        move_down = Some(selected_id);
-                    }
-                });
-            });
-        }
-    }
+    // Reorder buttons are now inline on each row (visible on hover).
 
     // ── Apply reorder mutations ──
     if let Some(src_id) = move_up {

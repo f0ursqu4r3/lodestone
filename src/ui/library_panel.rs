@@ -51,15 +51,17 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
             ui.add_space(4.0);
 
-            // View toggle buttons
+            // View toggle buttons (icons)
             if ui
-                .selectable_label(view == LibraryView::Folders, "Folders")
+                .selectable_label(view == LibraryView::Folders, egui_phosphor::regular::FOLDER)
+                .on_hover_text("Folders")
                 .clicked()
             {
                 view = LibraryView::Folders;
             }
             if ui
-                .selectable_label(view == LibraryView::ByType, "By Type")
+                .selectable_label(view == LibraryView::ByType, egui_phosphor::regular::LIST)
+                .on_hover_text("By Type")
                 .clicked()
             {
                 view = LibraryView::ByType;
@@ -325,22 +327,24 @@ fn draw_by_type_view(
     rows: &[SourceRow],
     delete_source: &mut Option<SourceId>,
 ) {
+    // Sorted alphabetically by section label.
     let type_order: &[SourceType] = &[
-        SourceType::Display,
-        SourceType::Camera,
-        SourceType::Window,
-        SourceType::Image,
         SourceType::Audio,
         SourceType::Browser,
+        SourceType::Camera,
+        SourceType::Display,
+        SourceType::Image,
+        SourceType::Window,
     ];
 
     for source_type in type_order {
-        let section_rows: Vec<&SourceRow> = rows
+        let mut section_rows: Vec<&SourceRow> = rows
             .iter()
             .filter(|r| {
                 std::mem::discriminant(&r.source_type) == std::mem::discriminant(source_type)
             })
             .collect();
+        section_rows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         if section_rows.is_empty() {
             continue;
@@ -375,10 +379,11 @@ fn draw_folders_view(
 
     // Named folders first.
     for folder in &folders {
-        let folder_rows: Vec<&SourceRow> = rows
+        let mut folder_rows: Vec<&SourceRow> = rows
             .iter()
             .filter(|r| r.folder.as_deref() == Some(folder.as_str()))
             .collect();
+        folder_rows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         if folder_rows.is_empty() {
             continue;
@@ -394,7 +399,8 @@ fn draw_folders_view(
     }
 
     // "Unfiled" section for sources without a folder.
-    let unfiled_rows: Vec<&SourceRow> = rows.iter().filter(|r| r.folder.is_none()).collect();
+    let mut unfiled_rows: Vec<&SourceRow> = rows.iter().filter(|r| r.folder.is_none()).collect();
+    unfiled_rows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     if !unfiled_rows.is_empty() {
         egui::CollapsingHeader::new("Unfiled")

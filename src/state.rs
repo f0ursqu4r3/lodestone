@@ -62,6 +62,7 @@ pub struct AppState {
     pub capture_active: bool,
     pub active_errors: Vec<GstError>,
     pub recording_status: RecordingStatus,
+    pub virtual_camera_active: bool,
     pub command_tx: Option<tokio::sync::mpsc::Sender<GstCommand>>,
     /// Resolved accent color from settings, cached to avoid parsing hex every frame.
     pub accent_color: egui::Color32,
@@ -96,6 +97,7 @@ impl Default for AppState {
             capture_active: true,
             active_errors: Vec::new(),
             recording_status: RecordingStatus::Idle,
+            virtual_camera_active: false,
             command_tx: None,
             accent_color: crate::ui::theme::DEFAULT_ACCENT,
         }

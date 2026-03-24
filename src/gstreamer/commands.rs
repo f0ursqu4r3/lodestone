@@ -74,6 +74,8 @@ pub enum GstCommand {
     UpdateDisplayExclusion {
         exclude_self: bool,
     },
+    StartVirtualCamera,
+    StopVirtualCamera,
     #[allow(dead_code)]
     Shutdown,
 }

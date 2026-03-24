@@ -455,6 +455,8 @@ impl GstThread {
             GstCommand::UpdateDisplayExclusion { exclude_self } => {
                 self.handle_update_display_exclusion(exclude_self)
             }
+            GstCommand::StartVirtualCamera => {}
+            GstCommand::StopVirtualCamera => {}
             GstCommand::Shutdown => return self.handle_shutdown(),
         }
         false

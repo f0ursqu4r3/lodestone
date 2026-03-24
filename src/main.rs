@@ -210,14 +210,18 @@ impl AppManager {
     }
 
     /// Try to load a saved layout from disk. Falls back to default.
+    ///
+    /// If the saved layout is missing essential panels (e.g. Library was added
+    /// in a newer version), the missing panels are injected into existing groups.
     fn load_layout() -> DockLayout {
         let path = settings::config_dir().join("layout.toml");
         if path.exists()
             && let Ok(contents) = std::fs::read_to_string(&path)
         {
             match deserialize_full_layout(&contents) {
-                Ok((layout, _detached)) => {
+                Ok((mut layout, _detached)) => {
                     log::info!("Loaded layout from {}", path.display());
+                    Self::ensure_essential_panels(&mut layout);
                     return layout;
                 }
                 Err(e) => {
@@ -226,6 +230,36 @@ impl AppManager {
             }
         }
         DockLayout::default_layout()
+    }
+
+    /// Ensure essential panels exist in the layout, injecting missing ones
+    /// as tabs in appropriate existing groups.
+    fn ensure_essential_panels(layout: &mut DockLayout) {
+        let all_panels = layout.collect_all_panels();
+        let has = |pt: PanelType| all_panels.iter().any(|(_, t)| *t == pt);
+
+        // Library panel: add as a tab alongside Sources if missing.
+        if !has(PanelType::Library) {
+            // Find a group containing Sources to add Library alongside it.
+            let target_group = layout
+                .groups
+                .iter()
+                .find(|(_, g)| g.tabs.iter().any(|t| t.panel_type == PanelType::Sources))
+                .map(|(gid, _)| *gid);
+
+            if let Some(gid) = target_group {
+                if let Some(group) = layout.groups.get_mut(&gid) {
+                    group.add_tab(PanelType::Library);
+                    log::info!("Injected Library panel into Sources group");
+                }
+            } else {
+                // No Sources group — add to any group.
+                if let Some(group) = layout.groups.values_mut().next() {
+                    group.add_tab(PanelType::Library);
+                    log::info!("Injected Library panel into first available group");
+                }
+            }
+        }
     }
 
     /// Save the current main window layout to disk.

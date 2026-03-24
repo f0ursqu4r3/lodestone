@@ -8,7 +8,8 @@ use std::thread::JoinHandle;
 
 use super::capture::{build_audio_capture_pipeline, build_capture_pipeline};
 use super::commands::{
-    AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, GstCommand, GstThreadChannels,
+    AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, EncoderConfig, GstCommand,
+    GstThreadChannels, RecordingFormat, StreamConfig,
 };
 use super::encode::{
     RecordPipelineHandles, StreamPipelineHandles, build_record_pipeline_with_audio,
@@ -49,7 +50,7 @@ struct GstThread {
     system_volume_name: Option<String>,
     has_system_audio: bool,
     // Config
-    encoder_config: super::commands::EncoderConfig,
+    encoder_config: EncoderConfig,
     audio_encoder_config: AudioEncoderConfig,
 }
 
@@ -67,7 +68,7 @@ impl GstThread {
             system_appsink: None,
             system_volume_name: None,
             has_system_audio: false,
-            encoder_config: super::commands::EncoderConfig::default(),
+            encoder_config: EncoderConfig::default(),
             audio_encoder_config: AudioEncoderConfig::default(),
         }
     }
@@ -299,129 +300,169 @@ impl GstThread {
 
     fn handle_command(&mut self, cmd: GstCommand) -> bool {
         match cmd {
-            GstCommand::StartStream(config) => {
-                let url = format!("{}/{}", config.destination.rtmp_url(), config.stream_key);
-                match build_stream_pipeline_with_audio(
-                    &self.encoder_config,
-                    &self.audio_encoder_config,
-                    &url,
-                    self.has_system_audio,
-                ) {
-                    Ok(handles) => {
-                        if let Err(e) = handles.pipeline.set_state(gstreamer::State::Playing) {
-                            let _ = self.channels.error_tx.send(GstError::EncodeFailure {
-                                message: format!("Failed to start stream: {e}"),
-                            });
-                            return false;
-                        }
-                        log::info!("Stream pipeline started");
-                        self.stream_handles = Some(handles);
-                    }
-                    Err(e) => {
-                        let _ = self.channels.error_tx.send(GstError::EncodeFailure {
-                            message: format!("{e}"),
-                        });
-                    }
-                }
-            }
-            GstCommand::StopStream => {
-                self.stop_pipeline(PipelineKind::Stream);
-            }
-            GstCommand::StopRecording => {
-                self.stop_pipeline(PipelineKind::Record);
-            }
+            GstCommand::StartStream(config) => self.handle_start_stream(config),
+            GstCommand::StopStream => self.handle_stop_stream(),
+            GstCommand::StopRecording => self.handle_stop_recording(),
             GstCommand::StartRecording { path, format } => {
-                match build_record_pipeline_with_audio(
-                    &self.encoder_config,
-                    &self.audio_encoder_config,
-                    &path,
-                    format,
-                    self.has_system_audio,
-                ) {
-                    Ok(handles) => {
-                        if let Err(e) = handles.pipeline.set_state(gstreamer::State::Playing) {
-                            let _ = self.channels.error_tx.send(GstError::EncodeFailure {
-                                message: format!("Failed to start recording: {e}"),
-                            });
-                            return false;
-                        }
-                        log::info!("Record pipeline started to {}", path.display());
-                        self.record_handles = Some(handles);
-                    }
-                    Err(e) => {
-                        let _ = self.channels.error_tx.send(GstError::EncodeFailure {
-                            message: format!("{e}"),
-                        });
-                    }
-                }
+                self.handle_start_recording(path, format)
             }
-            GstCommand::UpdateEncoder(config) => {
-                self.encoder_config = config;
-            }
+            GstCommand::UpdateEncoder(config) => self.handle_update_encoder(config),
             GstCommand::SetAudioDevice { source, device_uid } => {
-                self.stop_audio_capture(source);
-                self.start_audio_capture(source, &device_uid);
+                self.handle_set_audio_device(source, device_uid)
             }
             GstCommand::SetAudioVolume { source, volume } => {
-                let (pipeline, vol_name) = match source {
-                    AudioSourceKind::Mic => (&self.mic_pipeline, &self.mic_volume_name),
-                    AudioSourceKind::System => (&self.system_pipeline, &self.system_volume_name),
-                };
-                if let (Some(pipeline), Some(name)) = (pipeline, vol_name)
-                    && let Some(element) = pipeline.by_name(name)
-                {
-                    element.set_property("volume", volume as f64);
-                }
+                self.handle_set_audio_volume(source, volume)
             }
             GstCommand::SetAudioMuted { source, muted } => {
-                let (pipeline, vol_name) = match source {
-                    AudioSourceKind::Mic => (&self.mic_pipeline, &self.mic_volume_name),
-                    AudioSourceKind::System => (&self.system_pipeline, &self.system_volume_name),
-                };
-                if let (Some(pipeline), Some(name)) = (pipeline, vol_name)
-                    && let Some(element) = pipeline.by_name(name)
-                {
-                    element.set_property("mute", muted);
-                }
+                self.handle_set_audio_muted(source, muted)
             }
-            GstCommand::StopCapture => {
-                // Stop all active captures.
-                for (_, handle) in self.captures.drain() {
-                    if let Some(ref running) = handle.capture_running {
-                        running.store(false, Ordering::Relaxed);
-                    }
-                    let _ = handle.pipeline.set_state(gstreamer::State::Null);
-                }
-                log::info!("All captures stopped");
-            }
+            GstCommand::StopCapture => self.handle_stop_capture(),
             GstCommand::AddCaptureSource { source_id, config } => {
-                self.add_capture_source(source_id, &config);
+                self.handle_add_capture_source(source_id, config)
             }
             GstCommand::RemoveCaptureSource { source_id } => {
-                self.remove_capture_source(source_id);
+                self.handle_remove_capture_source(source_id)
             }
             GstCommand::LoadImageFrame { source_id, frame } => {
-                self.channels
-                    .latest_frames
-                    .lock()
-                    .unwrap()
-                    .insert(source_id, frame);
+                self.handle_load_image_frame(source_id, frame)
             }
-            GstCommand::Shutdown => {
-                self.stop_pipeline(PipelineKind::Stream);
-                self.stop_pipeline(PipelineKind::Record);
-                self.stop_audio_capture(AudioSourceKind::Mic);
-                self.stop_audio_capture(AudioSourceKind::System);
-                for (_, handle) in self.captures.drain() {
-                    if let Some(ref running) = handle.capture_running {
-                        running.store(false, Ordering::Relaxed);
-                    }
-                    let _ = handle.pipeline.set_state(gstreamer::State::Null);
-                }
-                return true;
-            }
+            GstCommand::Shutdown => return self.handle_shutdown(),
         }
         false
+    }
+
+    fn handle_start_stream(&mut self, config: StreamConfig) {
+        let url = format!("{}/{}", config.destination.rtmp_url(), config.stream_key);
+        match build_stream_pipeline_with_audio(
+            &self.encoder_config,
+            &self.audio_encoder_config,
+            &url,
+            self.has_system_audio,
+        ) {
+            Ok(handles) => {
+                if let Err(e) = handles.pipeline.set_state(gstreamer::State::Playing) {
+                    let _ = self.channels.error_tx.send(GstError::EncodeFailure {
+                        message: format!("Failed to start stream: {e}"),
+                    });
+                    return;
+                }
+                log::info!("Stream pipeline started");
+                self.stream_handles = Some(handles);
+            }
+            Err(e) => {
+                let _ = self.channels.error_tx.send(GstError::EncodeFailure {
+                    message: format!("{e}"),
+                });
+            }
+        }
+    }
+
+    fn handle_stop_stream(&mut self) {
+        self.stop_pipeline(PipelineKind::Stream);
+    }
+
+    fn handle_stop_recording(&mut self) {
+        self.stop_pipeline(PipelineKind::Record);
+    }
+
+    fn handle_start_recording(&mut self, path: std::path::PathBuf, format: RecordingFormat) {
+        match build_record_pipeline_with_audio(
+            &self.encoder_config,
+            &self.audio_encoder_config,
+            &path,
+            format,
+            self.has_system_audio,
+        ) {
+            Ok(handles) => {
+                if let Err(e) = handles.pipeline.set_state(gstreamer::State::Playing) {
+                    let _ = self.channels.error_tx.send(GstError::EncodeFailure {
+                        message: format!("Failed to start recording: {e}"),
+                    });
+                    return;
+                }
+                log::info!("Record pipeline started to {}", path.display());
+                self.record_handles = Some(handles);
+            }
+            Err(e) => {
+                let _ = self.channels.error_tx.send(GstError::EncodeFailure {
+                    message: format!("{e}"),
+                });
+            }
+        }
+    }
+
+    fn handle_update_encoder(&mut self, config: EncoderConfig) {
+        self.encoder_config = config;
+    }
+
+    fn handle_set_audio_device(&mut self, source: AudioSourceKind, device_uid: String) {
+        self.stop_audio_capture(source);
+        self.start_audio_capture(source, &device_uid);
+    }
+
+    fn handle_set_audio_volume(&mut self, source: AudioSourceKind, volume: f32) {
+        let (pipeline, vol_name) = match source {
+            AudioSourceKind::Mic => (&self.mic_pipeline, &self.mic_volume_name),
+            AudioSourceKind::System => (&self.system_pipeline, &self.system_volume_name),
+        };
+        if let (Some(pipeline), Some(name)) = (pipeline, vol_name)
+            && let Some(element) = pipeline.by_name(name)
+        {
+            element.set_property("volume", volume as f64);
+        }
+    }
+
+    fn handle_set_audio_muted(&mut self, source: AudioSourceKind, muted: bool) {
+        let (pipeline, vol_name) = match source {
+            AudioSourceKind::Mic => (&self.mic_pipeline, &self.mic_volume_name),
+            AudioSourceKind::System => (&self.system_pipeline, &self.system_volume_name),
+        };
+        if let (Some(pipeline), Some(name)) = (pipeline, vol_name)
+            && let Some(element) = pipeline.by_name(name)
+        {
+            element.set_property("mute", muted);
+        }
+    }
+
+    fn handle_stop_capture(&mut self) {
+        for (_, handle) in self.captures.drain() {
+            if let Some(ref running) = handle.capture_running {
+                running.store(false, Ordering::Relaxed);
+            }
+            let _ = handle.pipeline.set_state(gstreamer::State::Null);
+        }
+        log::info!("All captures stopped");
+    }
+
+    fn handle_add_capture_source(&mut self, source_id: SourceId, config: CaptureSourceConfig) {
+        self.add_capture_source(source_id, &config);
+    }
+
+    fn handle_remove_capture_source(&mut self, source_id: SourceId) {
+        self.remove_capture_source(source_id);
+    }
+
+    fn handle_load_image_frame(&mut self, source_id: SourceId, frame: RgbaFrame) {
+        self.channels
+            .latest_frames
+            .lock()
+            .unwrap()
+            .insert(source_id, frame);
+    }
+
+    /// Returns `true` to signal the run loop to exit.
+    fn handle_shutdown(&mut self) -> bool {
+        self.stop_pipeline(PipelineKind::Stream);
+        self.stop_pipeline(PipelineKind::Record);
+        self.stop_audio_capture(AudioSourceKind::Mic);
+        self.stop_audio_capture(AudioSourceKind::System);
+        for (_, handle) in self.captures.drain() {
+            if let Some(ref running) = handle.capture_running {
+                running.store(false, Ordering::Relaxed);
+            }
+            let _ = handle.pipeline.set_state(gstreamer::State::Null);
+        }
+        true
     }
 
     fn stop_pipeline(&mut self, kind: PipelineKind) {

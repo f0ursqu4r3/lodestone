@@ -5,7 +5,7 @@
 //! Supports selection, reordering, add-from-library, and remove-from-scene.
 
 use crate::gstreamer::{CaptureSourceConfig, GstCommand};
-use crate::scene::{SceneSource, SourceId, SourceOverrides, SourceProperties, SourceType};
+use crate::scene::{SceneId, SceneSource, SourceId, SourceOverrides, SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::draw_helpers::{draw_selection_highlight, source_icon, with_opacity};
 use crate::ui::layout::tree::PanelId;
@@ -19,6 +19,14 @@ use egui::{Color32, CornerRadius, Rect, Sense, Stroke, vec2};
 #[derive(Clone, Copy)]
 struct ReorderPayload {
     source_id: SourceId,
+}
+
+/// Snapshot of per-source display data, collected before rendering to avoid borrow conflicts.
+struct SourceRow {
+    id: SourceId,
+    name: String,
+    source_type: SourceType,
+    visible: bool,
 }
 
 /// Draw the sources panel for the currently active scene.
@@ -71,74 +79,20 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 ui.memory_mut(|m: &mut egui::Memory| m.toggle_popup(popup_id));
             }
 
-            // Snapshot library data before the popup to avoid borrow conflicts.
-            let scene_source_ids: Vec<SourceId> = state
-                .scenes
-                .iter()
-                .find(|s| s.id == active_id)
-                .map(|s| s.source_ids())
-                .unwrap_or_default();
-
-            let available_sources: Vec<(SourceId, String, SourceType, SourceProperties)> = state
-                .library
-                .iter()
-                .filter(|lib_src| !scene_source_ids.contains(&lib_src.id))
-                .map(|lib_src| {
-                    (
-                        lib_src.id,
-                        lib_src.name.clone(),
-                        lib_src.source_type.clone(),
-                        lib_src.properties.clone(),
-                    )
-                })
-                .collect();
-
-            #[allow(deprecated)]
-            egui::popup_below_widget(
-                ui,
-                popup_id,
-                &add_response,
-                egui::PopupCloseBehavior::CloseOnClickOutside,
-                |ui: &mut egui::Ui| {
-                    use crate::ui::theme::{menu_item_icon, styled_menu};
-                    styled_menu(ui, |ui| {
-                        if available_sources.is_empty() {
-                            ui.label(
-                                egui::RichText::new("All sources added")
-                                    .color(TEXT_MUTED)
-                                    .size(11.0),
-                            );
-                        } else {
-                            // Track which source to add (collected after loop to avoid borrow conflicts).
-                            let mut source_to_add: Option<(SourceId, SourceProperties)> = None;
-
-                            for (src_id, name, src_type, props) in &available_sources {
-                                if menu_item_icon(ui, source_icon(src_type), name) {
-                                    source_to_add = Some((*src_id, props.clone()));
-                                    ui.memory_mut(|m| m.close_popup(popup_id));
-                                }
-                            }
-
-                            // Apply outside the iterator to satisfy the borrow checker.
-                            if let Some((src_id, props)) = source_to_add {
-                                if let Some(scene) =
-                                    state.scenes.iter_mut().find(|s| s.id == active_id)
-                                {
-                                    scene.sources.push(SceneSource {
-                                        source_id: src_id,
-                                        overrides: SourceOverrides::default(),
-                                    });
-                                }
-                                // Start capture based on snapshotted properties.
-                                start_capture_from_properties(state, &cmd_tx, src_id, &props);
-                                state.selected_source_id = Some(src_id);
-                                state.scenes_dirty = true;
-                                state.scenes_last_changed = std::time::Instant::now();
-                            }
-                        }
+            if let Some((src_id, props)) =
+                draw_add_from_library_popup(ui, state, active_id, popup_id, &add_response)
+            {
+                if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+                    scene.sources.push(SceneSource {
+                        source_id: src_id,
+                        overrides: SourceOverrides::default(),
                     });
-                },
-            );
+                }
+                start_capture_from_properties(state, &cmd_tx, src_id, &props);
+                state.selected_source_id = Some(src_id);
+                state.scenes_dirty = true;
+                state.scenes_last_changed = std::time::Instant::now();
+            }
         });
     });
 
@@ -172,14 +126,6 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     let source_count = scene_sources.len();
     let selected_bg = accent_dim(DEFAULT_ACCENT);
-
-    // Snapshot display data for each source to avoid borrowing state during rendering.
-    struct SourceRow {
-        id: SourceId,
-        name: String,
-        source_type: SourceType,
-        visible: bool,
-    }
 
     // Reverse the list so top-most source (highest z-order) appears at the top.
     let rows: Vec<SourceRow> = scene_sources
@@ -280,163 +226,25 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         // ── Render rows with animated offsets ──
         for (idx, row) in rows.iter().enumerate() {
             let is_selected = state.selected_source_id == Some(row.id);
-            let row_opacity = if row.visible { 1.0 } else { 0.4 };
             let is_being_dragged = dragged_id == Some(row.id);
             let y_offset = offsets.get(&row.id.0).copied().unwrap_or(0.0);
 
             ui.push_id(row.id.0, |ui| {
-                let (row_rect, row_response) = ui
-                    .allocate_exact_size(vec2(available_width, row_height), Sense::click_and_drag());
-
-                // The paint rect is shifted by the animation offset.
-                let paint_rect = if is_being_dragged {
-                    // Dragged row follows the pointer.
-                    if let Some(pos) = pointer_pos {
-                        Rect::from_min_size(
-                            egui::pos2(row_rect.left(), pos.y - row_height / 2.0),
-                            row_rect.size(),
-                        )
-                    } else {
-                        row_rect
-                    }
-                } else {
-                    row_rect.translate(vec2(0.0, y_offset))
-                };
-
-                let effective_opacity = if is_being_dragged {
-                    row_opacity * 0.5
-                } else {
-                    row_opacity
-                };
-
-                // Selection highlight.
-                if is_selected && !is_being_dragged {
-                    draw_selection_highlight(ui.painter(), paint_rect, selected_bg);
-                }
-
-                // Flash highlight.
-                if state.flash_source_id == Some(row.id)
-                    && let Some(start) = state.flash_start
-                {
-                    let elapsed = start.elapsed().as_secs_f32();
-                    let duration = 0.6;
-                    if elapsed < duration {
-                        let alpha = (1.0 - elapsed / duration) * 0.4;
-                        let flash_color = Color32::from_rgba_premultiplied(
-                            (DEFAULT_ACCENT.r() as f32 * alpha) as u8,
-                            (DEFAULT_ACCENT.g() as f32 * alpha) as u8,
-                            (DEFAULT_ACCENT.b() as f32 * alpha) as u8,
-                            (255.0 * alpha) as u8,
-                        );
-                        ui.painter()
-                            .rect_filled(paint_rect, CornerRadius::same(RADIUS_SM as u8), flash_color);
-                        ui.ctx().request_repaint();
-                    } else {
-                        state.flash_source_id = None;
-                        state.flash_start = None;
-                    }
-                }
-
-                // Start drag.
-                if row_response.drag_started() {
-                    row_response.dnd_set_drag_payload(ReorderPayload { source_id: row.id });
-                }
-
-                // Click to select.
-                if row_response.clicked() {
-                    state.selected_source_id = Some(row.id);
-                    state.selected_library_source_id = None;
-                }
-
-                // Paint row contents at the animated position.
-                // Use painter_at to avoid borrowing ui for the painter's lifetime.
-                let painter = ui.painter_at(paint_rect);
-                let mut cursor_x = paint_rect.left() + 4.0;
-                let center_y = paint_rect.center().y;
-
-                // Icon.
-                let icon_size = 16.0;
-                let icon_rect = Rect::from_center_size(
-                    egui::pos2(cursor_x + icon_size / 2.0, center_y),
-                    vec2(icon_size, icon_size),
-                );
-                painter.rect_filled(icon_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
-                painter.text(
-                    icon_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    source_icon(&row.source_type),
-                    egui::FontId::proportional(10.0),
-                    with_opacity(TEXT_PRIMARY, effective_opacity),
-                );
-                cursor_x += icon_size + 6.0;
-
-                // Name.
-                painter.text(
-                    egui::pos2(cursor_x, center_y),
-                    egui::Align2::LEFT_CENTER,
-                    &row.name,
-                    egui::FontId::proportional(11.0),
-                    with_opacity(TEXT_PRIMARY, effective_opacity),
-                );
-
-                // Eye icon.
-                let right_x = paint_rect.right() - 4.0;
-                let eye_text = if row.visible {
-                    egui_phosphor::regular::EYE
-                } else {
-                    egui_phosphor::regular::EYE_SLASH
-                };
-                let eye_rect = Rect::from_center_size(
-                    egui::pos2(right_x - 8.0, center_y),
-                    vec2(16.0, row_height),
-                );
-                let eye_hovered = ui.rect_contains_pointer(eye_rect);
-                let eye_color = if eye_hovered {
-                    with_opacity(TEXT_PRIMARY, effective_opacity)
-                } else {
-                    with_opacity(TEXT_MUTED, 0.5 * effective_opacity)
-                };
-                painter.text(
-                    eye_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    eye_text,
-                    egui::FontId::proportional(11.0),
-                    eye_color,
-                );
-
-                // Eye click.
-                if eye_hovered && row_response.clicked() {
-                    let current_visible = row.visible;
-                    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id)
-                        && let Some(scene_src) =
-                            scene.sources.iter_mut().find(|ss| ss.source_id == row.id)
-                    {
-                        scene_src.overrides.visible = Some(!current_visible);
-                    }
-                    state.scenes_dirty = true;
-                    state.scenes_last_changed = std::time::Instant::now();
-                }
-
-                // Context menu.
-                crate::ui::transform_handles::show_source_context_menu(
+                draw_source_row(
                     ui,
-                    &row_response,
                     state,
-                    row.id,
-                    egui::Vec2::new(1920.0, 1080.0),
+                    row,
+                    active_id,
+                    available_width,
+                    row_height,
+                    y_offset,
+                    is_selected,
+                    is_being_dragged,
+                    pointer_pos,
+                    selected_bg,
+                    idx,
+                    source_count,
                 );
-
-                // Separator (skip for dragged row).
-                if idx + 1 < source_count && !is_being_dragged {
-                    let sep_y = paint_rect.bottom() ;
-                    painter.line_segment(
-                        [
-                            egui::pos2(paint_rect.left(), sep_y),
-                            egui::pos2(paint_rect.right(), sep_y),
-                        ],
-                        Stroke::new(1.0, BORDER),
-                    );
-                }
             });
         }
 
@@ -538,6 +346,245 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     }
 }
 
+/// Draw the "add source from library" popup.
+///
+/// Returns `Some((source_id, properties))` if the user selected a source to add.
+/// The caller is responsible for mutating scene and app state.
+#[allow(deprecated)]
+fn draw_add_from_library_popup(
+    ui: &mut egui::Ui,
+    state: &AppState,
+    scene_id: SceneId,
+    popup_id: egui::Id,
+    anchor: &egui::Response,
+) -> Option<(SourceId, SourceProperties)> {
+    use crate::ui::theme::{menu_item_icon, styled_menu};
+
+    // Snapshot library entries not already in the scene.
+    let scene_source_ids: Vec<SourceId> = state
+        .scenes
+        .iter()
+        .find(|s| s.id == scene_id)
+        .map(|s| s.source_ids())
+        .unwrap_or_default();
+
+    let available_sources: Vec<(SourceId, String, SourceType, SourceProperties)> = state
+        .library
+        .iter()
+        .filter(|lib_src| !scene_source_ids.contains(&lib_src.id))
+        .map(|lib_src| {
+            (
+                lib_src.id,
+                lib_src.name.clone(),
+                lib_src.source_type.clone(),
+                lib_src.properties.clone(),
+            )
+        })
+        .collect();
+
+    let mut selected: Option<(SourceId, SourceProperties)> = None;
+
+    egui::popup_below_widget(
+        ui,
+        popup_id,
+        anchor,
+        egui::PopupCloseBehavior::CloseOnClickOutside,
+        |ui: &mut egui::Ui| {
+            styled_menu(ui, |ui| {
+                if available_sources.is_empty() {
+                    ui.label(
+                        egui::RichText::new("All sources added")
+                            .color(TEXT_MUTED)
+                            .size(11.0),
+                    );
+                } else {
+                    for (src_id, name, src_type, props) in &available_sources {
+                        if menu_item_icon(ui, source_icon(src_type), name) {
+                            selected = Some((*src_id, props.clone()));
+                            ui.memory_mut(|m| m.close_popup(popup_id));
+                        }
+                    }
+                }
+            });
+        },
+    );
+
+    selected
+}
+
+/// Draw a single source row with selection highlight, flash, drag handle, icon, name,
+/// visibility eye, context menu, and separator.
+#[allow(clippy::too_many_arguments)]
+fn draw_source_row(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    row: &SourceRow,
+    active_id: SceneId,
+    available_width: f32,
+    row_height: f32,
+    y_offset: f32,
+    is_selected: bool,
+    is_being_dragged: bool,
+    pointer_pos: Option<egui::Pos2>,
+    selected_bg: Color32,
+    idx: usize,
+    source_count: usize,
+) {
+    let (row_rect, row_response) =
+        ui.allocate_exact_size(vec2(available_width, row_height), Sense::click_and_drag());
+
+    // The paint rect is shifted by the animation offset.
+    let paint_rect = if is_being_dragged {
+        // Dragged row follows the pointer.
+        if let Some(pos) = pointer_pos {
+            Rect::from_min_size(
+                egui::pos2(row_rect.left(), pos.y - row_height / 2.0),
+                row_rect.size(),
+            )
+        } else {
+            row_rect
+        }
+    } else {
+        row_rect.translate(vec2(0.0, y_offset))
+    };
+
+    let row_opacity = if row.visible { 1.0 } else { 0.4 };
+    let effective_opacity = if is_being_dragged {
+        row_opacity * 0.5
+    } else {
+        row_opacity
+    };
+
+    // Selection highlight.
+    if is_selected && !is_being_dragged {
+        draw_selection_highlight(ui.painter(), paint_rect, selected_bg);
+    }
+
+    // Flash highlight.
+    if state.flash_source_id == Some(row.id)
+        && let Some(start) = state.flash_start
+    {
+        let elapsed = start.elapsed().as_secs_f32();
+        let duration = 0.6;
+        if elapsed < duration {
+            let alpha = (1.0 - elapsed / duration) * 0.4;
+            let flash_color = Color32::from_rgba_premultiplied(
+                (DEFAULT_ACCENT.r() as f32 * alpha) as u8,
+                (DEFAULT_ACCENT.g() as f32 * alpha) as u8,
+                (DEFAULT_ACCENT.b() as f32 * alpha) as u8,
+                (255.0 * alpha) as u8,
+            );
+            ui.painter()
+                .rect_filled(paint_rect, CornerRadius::same(RADIUS_SM as u8), flash_color);
+            ui.ctx().request_repaint();
+        } else {
+            state.flash_source_id = None;
+            state.flash_start = None;
+        }
+    }
+
+    // Start drag.
+    if row_response.drag_started() {
+        row_response.dnd_set_drag_payload(ReorderPayload { source_id: row.id });
+    }
+
+    // Click to select.
+    if row_response.clicked() {
+        state.selected_source_id = Some(row.id);
+        state.selected_library_source_id = None;
+    }
+
+    // Paint row contents at the animated position.
+    // Use painter_at to avoid borrowing ui for the painter's lifetime.
+    let painter = ui.painter_at(paint_rect);
+    let mut cursor_x = paint_rect.left() + 4.0;
+    let center_y = paint_rect.center().y;
+
+    // Icon.
+    let icon_size = 16.0;
+    let icon_rect = Rect::from_center_size(
+        egui::pos2(cursor_x + icon_size / 2.0, center_y),
+        vec2(icon_size, icon_size),
+    );
+    painter.rect_filled(icon_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
+    painter.text(
+        icon_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        source_icon(&row.source_type),
+        egui::FontId::proportional(10.0),
+        with_opacity(TEXT_PRIMARY, effective_opacity),
+    );
+    cursor_x += icon_size + 6.0;
+
+    // Name.
+    painter.text(
+        egui::pos2(cursor_x, center_y),
+        egui::Align2::LEFT_CENTER,
+        &row.name,
+        egui::FontId::proportional(11.0),
+        with_opacity(TEXT_PRIMARY, effective_opacity),
+    );
+
+    // Eye icon.
+    let right_x = paint_rect.right() - 4.0;
+    let eye_text = if row.visible {
+        egui_phosphor::regular::EYE
+    } else {
+        egui_phosphor::regular::EYE_SLASH
+    };
+    let eye_rect = Rect::from_center_size(
+        egui::pos2(right_x - 8.0, center_y),
+        vec2(16.0, row_height),
+    );
+    let eye_hovered = ui.rect_contains_pointer(eye_rect);
+    let eye_color = if eye_hovered {
+        with_opacity(TEXT_PRIMARY, effective_opacity)
+    } else {
+        with_opacity(TEXT_MUTED, 0.5 * effective_opacity)
+    };
+    painter.text(
+        eye_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        eye_text,
+        egui::FontId::proportional(11.0),
+        eye_color,
+    );
+
+    // Eye click.
+    if eye_hovered && row_response.clicked() {
+        let current_visible = row.visible;
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id)
+            && let Some(scene_src) =
+                scene.sources.iter_mut().find(|ss| ss.source_id == row.id)
+        {
+            scene_src.overrides.visible = Some(!current_visible);
+        }
+        state.scenes_dirty = true;
+        state.scenes_last_changed = std::time::Instant::now();
+    }
+
+    // Context menu.
+    crate::ui::transform_handles::show_source_context_menu(
+        ui,
+        &row_response,
+        state,
+        row.id,
+        egui::Vec2::new(1920.0, 1080.0),
+    );
+
+    // Separator (skip for dragged row).
+    if idx + 1 < source_count && !is_being_dragged {
+        let sep_y = paint_rect.bottom();
+        painter.line_segment(
+            [
+                egui::pos2(paint_rect.left(), sep_y),
+                egui::pos2(paint_rect.right(), sep_y),
+            ],
+            Stroke::new(1.0, BORDER),
+        );
+    }
+}
+
 /// Start capture from already-snapshotted properties (avoids borrow conflicts).
 fn start_capture_from_properties(
     state: &mut AppState,
@@ -597,7 +644,7 @@ fn stop_capture_for_source(
 fn remove_source_from_scene(
     state: &mut AppState,
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    active_id: crate::scene::SceneId,
+    active_id: SceneId,
     src_id: SourceId,
 ) {
     // Get source type before removing from scene.

@@ -44,6 +44,8 @@ struct GstThread {
     // Encode pipeline handles
     stream_handles: Option<StreamPipelineHandles>,
     record_handles: Option<RecordPipelineHandles>,
+    #[cfg(target_os = "macos")]
+    virtual_camera_handle: Option<super::virtual_camera::VirtualCameraHandle>,
     // Audio capture
     mic_pipeline: Option<gstreamer::Pipeline>,
     mic_appsink: Option<AppSink>,
@@ -64,6 +66,8 @@ impl GstThread {
             captures: HashMap::new(),
             stream_handles: None,
             record_handles: None,
+            #[cfg(target_os = "macos")]
+            virtual_camera_handle: None,
             mic_pipeline: None,
             mic_appsink: None,
             mic_volume_name: None,
@@ -455,8 +459,8 @@ impl GstThread {
             GstCommand::UpdateDisplayExclusion { exclude_self } => {
                 self.handle_update_display_exclusion(exclude_self)
             }
-            GstCommand::StartVirtualCamera => {}
-            GstCommand::StopVirtualCamera => {}
+            GstCommand::StartVirtualCamera => self.handle_start_virtual_camera(),
+            GstCommand::StopVirtualCamera => self.handle_stop_virtual_camera(),
             GstCommand::Shutdown => return self.handle_shutdown(),
         }
         false
@@ -556,6 +560,7 @@ impl GstThread {
     }
 
     fn handle_stop_capture(&mut self) {
+        self.handle_stop_virtual_camera();
         for (_, handle) in self.captures.drain() {
             if let Some(ref running) = handle.capture_running {
                 running.store(false, Ordering::Relaxed);
@@ -592,6 +597,39 @@ impl GstThread {
     #[cfg(not(target_os = "macos"))]
     fn handle_update_display_exclusion(&mut self, _exclude_self: bool) {}
 
+    #[cfg(target_os = "macos")]
+    fn handle_start_virtual_camera(&mut self) {
+        use super::virtual_camera;
+        let width = self.encoder_config.width;
+        let height = self.encoder_config.height;
+        let fps = self.encoder_config.fps;
+        match virtual_camera::start_virtual_camera(width, height, fps) {
+            Ok(handle) => {
+                self.virtual_camera_handle = Some(handle);
+                log::info!("Virtual camera started ({width}x{height} @ {fps}fps)");
+            }
+            Err(e) => {
+                log::error!("Failed to start virtual camera: {e}");
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn handle_stop_virtual_camera(&mut self) {
+        use super::virtual_camera;
+        if let Some(handle) = self.virtual_camera_handle.take() {
+            if let Err(e) = virtual_camera::stop_virtual_camera(handle) {
+                log::warn!("Error stopping virtual camera: {e}");
+            }
+            log::info!("Virtual camera stopped");
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn handle_start_virtual_camera(&mut self) {}
+    #[cfg(not(target_os = "macos"))]
+    fn handle_stop_virtual_camera(&mut self) {}
+
     fn handle_load_image_frame(&mut self, source_id: SourceId, frame: RgbaFrame) {
         self.channels
             .latest_frames
@@ -602,6 +640,7 @@ impl GstThread {
 
     /// Returns `true` to signal the run loop to exit.
     fn handle_shutdown(&mut self) -> bool {
+        self.handle_stop_virtual_camera();
         self.stop_pipeline(PipelineKind::Stream);
         self.stop_pipeline(PipelineKind::Record);
         self.stop_audio_capture(AudioSourceKind::Mic);
@@ -803,6 +842,12 @@ impl GstThread {
                 }
                 if let Some(ref handles) = self.record_handles {
                     Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
+                }
+                #[cfg(target_os = "macos")]
+                if let Some(ref handle) = self.virtual_camera_handle {
+                    if let Err(e) = super::virtual_camera::write_frame(handle, &frame) {
+                        log::warn!("Virtual camera frame write failed: {e}");
+                    }
                 }
             }
 

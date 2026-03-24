@@ -45,73 +45,15 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // Persist view mode and display mode across frames.
     let view_id = ui.make_persistent_id("library_view_mode");
     let display_id = ui.make_persistent_id("library_display_mode");
-    let mut view = ui
+    let view = ui
         .data(|d| d.get_temp::<LibraryView>(view_id))
         .unwrap_or(LibraryView::ByType);
-    let mut display_mode = ui
+    let display_mode = ui
         .data(|d| d.get_temp::<LibraryDisplayMode>(display_id))
         .unwrap_or(LibraryDisplayMode::List);
 
     // ── Header row ──
-    // Left: [+] add source | Right: [list|grid] | [type|folder]
-    ui.horizontal(|ui| {
-        draw_add_button(ui, state);
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Group-by segment (rightmost)
-            let group_btns: &[(&str, &str, bool)] = &[
-                (
-                    egui_phosphor::regular::SQUARES_FOUR,
-                    "Group by type",
-                    view == LibraryView::ByType,
-                ),
-                (
-                    egui_phosphor::regular::FOLDER,
-                    "Group by folder",
-                    view == LibraryView::Folders,
-                ),
-            ];
-            let group_clicked = draw_segmented_buttons(ui, "lib_group_seg", group_btns);
-            if group_clicked == Some(0) {
-                view = LibraryView::ByType;
-            } else if group_clicked == Some(1) {
-                view = LibraryView::Folders;
-            }
-
-            // Separator
-            ui.add_space(2.0);
-            let sep_rect = ui.allocate_exact_size(
-                vec2(1.0, ui.available_height()),
-                Sense::hover(),
-            ).0;
-            ui.painter()
-                .line_segment(
-                    [sep_rect.left_top(), sep_rect.left_bottom()],
-                    egui::Stroke::new(1.0, BORDER),
-                );
-            ui.add_space(2.0);
-
-            // View-as segment
-            let view_btns: &[(&str, &str, bool)] = &[
-                (
-                    egui_phosphor::regular::LIST,
-                    "List view",
-                    display_mode == LibraryDisplayMode::List,
-                ),
-                (
-                    egui_phosphor::regular::GRID_FOUR,
-                    "Icon view",
-                    display_mode == LibraryDisplayMode::Grid,
-                ),
-            ];
-            let view_clicked = draw_segmented_buttons(ui, "lib_view_seg", view_btns);
-            if view_clicked == Some(0) {
-                display_mode = LibraryDisplayMode::List;
-            } else if view_clicked == Some(1) {
-                display_mode = LibraryDisplayMode::Grid;
-            }
-        });
-    });
+    let (view, display_mode) = draw_header(ui, state, view, display_mode);
 
     // Store updated modes.
     ui.data_mut(|d| {
@@ -192,6 +134,75 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             painter.galley(text_rect.min + vec2(4.0, 4.0), galley, TEXT_PRIMARY);
         }
     }
+}
+
+/// Draw the library panel header: add button + view/display segmented toggles.
+/// Returns updated (LibraryView, LibraryDisplayMode).
+fn draw_header(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    view: LibraryView,
+    display_mode: LibraryDisplayMode,
+) -> (LibraryView, LibraryDisplayMode) {
+    let mut view = view;
+    let mut display_mode = display_mode;
+    ui.horizontal(|ui| {
+        draw_add_button(ui, state);
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Group-by segment (rightmost)
+            let group_btns: &[(&str, &str, bool)] = &[
+                (
+                    egui_phosphor::regular::SQUARES_FOUR,
+                    "Group by type",
+                    view == LibraryView::ByType,
+                ),
+                (
+                    egui_phosphor::regular::FOLDER,
+                    "Group by folder",
+                    view == LibraryView::Folders,
+                ),
+            ];
+            let group_clicked = draw_segmented_buttons(ui, "lib_group_seg", group_btns);
+            if group_clicked == Some(0) {
+                view = LibraryView::ByType;
+            } else if group_clicked == Some(1) {
+                view = LibraryView::Folders;
+            }
+
+            // Separator
+            ui.add_space(2.0);
+            let sep_rect = ui
+                .allocate_exact_size(vec2(1.0, ui.available_height()), Sense::hover())
+                .0;
+            ui.painter().line_segment(
+                [sep_rect.left_top(), sep_rect.left_bottom()],
+                egui::Stroke::new(1.0, BORDER),
+            );
+            ui.add_space(2.0);
+
+            // View-as segment
+            let view_btns: &[(&str, &str, bool)] = &[
+                (
+                    egui_phosphor::regular::LIST,
+                    "List view",
+                    display_mode == LibraryDisplayMode::List,
+                ),
+                (
+                    egui_phosphor::regular::GRID_FOUR,
+                    "Icon view",
+                    display_mode == LibraryDisplayMode::Grid,
+                ),
+            ];
+            let view_clicked = draw_segmented_buttons(ui, "lib_view_seg", view_btns);
+            if view_clicked == Some(0) {
+                display_mode = LibraryDisplayMode::List;
+            } else if view_clicked == Some(1) {
+                display_mode = LibraryDisplayMode::Grid;
+            }
+        });
+    });
+    (view, display_mode)
 }
 
 /// Draw the "+" button with a popup to create new sources.

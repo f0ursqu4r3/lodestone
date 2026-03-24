@@ -71,6 +71,17 @@ fn letterboxed_rect(panel: egui::Rect, preview_width: u32, preview_height: u32) 
 }
 
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
+    // Disable scrollbars — all content is painted via the painter and doesn't
+    // need to scroll. Without this, floating-point rounding can cause egui to
+    // think content overflows by ~1px and show unwanted scrollbars.
+    egui::ScrollArea::neither()
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+        .show(ui, |ui| {
+            draw_inner(ui, state);
+        });
+}
+
+fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     let panel_rect = ui.available_rect_before_wrap();
 
     // Guard against degenerate panels

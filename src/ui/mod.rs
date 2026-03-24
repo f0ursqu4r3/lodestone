@@ -1,4 +1,5 @@
 pub mod theme;
+pub mod draw_helpers;
 
 pub mod audio_mixer;
 pub mod layout;

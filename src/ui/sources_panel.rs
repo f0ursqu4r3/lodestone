@@ -7,6 +7,7 @@
 use crate::gstreamer::{CaptureSourceConfig, GstCommand};
 use crate::scene::{SceneSource, SourceId, SourceOverrides, SourceProperties, SourceType};
 use crate::state::AppState;
+use crate::ui::draw_helpers::{draw_selection_highlight, source_icon, with_opacity};
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{
     BG_ELEVATED, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_dim,
@@ -18,18 +19,6 @@ use egui::{Color32, CornerRadius, Rect, Sense, Stroke, vec2};
 #[derive(Clone, Copy)]
 struct ReorderPayload {
     source_id: SourceId,
-}
-
-/// Return a Phosphor icon for a given source type.
-fn source_icon(source_type: &SourceType) -> &'static str {
-    match source_type {
-        SourceType::Display => egui_phosphor::regular::MONITOR,
-        SourceType::Camera => egui_phosphor::regular::VIDEO_CAMERA,
-        SourceType::Image => egui_phosphor::regular::IMAGE,
-        SourceType::Browser => egui_phosphor::regular::BROWSER,
-        SourceType::Audio => egui_phosphor::regular::SPEAKER_HIGH,
-        SourceType::Window => egui_phosphor::regular::APP_WINDOW,
-    }
 }
 
 /// Draw the sources panel for the currently active scene.
@@ -322,11 +311,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
                 // Selection highlight.
                 if is_selected && !is_being_dragged {
-                    ui.painter().rect_filled(
-                        paint_rect,
-                        CornerRadius::same(RADIUS_SM as u8),
-                        selected_bg,
-                    );
+                    draw_selection_highlight(ui.painter(), paint_rect, selected_bg);
                 }
 
                 // Flash highlight.
@@ -652,12 +637,3 @@ fn remove_source_from_scene(
     state.scenes_last_changed = std::time::Instant::now();
 }
 
-/// Apply an opacity multiplier to a Color32.
-fn with_opacity(color: Color32, opacity: f32) -> Color32 {
-    Color32::from_rgba_premultiplied(
-        (color.r() as f32 * opacity) as u8,
-        (color.g() as f32 * opacity) as u8,
-        (color.b() as f32 * opacity) as u8,
-        (color.a() as f32 * opacity) as u8,
-    )
-}

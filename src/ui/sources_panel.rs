@@ -5,7 +5,7 @@
 //! Supports selection, reordering, add-from-library, and remove-from-scene.
 
 use crate::gstreamer::{CaptureSourceConfig, GstCommand};
-use crate::scene::{LibrarySource, SceneSource, SourceId, SourceOverrides, SourceProperties, SourceType};
+use crate::scene::{SceneSource, SourceId, SourceOverrides, SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{
@@ -150,9 +150,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 .iter()
                 .map(|ss| {
                     let lib = state.library.iter().find(|l| l.id == ss.source_id);
-                    let visible = lib
-                        .map(|l| ss.resolve_visible(l))
-                        .unwrap_or(true);
+                    let visible = lib.map(|l| ss.resolve_visible(l)).unwrap_or(true);
                     (ss.source_id, visible)
                 })
                 .collect()
@@ -365,16 +363,6 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     }
 }
 
-/// Start the capture pipeline for a library source if it has a capturable type.
-#[allow(dead_code)] // Will be used by library panel (Task 5)
-fn start_capture_for_source(
-    state: &mut AppState,
-    cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    lib_src: &LibrarySource,
-) {
-    start_capture_from_properties(state, cmd_tx, lib_src.id, &lib_src.properties);
-}
-
 /// Start capture from already-snapshotted properties (avoids borrow conflicts).
 fn start_capture_from_properties(
     state: &mut AppState,
@@ -424,8 +412,7 @@ fn stop_capture_for_source(
     if matches!(
         source_type,
         SourceType::Display | SourceType::Window | SourceType::Camera
-    )
-        && let Some(tx) = cmd_tx
+    ) && let Some(tx) = cmd_tx
     {
         let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id });
     }
@@ -467,9 +454,7 @@ fn remove_source_from_scene(
         .find(|s| s.id == active_id)
         .map(|s| !s.sources.is_empty())
         .unwrap_or(false);
-    if !has_sources
-        && let Some(tx) = cmd_tx
-    {
+    if !has_sources && let Some(tx) = cmd_tx {
         let _ = tx.try_send(GstCommand::StopCapture);
     }
     state.capture_active = has_sources;

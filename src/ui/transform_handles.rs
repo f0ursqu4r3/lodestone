@@ -593,9 +593,10 @@ pub fn draw_transform_handles(
                 new_transform.x = start_transform.x + delta.x;
                 new_transform.y = start_transform.y + delta.y;
                 if let Some(scene) = state.active_scene_mut()
-                    && let Some(ss) = scene.find_source_mut(selected_id) {
-                        ss.overrides.transform = Some(new_transform);
-                    }
+                    && let Some(ss) = scene.find_source_mut(selected_id)
+                {
+                    ss.overrides.transform = Some(new_transform);
+                }
             }
             DragMode::Resize {
                 handle,
@@ -615,9 +616,10 @@ pub fn draw_transform_handles(
                     *aspect_ratio,
                 );
                 if let Some(scene) = state.active_scene_mut()
-                    && let Some(ss) = scene.find_source_mut(selected_id) {
-                        ss.overrides.transform = Some(new_transform);
-                    }
+                    && let Some(ss) = scene.find_source_mut(selected_id)
+                {
+                    ss.overrides.transform = Some(new_transform);
+                }
             }
         }
 
@@ -637,12 +639,16 @@ pub fn draw_transform_handles(
                             if ss.source_id == selected_id {
                                 return None;
                             }
-                            state.library.iter().find(|s| s.id == ss.source_id).and_then(|lib| {
-                                if !ss.resolve_visible(lib) {
-                                    return None;
-                                }
-                                Some(ss.resolve_transform(lib))
-                            })
+                            state
+                                .library
+                                .iter()
+                                .find(|s| s.id == ss.source_id)
+                                .and_then(|lib| {
+                                    if !ss.resolve_visible(lib) {
+                                        return None;
+                                    }
+                                    Some(ss.resolve_transform(lib))
+                                })
                         })
                         .collect()
                 })
@@ -657,9 +663,10 @@ pub fn draw_transform_handles(
             if let Some(mut t) = current_transform {
                 snap_transform(&mut t, canvas_size, grid, &other_refs);
                 if let Some(scene) = state.active_scene_mut()
-                    && let Some(ss) = scene.find_source_mut(selected_id) {
-                        ss.overrides.transform = Some(t);
-                    }
+                    && let Some(ss) = scene.find_source_mut(selected_id)
+                {
+                    ss.overrides.transform = Some(t);
+                }
                 draw_snap_guides(ui.painter(), &t, canvas_size, viewport_rect, &other_refs);
             }
         }
@@ -792,9 +799,10 @@ pub fn show_source_context_menu_items(
             };
 
             if let Some(scene) = state.active_scene_mut()
-                && let Some(ss) = scene.find_source_mut(source_id) {
-                    ss.overrides.transform = Some(new_transform);
-                }
+                && let Some(ss) = scene.find_source_mut(source_id)
+            {
+                ss.overrides.transform = Some(new_transform);
+            }
         }
         mark_dirty(state);
     }

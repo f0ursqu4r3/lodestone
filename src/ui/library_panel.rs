@@ -9,8 +9,8 @@ use crate::scene::{LibrarySource, SourceId, SourceProperties, SourceType, Transf
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{
-    accent_dim, BG_ELEVATED, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY,
-    TEXT_SECONDARY,
+    BG_ELEVATED, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    accent_dim,
 };
 use egui::{CornerRadius, Rect, Sense, Stroke, vec2};
 
@@ -96,14 +96,12 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // Track deferred deletion (collected after rendering).
     let mut delete_source: Option<SourceId> = None;
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        match view {
-            LibraryView::ByType => {
-                draw_by_type_view(ui, state, &rows, &mut delete_source);
-            }
-            LibraryView::Folders => {
-                draw_folders_view(ui, state, &rows, &mut delete_source);
-            }
+    egui::ScrollArea::vertical().show(ui, |ui| match view {
+        LibraryView::ByType => {
+            draw_by_type_view(ui, state, &rows, &mut delete_source);
+        }
+        LibraryView::Folders => {
+            draw_folders_view(ui, state, &rows, &mut delete_source);
         }
     });
 
@@ -302,7 +300,9 @@ fn draw_by_type_view(
     for source_type in type_order {
         let section_rows: Vec<&SourceRow> = rows
             .iter()
-            .filter(|r| std::mem::discriminant(&r.source_type) == std::mem::discriminant(source_type))
+            .filter(|r| {
+                std::mem::discriminant(&r.source_type) == std::mem::discriminant(source_type)
+            })
             .collect();
 
         if section_rows.is_empty() {
@@ -332,10 +332,7 @@ fn draw_folders_view(
     delete_source: &mut Option<SourceId>,
 ) {
     // Collect unique folder names (sorted).
-    let mut folders: Vec<String> = rows
-        .iter()
-        .filter_map(|r| r.folder.clone())
-        .collect();
+    let mut folders: Vec<String> = rows.iter().filter_map(|r| r.folder.clone()).collect();
     folders.sort();
     folders.dedup();
 
@@ -360,10 +357,7 @@ fn draw_folders_view(
     }
 
     // "Unfiled" section for sources without a folder.
-    let unfiled_rows: Vec<&SourceRow> = rows
-        .iter()
-        .filter(|r| r.folder.is_none())
-        .collect();
+    let unfiled_rows: Vec<&SourceRow> = rows.iter().filter(|r| r.folder.is_none()).collect();
 
     if !unfiled_rows.is_empty() {
         egui::CollapsingHeader::new("Unfiled")
@@ -400,11 +394,8 @@ fn draw_source_row(
 
         // Selection highlight background.
         if is_selected {
-            ui.painter().rect_filled(
-                row_rect,
-                CornerRadius::same(RADIUS_SM as u8),
-                selected_bg,
-            );
+            ui.painter()
+                .rect_filled(row_rect, CornerRadius::same(RADIUS_SM as u8), selected_bg);
         }
 
         // Handle click for selection.

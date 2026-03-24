@@ -640,7 +640,12 @@ impl Compositor {
     ///
     /// Always clears the canvas to black first, then draws each visible source
     /// with its own per-source uniform buffer to avoid data races.
-    pub fn compose(&self, queue: &Queue, encoder: &mut wgpu::CommandEncoder, sources: &[ResolvedSource]) {
+    pub fn compose(
+        &self,
+        queue: &Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        sources: &[ResolvedSource],
+    ) {
         let cw = self.canvas_width as f32;
         let ch = self.canvas_height as f32;
 

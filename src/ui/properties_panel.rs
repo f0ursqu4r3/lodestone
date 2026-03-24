@@ -476,8 +476,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 /// and chose "Reset to library default".
 fn override_dot(ui: &mut egui::Ui, is_overridden: bool) -> bool {
     let size = 6.0;
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
     if is_overridden {
         ui.painter()
             .circle_filled(rect.center(), size / 2.0, DEFAULT_ACCENT);

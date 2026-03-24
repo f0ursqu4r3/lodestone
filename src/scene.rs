@@ -109,7 +109,6 @@ impl Default for SourceProperties {
     }
 }
 
-#[allow(dead_code)] // Resolve/override methods will be used by compositor and UI override tasks
 impl SceneSource {
     /// Create a new scene source reference with no overrides.
     pub fn new(source_id: SourceId) -> Self {
@@ -135,11 +134,13 @@ impl SceneSource {
     }
 
     /// Resolve the effective muted state, using the override if set, otherwise the library default.
+    #[allow(dead_code)]
     pub fn resolve_muted(&self, lib: &LibrarySource) -> bool {
         self.overrides.muted.unwrap_or(lib.muted)
     }
 
     /// Resolve the effective volume, using the override if set, otherwise the library default.
+    #[allow(dead_code)]
     pub fn resolve_volume(&self, lib: &LibrarySource) -> f32 {
         self.overrides.volume.unwrap_or(lib.volume)
     }
@@ -155,16 +156,19 @@ impl SceneSource {
     }
 
     /// Returns true if visibility is overridden for this scene.
+    #[allow(dead_code)]
     pub fn is_visible_overridden(&self) -> bool {
         self.overrides.visible.is_some()
     }
 
     /// Returns true if muted state is overridden for this scene.
+    #[allow(dead_code)]
     pub fn is_muted_overridden(&self) -> bool {
         self.overrides.muted.is_some()
     }
 
     /// Returns true if volume is overridden for this scene.
+    #[allow(dead_code)]
     pub fn is_volume_overridden(&self) -> bool {
         self.overrides.volume.is_some()
     }
@@ -195,13 +199,11 @@ impl Scene {
     }
 
     /// Find a scene source reference by its source ID.
-    #[allow(dead_code)] // Will be used by scene composition and override UI tasks
     pub fn find_source(&self, source_id: SourceId) -> Option<&SceneSource> {
         self.sources.iter().find(|s| s.source_id == source_id)
     }
 
     /// Find a mutable scene source reference by its source ID.
-    #[allow(dead_code)] // Will be used by scene composition and override UI tasks
     pub fn find_source_mut(&mut self, source_id: SourceId) -> Option<&mut SceneSource> {
         self.sources.iter_mut().find(|s| s.source_id == source_id)
     }

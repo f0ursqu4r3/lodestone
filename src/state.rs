@@ -80,14 +80,15 @@ impl Default for AppState {
     }
 }
 
-#[allow(dead_code)] // Helpers will be used by upcoming UI tasks (Tasks 4–9)
 impl AppState {
     /// Find a library source by ID.
+    #[allow(dead_code)]
     pub fn find_library_source(&self, id: SourceId) -> Option<&LibrarySource> {
         self.library.iter().find(|s| s.id == id)
     }
 
     /// Find a mutable library source by ID.
+    #[allow(dead_code)]
     pub fn find_library_source_mut(&mut self, id: SourceId) -> Option<&mut LibrarySource> {
         self.library.iter_mut().find(|s| s.id == id)
     }
@@ -113,6 +114,7 @@ impl AppState {
     }
 
     /// Get scene names that reference a given source.
+    #[allow(dead_code)]
     pub fn scenes_using_source(&self, source_id: SourceId) -> Vec<String> {
         self.scenes
             .iter()

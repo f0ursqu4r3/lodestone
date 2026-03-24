@@ -2,6 +2,7 @@ pub mod theme;
 
 pub mod audio_mixer;
 pub mod layout;
+pub mod library_panel;
 pub mod preview_panel;
 pub mod properties_panel;
 pub mod scenes_panel;
@@ -26,5 +27,6 @@ pub fn draw_panel(panel_type: PanelType, ui: &mut egui::Ui, state: &mut AppState
         PanelType::Sources => sources_panel::draw(ui, state, id),
         PanelType::Scenes => scenes_panel::draw(ui, state, id),
         PanelType::Properties => properties_panel::draw(ui, state, id),
+        PanelType::Library => library_panel::draw(ui, state, id),
     }
 }

@@ -19,6 +19,7 @@ pub enum PanelType {
     Sources,
     Scenes,
     Properties,
+    Library,
 }
 
 impl PanelType {
@@ -31,6 +32,7 @@ impl PanelType {
             Self::Sources => "Sources",
             Self::Scenes => "Scenes",
             Self::Properties => "Properties",
+            Self::Library => "Library",
         }
     }
 }
@@ -381,7 +383,9 @@ impl DockLayout {
             drag: None,
         };
 
-        let sources_group = Group::new(PanelType::Sources);
+        let mut sources_group = Group::new(PanelType::Sources);
+        sources_group.add_tab(PanelType::Library);
+        sources_group.active_tab = 0; // Sources tab active by default
         let sources_gid = sources_group.id;
         layout.groups.insert(sources_gid, sources_group);
 
@@ -900,13 +904,14 @@ mod tests {
     }
 
     #[test]
-    fn default_layout_has_5_groups_5_panels() {
+    fn default_layout_has_5_groups_6_panels() {
         let layout = DockLayout::default_layout();
         assert_eq!(layout.groups.len(), 5);
         let all_panels = layout.collect_all_panels();
-        assert_eq!(all_panels.len(), 5);
+        assert_eq!(all_panels.len(), 6);
         let types: Vec<PanelType> = all_panels.iter().map(|(_, t)| *t).collect();
         assert!(types.contains(&PanelType::Sources));
+        assert!(types.contains(&PanelType::Library));
         assert!(types.contains(&PanelType::Scenes));
         assert!(types.contains(&PanelType::Preview));
         assert!(types.contains(&PanelType::Properties));

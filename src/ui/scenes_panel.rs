@@ -11,6 +11,14 @@ use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY};
 use egui::{CornerRadius, Pos2, Rect, Sense, Stroke, vec2};
 
+/// A deferred action produced by a scene card interaction.
+enum SceneAction {
+    /// Switch the active scene to the given ID.
+    Switch(SceneId),
+    /// Delete the scene with the given ID.
+    Delete(SceneId),
+}
+
 /// Draw the scenes panel — a 2-column grid of scene thumbnails.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     let cmd_tx = state.command_tx.clone();
@@ -31,8 +39,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     let label_height = 14.0;
     let cell_height = thumb_height + label_height + 4.0; // 4px gap between thumb and label
 
-    let mut switch_to: Option<SceneId> = None;
-    let mut delete_scene: Option<SceneId> = None;
+    let mut pending_action: Option<SceneAction> = None;
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(padding);
@@ -64,164 +71,28 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         thumb_rect.max.y + 2.0 + label_height / 2.0,
                     );
 
-                    let painter = ui.painter_at(rect);
-
                     if cell_idx < scenes.len() {
-                        // ── Scene thumbnail ──
                         let (scene_id, scene_name, is_pinned) = &scenes[cell_idx];
                         let is_active = active_id == Some(*scene_id);
-                        let is_hovered = response.hovered();
 
-                        // Thumbnail background.
-                        painter.rect_filled(
+                        if let Some(action) = draw_scene_card(
+                            ui,
+                            state,
+                            *scene_id,
+                            scene_name,
+                            *is_pinned,
                             thumb_rect,
-                            CornerRadius::same(RADIUS_SM as u8),
-                            BG_ELEVATED,
-                        );
-
-                        // Border: active = TEXT_PRIMARY, hovered = TEXT_MUTED, default = BORDER.
-                        let border_color = if is_active {
-                            TEXT_PRIMARY
-                        } else if is_hovered {
-                            TEXT_MUTED
-                        } else {
-                            BORDER
-                        };
-                        painter.rect_stroke(
-                            thumb_rect,
-                            CornerRadius::same(RADIUS_SM as u8),
-                            Stroke::new(1.0, border_color),
-                            egui::StrokeKind::Outside,
-                        );
-
-                        // Pin indicator (top-right of thumbnail).
-                        if *is_pinned {
-                            painter.text(
-                                egui::pos2(thumb_rect.right() - 6.0, thumb_rect.top() + 8.0),
-                                egui::Align2::RIGHT_CENTER,
-                                egui_phosphor::regular::PUSH_PIN,
-                                egui::FontId::proportional(10.0),
-                                TEXT_MUTED,
-                            );
+                            label_pos,
+                            label_height,
+                            col_width,
+                            response,
+                            is_active,
+                        ) {
+                            pending_action = Some(action);
                         }
-
-                        let is_renaming = state.renaming_scene_id == Some(*scene_id);
-
-                        // Label below thumbnail: inline TextEdit when renaming.
-                        if is_renaming {
-                            let label_width = col_width;
-                            let label_rect = egui::Rect::from_center_size(
-                                label_pos,
-                                egui::vec2(label_width, label_height),
-                            );
-                            let mut child_ui = ui.new_child(
-                                egui::UiBuilder::new()
-                                    .max_rect(label_rect)
-                                    .layout(egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    )),
-                            );
-                            let te = egui::TextEdit::singleline(&mut state.rename_buffer)
-                                .desired_width(label_width - 4.0)
-                                .font(egui::FontId::proportional(9.0))
-                                .horizontal_align(egui::Align::Center);
-                            let te_response = child_ui.add(te);
-                            // Focus once on first frame.
-                            let gen_id = egui::Id::new("scene_rename_gen");
-                            let focused_gen_id =
-                                egui::Id::new(("scene_rename_fg", scene_id.0));
-                            let current_gen: u64 =
-                                ui.data(|d| d.get_temp(gen_id).unwrap_or(0));
-                            let focused_gen: u64 =
-                                ui.data(|d| d.get_temp(focused_gen_id).unwrap_or(0));
-                            if focused_gen != current_gen {
-                                te_response.request_focus();
-                                ui.data_mut(|d| d.insert_temp(focused_gen_id, current_gen));
-                            }
-                            let confirmed = te_response.lost_focus()
-                                && !ui.input(|i| i.key_pressed(egui::Key::Escape));
-                            let cancelled = ui.input(|i| i.key_pressed(egui::Key::Escape));
-                            if confirmed {
-                                let new_name = state.rename_buffer.trim().to_string();
-                                if !new_name.is_empty() {
-                                    if let Some(scene) =
-                                        state.scenes.iter_mut().find(|s| s.id == *scene_id)
-                                    {
-                                        scene.name = new_name;
-                                    }
-                                    state.scenes_dirty = true;
-                                    state.scenes_last_changed = std::time::Instant::now();
-                                }
-                                state.renaming_scene_id = None;
-                            } else if cancelled {
-                                state.renaming_scene_id = None;
-                            }
-                        } else {
-                            let label_color = if is_active {
-                                TEXT_PRIMARY
-                            } else {
-                                TEXT_SECONDARY
-                            };
-                            painter.text(
-                                label_pos,
-                                egui::Align2::CENTER_CENTER,
-                                scene_name,
-                                egui::FontId::proportional(9.0),
-                                label_color,
-                            );
-                        }
-
-                        // Click to switch active scene.
-                        if response.clicked() && !is_active && !is_renaming {
-                            switch_to = Some(*scene_id);
-                        }
-
-                        // Double-click to rename.
-                        if response.double_clicked() {
-                            state.renaming_scene_id = Some(*scene_id);
-                            state.rename_buffer = scene_name.clone();
-                            let gen_id = egui::Id::new("scene_rename_gen");
-                            ui.data_mut(|d| {
-                                let g: u64 = d.get_temp(gen_id).unwrap_or(0);
-                                d.insert_temp(gen_id, g + 1);
-                            });
-                        }
-
-                        // Context menu.
-                        response.context_menu(|ui| {
-                            // Pin / Unpin
-                            let pin_label = if *is_pinned {
-                                "Unpin from toolbar"
-                            } else {
-                                "Pin to toolbar"
-                            };
-                            if ui.button(pin_label).clicked() {
-                                if let Some(scene) =
-                                    state.scenes.iter_mut().find(|s| s.id == *scene_id)
-                                {
-                                    scene.pinned = !scene.pinned;
-                                }
-                                state.scenes_dirty = true;
-                                state.scenes_last_changed = std::time::Instant::now();
-                                ui.close();
-                            }
-                            if ui.button("Rename").clicked() {
-                                state.renaming_scene_id = Some(*scene_id);
-                                state.rename_buffer = scene_name.clone();
-                                let gen_id = egui::Id::new("scene_rename_gen");
-                                ui.data_mut(|d| {
-                                    let g: u64 = d.get_temp(gen_id).unwrap_or(0);
-                                    d.insert_temp(gen_id, g + 1);
-                                });
-                                ui.close();
-                            }
-                            if ui.button("Delete").clicked() {
-                                delete_scene = Some(*scene_id);
-                                ui.close();
-                            }
-                        });
                     } else {
                         // ── "Add Scene" card ──
+                        let painter = ui.painter_at(rect);
                         draw_add_card(&painter, thumb_rect, label_pos, response.hovered());
 
                         if response.clicked() {
@@ -245,35 +116,218 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         }
     });
 
-    // ── Apply scene switch ──
-    if let Some(new_id) = switch_to {
-        let old_scene = state
-            .active_scene_id
-            .and_then(|id| state.scenes.iter().find(|s| s.id == id))
-            .cloned();
-        let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
+    // ── Apply deferred action ──
+    match pending_action {
+        Some(SceneAction::Switch(new_id)) => {
+            let old_scene = state
+                .active_scene_id
+                .and_then(|id| state.scenes.iter().find(|s| s.id == id))
+                .cloned();
+            let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
 
-        state.active_scene_id = Some(new_id);
-        state.selected_source_id = None;
+            state.active_scene_id = Some(new_id);
+            state.selected_source_id = None;
 
-        apply_scene_diff(
-            &cmd_tx,
-            &state.library,
-            old_scene.as_ref(),
-            new_scene.as_ref(),
-        );
+            apply_scene_diff(
+                &cmd_tx,
+                &state.library,
+                old_scene.as_ref(),
+                new_scene.as_ref(),
+            );
 
-        if let Some(ref scene) = new_scene {
-            state.capture_active = !scene.sources.is_empty();
+            if let Some(ref scene) = new_scene {
+                state.capture_active = !scene.sources.is_empty();
+            }
+            state.scenes_dirty = true;
+            state.scenes_last_changed = std::time::Instant::now();
         }
-        state.scenes_dirty = true;
-        state.scenes_last_changed = std::time::Instant::now();
+        Some(SceneAction::Delete(del_id)) => {
+            delete_scene_by_id(state, &cmd_tx, del_id);
+        }
+        None => {}
+    }
+}
+
+/// Draw a single scene card in the grid.
+/// Returns an optional deferred action (switch scene, delete, rename, etc.).
+#[allow(clippy::too_many_arguments)]
+fn draw_scene_card(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    scene_id: SceneId,
+    scene_name: &str,
+    is_pinned: bool,
+    thumb_rect: Rect,
+    label_pos: Pos2,
+    label_height: f32,
+    col_width: f32,
+    response: egui::Response,
+    is_active: bool,
+) -> Option<SceneAction> {
+    let is_hovered = response.hovered();
+    let painter = ui.painter_at(thumb_rect.expand2(egui::vec2(0.0, label_height + 4.0)));
+
+    // Thumbnail background.
+    painter.rect_filled(
+        thumb_rect,
+        CornerRadius::same(RADIUS_SM as u8),
+        BG_ELEVATED,
+    );
+
+    // Border: active = TEXT_PRIMARY, hovered = TEXT_MUTED, default = BORDER.
+    let border_color = if is_active {
+        TEXT_PRIMARY
+    } else if is_hovered {
+        TEXT_MUTED
+    } else {
+        BORDER
+    };
+    painter.rect_stroke(
+        thumb_rect,
+        CornerRadius::same(RADIUS_SM as u8),
+        Stroke::new(1.0, border_color),
+        egui::StrokeKind::Outside,
+    );
+
+    // Pin indicator (top-right of thumbnail).
+    if is_pinned {
+        painter.text(
+            egui::pos2(thumb_rect.right() - 6.0, thumb_rect.top() + 8.0),
+            egui::Align2::RIGHT_CENTER,
+            egui_phosphor::regular::PUSH_PIN,
+            egui::FontId::proportional(10.0),
+            TEXT_MUTED,
+        );
     }
 
-    // ── Apply scene delete ──
-    if let Some(del_id) = delete_scene {
-        delete_scene_by_id(state, &cmd_tx, del_id);
+    let is_renaming = state.renaming_scene_id == Some(scene_id);
+
+    // Label below thumbnail: inline TextEdit when renaming.
+    if is_renaming {
+        let label_rect = egui::Rect::from_center_size(
+            label_pos,
+            egui::vec2(col_width, label_height),
+        );
+        let mut child_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(label_rect)
+                .layout(egui::Layout::centered_and_justified(
+                    egui::Direction::LeftToRight,
+                )),
+        );
+        let te = egui::TextEdit::singleline(&mut state.rename_buffer)
+            .desired_width(col_width - 4.0)
+            .font(egui::FontId::proportional(9.0))
+            .horizontal_align(egui::Align::Center);
+        let te_response = child_ui.add(te);
+        // Focus once on first frame.
+        let gen_id = egui::Id::new("scene_rename_gen");
+        let focused_gen_id = egui::Id::new(("scene_rename_fg", scene_id.0));
+        let current_gen: u64 = ui.data(|d| d.get_temp(gen_id).unwrap_or(0));
+        let focused_gen: u64 = ui.data(|d| d.get_temp(focused_gen_id).unwrap_or(0));
+        if focused_gen != current_gen {
+            te_response.request_focus();
+            ui.data_mut(|d| d.insert_temp(focused_gen_id, current_gen));
+        }
+        let confirmed = te_response.lost_focus()
+            && !ui.input(|i| i.key_pressed(egui::Key::Escape));
+        let cancelled = ui.input(|i| i.key_pressed(egui::Key::Escape));
+        if confirmed {
+            let new_name = state.rename_buffer.trim().to_string();
+            if !new_name.is_empty() {
+                if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                    scene.name = new_name;
+                }
+                state.scenes_dirty = true;
+                state.scenes_last_changed = std::time::Instant::now();
+            }
+            state.renaming_scene_id = None;
+        } else if cancelled {
+            state.renaming_scene_id = None;
+        }
+    } else {
+        let label_color = if is_active {
+            TEXT_PRIMARY
+        } else {
+            TEXT_SECONDARY
+        };
+        painter.text(
+            label_pos,
+            egui::Align2::CENTER_CENTER,
+            scene_name,
+            egui::FontId::proportional(9.0),
+            label_color,
+        );
     }
+
+    let mut action: Option<SceneAction> = None;
+
+    // Click to switch active scene.
+    if response.clicked() && !is_active && !is_renaming {
+        action = Some(SceneAction::Switch(scene_id));
+    }
+
+    // Double-click to rename.
+    if response.double_clicked() {
+        state.renaming_scene_id = Some(scene_id);
+        state.rename_buffer = scene_name.to_owned();
+        let gen_id = egui::Id::new("scene_rename_gen");
+        ui.data_mut(|d| {
+            let g: u64 = d.get_temp(gen_id).unwrap_or(0);
+            d.insert_temp(gen_id, g + 1);
+        });
+    }
+
+    // Context menu.
+    response.context_menu(|ui| {
+        // Pin / Unpin
+        let pin_label = if is_pinned {
+            "Unpin from toolbar"
+        } else {
+            "Pin to toolbar"
+        };
+        if ui.button(pin_label).clicked() {
+            if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                scene.pinned = !scene.pinned;
+            }
+            state.scenes_dirty = true;
+            state.scenes_last_changed = std::time::Instant::now();
+            ui.close();
+        }
+        if ui.button("Rename").clicked() {
+            state.renaming_scene_id = Some(scene_id);
+            state.rename_buffer = scene_name.to_owned();
+            let gen_id = egui::Id::new("scene_rename_gen");
+            ui.data_mut(|d| {
+                let g: u64 = d.get_temp(gen_id).unwrap_or(0);
+                d.insert_temp(gen_id, g + 1);
+            });
+            ui.close();
+        }
+        if ui.button("Delete").clicked() {
+            // Context menu closures can't return values; we rely on the outer
+            // `pending_action` being set via a workaround. Since closures here
+            // don't have access to the outer `action`, delete is handled by
+            // storing intent in egui temp storage and reading it back.
+            ui.data_mut(|d| d.insert_temp::<bool>(egui::Id::new(("scene_delete", scene_id.0)), true));
+            ui.close();
+        }
+    });
+
+    // Check for a delete that was set via temp storage from the context menu.
+    let delete_requested: bool = ui.data_mut(|d| {
+        let key = egui::Id::new(("scene_delete", scene_id.0));
+        let v = d.get_temp(key).unwrap_or(false);
+        if v {
+            d.insert_temp(key, false);
+        }
+        v
+    });
+    if delete_requested {
+        action = Some(SceneAction::Delete(scene_id));
+    }
+
+    action
 }
 
 /// Draw the dashed-border "Add" card with a "+" icon and "Add" label.

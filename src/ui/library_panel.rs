@@ -14,11 +14,18 @@ use crate::ui::theme::{
 };
 use egui::{CornerRadius, Rect, Sense, Stroke, vec2};
 
-/// View mode for the library panel.
+/// Content grouping mode for the library panel.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LibraryView {
     ByType,
     Folders,
+}
+
+/// Display mode: how individual sources are rendered.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LibraryDisplayMode {
+    List,
+    Grid,
 }
 
 /// Return a Phosphor icon for a given source type.
@@ -35,11 +42,15 @@ fn source_icon(source_type: &SourceType) -> &'static str {
 
 /// Draw the library panel.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
-    // Persist the view mode across frames using egui's data store.
+    // Persist view mode and display mode across frames.
     let view_id = ui.make_persistent_id("library_view_mode");
+    let display_id = ui.make_persistent_id("library_display_mode");
     let mut view = ui
         .data(|d| d.get_temp::<LibraryView>(view_id))
         .unwrap_or(LibraryView::ByType);
+    let mut display_mode = ui
+        .data(|d| d.get_temp::<LibraryDisplayMode>(display_id))
+        .unwrap_or(LibraryDisplayMode::List);
 
     // ── Header row: title + view toggles + "+" button ──
     ui.horizontal(|ui| {
@@ -51,7 +62,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
             ui.add_space(4.0);
 
-            // View toggle buttons (icons)
+            // Grouping toggle: Folders
             if ui
                 .selectable_label(view == LibraryView::Folders, egui_phosphor::regular::FOLDER)
                 .on_hover_text("Folders")
@@ -59,18 +70,36 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             {
                 view = LibraryView::Folders;
             }
+
+            // Display mode toggles: Grid / List
             if ui
-                .selectable_label(view == LibraryView::ByType, egui_phosphor::regular::LIST)
-                .on_hover_text("By Type")
+                .selectable_label(
+                    display_mode == LibraryDisplayMode::Grid,
+                    egui_phosphor::regular::GRID_FOUR,
+                )
+                .on_hover_text("Grid view")
                 .clicked()
             {
-                view = LibraryView::ByType;
+                display_mode = LibraryDisplayMode::Grid;
+            }
+            if ui
+                .selectable_label(
+                    display_mode == LibraryDisplayMode::List,
+                    egui_phosphor::regular::LIST,
+                )
+                .on_hover_text("List view")
+                .clicked()
+            {
+                display_mode = LibraryDisplayMode::List;
             }
         });
     });
 
-    // Store the updated view mode.
-    ui.data_mut(|d| d.insert_temp(view_id, view));
+    // Store updated modes.
+    ui.data_mut(|d| {
+        d.insert_temp(view_id, view);
+        d.insert_temp(display_id, display_mode);
+    });
 
     ui.add_space(4.0);
 
@@ -100,10 +129,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     egui::ScrollArea::vertical().show(ui, |ui| match view {
         LibraryView::ByType => {
-            draw_by_type_view(ui, state, &rows, &mut delete_source);
+            draw_by_type_view(ui, state, &rows, display_mode, &mut delete_source);
         }
         LibraryView::Folders => {
-            draw_folders_view(ui, state, &rows, &mut delete_source);
+            draw_folders_view(ui, state, &rows, display_mode, &mut delete_source);
         }
     });
 
@@ -325,6 +354,7 @@ fn draw_by_type_view(
     ui: &mut egui::Ui,
     state: &mut AppState,
     rows: &[SourceRow],
+    display_mode: LibraryDisplayMode,
     delete_source: &mut Option<SourceId>,
 ) {
     // Sorted alphabetically by section label.
@@ -354,9 +384,7 @@ fn draw_by_type_view(
         egui::CollapsingHeader::new(label)
             .default_open(true)
             .show(ui, |ui| {
-                for (idx, row) in section_rows.iter().enumerate() {
-                    draw_source_row(ui, state, row, idx, section_rows.len(), delete_source);
-                }
+                draw_section_items(ui, state, &section_rows, display_mode, delete_source);
             });
     }
 }
@@ -370,6 +398,7 @@ fn draw_folders_view(
     ui: &mut egui::Ui,
     state: &mut AppState,
     rows: &[SourceRow],
+    display_mode: LibraryDisplayMode,
     delete_source: &mut Option<SourceId>,
 ) {
     // Collect unique folder names (sorted).
@@ -392,9 +421,7 @@ fn draw_folders_view(
         egui::CollapsingHeader::new(folder.as_str())
             .default_open(true)
             .show(ui, |ui| {
-                for (idx, row) in folder_rows.iter().enumerate() {
-                    draw_source_row(ui, state, row, idx, folder_rows.len(), delete_source);
-                }
+                draw_section_items(ui, state, &folder_rows, display_mode, delete_source);
             });
     }
 
@@ -406,9 +433,7 @@ fn draw_folders_view(
         egui::CollapsingHeader::new("Unfiled")
             .default_open(true)
             .show(ui, |ui| {
-                for (idx, row) in unfiled_rows.iter().enumerate() {
-                    draw_source_row(ui, state, row, idx, unfiled_rows.len(), delete_source);
-                }
+                draw_section_items(ui, state, &unfiled_rows, display_mode, delete_source);
             });
     }
 }
@@ -416,6 +441,158 @@ fn draw_folders_view(
 // ---------------------------------------------------------------------------
 // Source row rendering
 // ---------------------------------------------------------------------------
+
+/// Draw section items in either list or grid mode.
+fn draw_section_items(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    items: &[&SourceRow],
+    display_mode: LibraryDisplayMode,
+    delete_source: &mut Option<SourceId>,
+) {
+    match display_mode {
+        LibraryDisplayMode::List => {
+            for (idx, row) in items.iter().enumerate() {
+                draw_source_row(ui, state, row, idx, items.len(), delete_source);
+            }
+        }
+        LibraryDisplayMode::Grid => {
+            draw_source_grid(ui, state, items, delete_source);
+        }
+    }
+}
+
+/// Draw sources as a grid of icon tiles.
+fn draw_source_grid(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    items: &[&SourceRow],
+    delete_source: &mut Option<SourceId>,
+) {
+    let spacing = 4.0;
+    let tile_size = 56.0;
+    let available_width = ui.available_width();
+    let cols = ((available_width + spacing) / (tile_size + spacing))
+        .floor()
+        .max(1.0) as usize;
+    let selected_bg = accent_dim(DEFAULT_ACCENT);
+
+    let rows_count = items.len().div_ceil(cols);
+    for row_idx in 0..rows_count {
+        ui.horizontal(|ui| {
+            ui.add_space(2.0);
+            for col_idx in 0..cols {
+                let item_idx = row_idx * cols + col_idx;
+                let Some(row) = items.get(item_idx) else {
+                    break;
+                };
+
+                let is_selected = state.selected_library_source_id == Some(row.id);
+
+                ui.push_id(row.id.0, |ui| {
+                    let (tile_rect, tile_response) = ui.allocate_exact_size(
+                        vec2(tile_size, tile_size),
+                        Sense::click_and_drag(),
+                    );
+
+                    let painter = ui.painter_at(tile_rect);
+
+                    // Background.
+                    let bg = if is_selected { selected_bg } else { BG_ELEVATED };
+                    painter.rect_filled(
+                        tile_rect,
+                        CornerRadius::same(RADIUS_SM as u8),
+                        bg,
+                    );
+
+                    // Border on hover.
+                    if tile_response.hovered() {
+                        painter.rect_stroke(
+                            tile_rect,
+                            CornerRadius::same(RADIUS_SM as u8),
+                            egui::Stroke::new(1.0, BORDER),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+
+                    // Type icon (large, centered in upper portion).
+                    let icon_y = tile_rect.center().y - 4.0;
+                    painter.text(
+                        egui::pos2(tile_rect.center().x, icon_y),
+                        egui::Align2::CENTER_CENTER,
+                        source_icon(&row.source_type),
+                        egui::FontId::proportional(18.0),
+                        TEXT_PRIMARY,
+                    );
+
+                    // Name (small, bottom of tile, truncated).
+                    let name_y = tile_rect.bottom() - 10.0;
+                    let max_name_width = tile_size - 4.0;
+                    let name_galley = painter.layout(
+                        row.name.clone(),
+                        egui::FontId::proportional(8.0),
+                        TEXT_SECONDARY,
+                        max_name_width,
+                    );
+                    // Only draw the first line to avoid overflow.
+                    painter.galley(
+                        egui::pos2(
+                            tile_rect.center().x - name_galley.size().x.min(max_name_width) / 2.0,
+                            name_y - name_galley.rows[0].height() / 2.0,
+                        ),
+                        name_galley,
+                        TEXT_SECONDARY,
+                    );
+
+                    // Usage count badge (top-right corner).
+                    if row.usage_count > 0 {
+                        painter.text(
+                            egui::pos2(tile_rect.right() - 4.0, tile_rect.top() + 8.0),
+                            egui::Align2::RIGHT_CENTER,
+                            format!("{}", row.usage_count),
+                            egui::FontId::proportional(8.0),
+                            TEXT_MUTED,
+                        );
+                    }
+
+                    // Click to select.
+                    if tile_response.clicked() {
+                        state.selected_library_source_id = Some(row.id);
+                        state.selected_source_id = None;
+                        let in_active_scene = state
+                            .active_scene()
+                            .map(|s| s.sources.iter().any(|ss| ss.source_id == row.id))
+                            .unwrap_or(false);
+                        if in_active_scene {
+                            state.flash_source_id = Some(row.id);
+                            state.flash_start = Some(std::time::Instant::now());
+                        }
+                    }
+
+                    // Drag payload.
+                    if tile_response.drag_started() {
+                        tile_response.dnd_set_drag_payload(row.id);
+                    }
+
+                    // Context menu.
+                    tile_response.context_menu(|ui| {
+                        if ui.button("Delete").clicked() {
+                            *delete_source = Some(row.id);
+                            ui.close();
+                        }
+                    });
+                });
+
+                if col_idx + 1 < cols && item_idx + 1 < items.len() {
+                    ui.add_space(spacing);
+                }
+            }
+        });
+        if row_idx + 1 < rows_count {
+            ui.add_space(spacing);
+        }
+    }
+}
 
 /// Draw a single source row with icon, name, usage badge, and context menu.
 fn draw_source_row(

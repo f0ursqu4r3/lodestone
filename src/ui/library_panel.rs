@@ -42,24 +42,36 @@ fn start_rename_source(ui: &egui::Ui, state: &mut AppState, id: SourceId, name: 
 
 /// Draw the library panel.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
-    // Persist view mode and display mode across frames.
-    let view_id = ui.make_persistent_id("library_view_mode");
-    let display_id = ui.make_persistent_id("library_display_mode");
-    let view = ui
-        .data(|d| d.get_temp::<LibraryView>(view_id))
-        .unwrap_or(LibraryView::ByType);
-    let display_mode = ui
-        .data(|d| d.get_temp::<LibraryDisplayMode>(display_id))
-        .unwrap_or(LibraryDisplayMode::List);
+    // Load view mode and display mode from persisted settings.
+    let view = match state.settings.ui.library_view.as_str() {
+        "folders" => LibraryView::Folders,
+        _ => LibraryView::ByType,
+    };
+    let display_mode = match state.settings.ui.library_display_mode.as_str() {
+        "grid" => LibraryDisplayMode::Grid,
+        _ => LibraryDisplayMode::List,
+    };
 
     // ── Header row ──
     let (view, display_mode) = draw_header(ui, state, view, display_mode);
 
-    // Store updated modes.
-    ui.data_mut(|d| {
-        d.insert_temp(view_id, view);
-        d.insert_temp(display_id, display_mode);
-    });
+    // Persist updated modes to settings.
+    let new_view = match view {
+        LibraryView::ByType => "type",
+        LibraryView::Folders => "folders",
+    };
+    let new_display = match display_mode {
+        LibraryDisplayMode::List => "list",
+        LibraryDisplayMode::Grid => "grid",
+    };
+    if state.settings.ui.library_view != new_view
+        || state.settings.ui.library_display_mode != new_display
+    {
+        state.settings.ui.library_view = new_view.to_string();
+        state.settings.ui.library_display_mode = new_display.to_string();
+        state.settings_dirty = true;
+        state.settings_last_changed = std::time::Instant::now();
+    }
 
     ui.add_space(4.0);
 

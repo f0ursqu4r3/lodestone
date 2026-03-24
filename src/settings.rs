@@ -33,6 +33,10 @@ pub struct UiSettings {
     pub scene_panel_open: bool,
     pub mixer_panel_open: bool,
     pub controls_panel_open: bool,
+    /// Library grouping mode: "type" or "folders".
+    pub library_view: String,
+    /// Library display mode: "list" or "grid".
+    pub library_display_mode: String,
 }
 
 impl Default for UiSettings {
@@ -41,6 +45,8 @@ impl Default for UiSettings {
             scene_panel_open: true,
             mixer_panel_open: true,
             controls_panel_open: true,
+            library_view: "type".to_string(),
+            library_display_mode: "list".to_string(),
         }
     }
 }

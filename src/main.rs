@@ -748,18 +748,31 @@ impl ApplicationHandler for AppManager {
         if let Some(ref gpu) = self.gpu {
             let app_state = self.state.lock().expect("lock AppState");
             if let Some(active_scene_id) = app_state.active_scene_id {
-                // Resolve source IDs to LibrarySource references.
-                let source_ids: Vec<_> = app_state
-                    .scenes
-                    .iter()
-                    .find(|s| s.id == active_scene_id)
-                    .map(|s| s.source_ids())
-                    .unwrap_or_default();
-
-                let resolved_sources: Vec<&crate::scene::LibrarySource> = source_ids
-                    .iter()
-                    .filter_map(|sid| app_state.library.iter().find(|s| s.id == *sid))
-                    .collect();
+                // Resolve sources: apply per-scene overrides from SceneSource onto LibrarySource.
+                let resolved_sources: Vec<crate::renderer::compositor::ResolvedSource> =
+                    app_state
+                        .scenes
+                        .iter()
+                        .find(|s| s.id == active_scene_id)
+                        .map(|scene| {
+                            scene
+                                .sources
+                                .iter()
+                                .filter_map(|scene_src| {
+                                    app_state
+                                        .library
+                                        .iter()
+                                        .find(|s| s.id == scene_src.source_id)
+                                        .map(|lib| crate::renderer::compositor::ResolvedSource {
+                                            id: lib.id,
+                                            transform: scene_src.resolve_transform(lib),
+                                            opacity: scene_src.resolve_opacity(lib),
+                                            visible: scene_src.resolve_visible(lib),
+                                        })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
 
                 let mut encoder =
                     gpu.device

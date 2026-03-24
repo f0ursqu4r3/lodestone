@@ -6,7 +6,26 @@ use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::{Device, Queue, TextureFormat};
 
 use crate::gstreamer::RgbaFrame;
-use crate::scene::{LibrarySource, SourceId};
+use crate::scene::{SourceId, Transform};
+
+// ---------------------------------------------------------------------------
+// ResolvedSource — render-ready source data after applying scene overrides
+// ---------------------------------------------------------------------------
+
+/// Resolved source data for rendering. Built from LibrarySource + SceneSource overrides.
+///
+/// Contains only the fields that the compositor needs to draw a source.
+/// Device config, name, source_type etc. are irrelevant for rendering.
+pub struct ResolvedSource {
+    /// The source's unique identifier (used to look up the GPU layer).
+    pub id: SourceId,
+    /// Position and size on the canvas, in pixels.
+    pub transform: Transform,
+    /// Alpha opacity in \[0.0, 1.0\]. Clamped by the compositor.
+    pub opacity: f32,
+    /// Whether this source should be drawn at all.
+    pub visible: bool,
+}
 
 // ---------------------------------------------------------------------------
 // WGSL shaders
@@ -621,7 +640,7 @@ impl Compositor {
     ///
     /// Always clears the canvas to black first, then draws each visible source
     /// with its own per-source uniform buffer to avoid data races.
-    pub fn compose(&self, queue: &Queue, encoder: &mut wgpu::CommandEncoder, sources: &[&LibrarySource]) {
+    pub fn compose(&self, queue: &Queue, encoder: &mut wgpu::CommandEncoder, sources: &[ResolvedSource]) {
         let cw = self.canvas_width as f32;
         let ch = self.canvas_height as f32;
 

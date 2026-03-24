@@ -207,46 +207,129 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         })
         .collect();
 
-    // Collect row rects for drag-to-reorder insertion indicator.
-    let mut row_rects: Vec<(SourceId, Rect)> = Vec::new();
-    let mut reorder_drop: Option<(SourceId, usize)> = None; // (dragged_id, insert_display_idx)
+    // ── Animated drag-to-reorder state ──
+    // Persist per-row Y offsets across frames for smooth animation.
+    let offsets_id = ui.make_persistent_id("source_row_offsets");
+    let mut offsets: std::collections::HashMap<u64, f32> =
+        ui.data(|d| d.get_temp(offsets_id).unwrap_or_default());
 
+    let row_height = 28.0_f32;
+    let mut reorder_drop: Option<(SourceId, usize)> = None;
+
+    // Determine drag state: which row is being dragged and where the insertion point is.
+    let drag_payload = egui::DragAndDrop::payload::<ReorderPayload>(ui.ctx());
+    let pointer_pos = ui.ctx().pointer_interact_pos();
+    let dragged_id = drag_payload.as_ref().map(|p| p.source_id);
+
+    // Compute the insertion index based on pointer Y (we need the scroll area top for this).
     egui::ScrollArea::vertical().show(ui, |ui| {
+        let list_top = ui.cursor().top();
+        let available_width = ui.available_width();
+
+        // Calculate insertion index from pointer position.
+        let insert_idx = match (dragged_id, pointer_pos) {
+            (Some(_), Some(pos)) => {
+                let mut idx = rows.len();
+                for (i, _) in rows.iter().enumerate() {
+                    let row_center_y = list_top + (i as f32 + 0.5) * row_height;
+                    if pos.y < row_center_y {
+                        idx = i;
+                        break;
+                    }
+                }
+                Some(idx)
+            }
+            _ => None,
+        };
+
+        // Compute target Y offsets for each row.
+        let lerp_speed: f32 = 0.2; // 0..1, higher = faster
+        let dt: f32 = ui.input(|i| i.stable_dt).min(0.1);
+        let lerp_t: f32 = (1.0 - (1.0_f32 - lerp_speed).powf(dt * 60.0)).clamp(0.0, 1.0);
+        let mut any_animating = false;
+
+        for (idx, row) in rows.iter().enumerate() {
+            let target_offset = match (dragged_id, insert_idx) {
+                (Some(did), Some(ins)) if row.id != did => {
+                    // Find the dragged row's display index.
+                    let dragged_display_idx =
+                        rows.iter().position(|r| r.id == did).unwrap_or(0);
+                    // Rows between the drag origin and insertion point shift by one row height.
+                    if dragged_display_idx < ins {
+                        // Dragging down: rows between (drag+1..ins) shift up.
+                        if idx > dragged_display_idx && idx < ins {
+                            -row_height
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        // Dragging up: rows between (ins..drag) shift down.
+                        if idx >= ins && idx < dragged_display_idx {
+                            row_height
+                        } else {
+                            0.0
+                        }
+                    }
+                }
+                _ => 0.0, // No drag active or this is the dragged row — target 0.
+            };
+
+            let current = offsets.get(&row.id.0).copied().unwrap_or(0.0);
+            let new_offset = current + (target_offset - current) * lerp_t;
+
+            if (new_offset - target_offset).abs() > 0.5 {
+                any_animating = true;
+            }
+
+            offsets.insert(row.id.0, new_offset);
+        }
+
+        if any_animating || dragged_id.is_some() {
+            ui.ctx().request_repaint();
+        }
+
+        // ── Render rows with animated offsets ──
         for (idx, row) in rows.iter().enumerate() {
             let is_selected = state.selected_source_id == Some(row.id);
-
-            // Row opacity: dim hidden sources to 40%.
             let row_opacity = if row.visible { 1.0 } else { 0.4 };
-
-            // Dim the row being dragged.
-            let is_being_dragged = egui::DragAndDrop::payload::<ReorderPayload>(ui.ctx())
-                .is_some_and(|p| p.source_id == row.id);
+            let is_being_dragged = dragged_id == Some(row.id);
+            let y_offset = offsets.get(&row.id.0).copied().unwrap_or(0.0);
 
             ui.push_id(row.id.0, |ui| {
-                // Allocate a row area.
-                let row_height = 28.0;
-                let available_width = ui.available_width();
                 let (row_rect, row_response) = ui
                     .allocate_exact_size(vec2(available_width, row_height), Sense::click_and_drag());
 
-                row_rects.push((row.id, row_rect));
+                // The paint rect is shifted by the animation offset.
+                let paint_rect = if is_being_dragged {
+                    // Dragged row follows the pointer.
+                    if let Some(pos) = pointer_pos {
+                        Rect::from_min_size(
+                            egui::pos2(row_rect.left(), pos.y - row_height / 2.0),
+                            row_rect.size(),
+                        )
+                    } else {
+                        row_rect
+                    }
+                } else {
+                    row_rect.translate(vec2(0.0, y_offset))
+                };
 
                 let effective_opacity = if is_being_dragged {
-                    row_opacity * 0.3
+                    row_opacity * 0.5
                 } else {
                     row_opacity
                 };
 
-                // Selection highlight background.
+                // Selection highlight.
                 if is_selected && !is_being_dragged {
                     ui.painter().rect_filled(
-                        row_rect,
+                        paint_rect,
                         CornerRadius::same(RADIUS_SM as u8),
                         selected_bg,
                     );
                 }
 
-                // Flash highlight when selected in library.
+                // Flash highlight.
                 if state.flash_source_id == Some(row.id)
                     && let Some(start) = state.flash_start
                 {
@@ -260,11 +343,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                             (DEFAULT_ACCENT.b() as f32 * alpha) as u8,
                             (255.0 * alpha) as u8,
                         );
-                        ui.painter().rect_filled(
-                            row_rect,
-                            CornerRadius::same(RADIUS_SM as u8),
-                            flash_color,
-                        );
+                        ui.painter()
+                            .rect_filled(paint_rect, CornerRadius::same(RADIUS_SM as u8), flash_color);
                         ui.ctx().request_repaint();
                     } else {
                         state.flash_source_id = None;
@@ -272,66 +352,59 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     }
                 }
 
-                // Start drag for reorder.
+                // Start drag.
                 if row_response.drag_started() {
-                    row_response
-                        .dnd_set_drag_payload(ReorderPayload { source_id: row.id });
+                    row_response.dnd_set_drag_payload(ReorderPayload { source_id: row.id });
                 }
 
-                // Handle click for selection (scene selection, clears library selection).
+                // Click to select.
                 if row_response.clicked() {
                     state.selected_source_id = Some(row.id);
                     state.selected_library_source_id = None;
                 }
 
-                // Paint the row contents.
-                let painter = ui.painter_at(row_rect);
-                let mut cursor_x = row_rect.left() + 4.0;
-                let center_y = row_rect.center().y;
+                // Paint row contents at the animated position.
+                // Use painter_at to avoid borrowing ui for the painter's lifetime.
+                let painter = ui.painter_at(paint_rect);
+                let mut cursor_x = paint_rect.left() + 4.0;
+                let center_y = paint_rect.center().y;
 
-                // ── Icon (16x16, BG_ELEVATED background, 2px border-radius) ──
+                // Icon.
                 let icon_size = 16.0;
                 let icon_rect = Rect::from_center_size(
                     egui::pos2(cursor_x + icon_size / 2.0, center_y),
                     vec2(icon_size, icon_size),
                 );
                 painter.rect_filled(icon_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
-                let icon_text = source_icon(&row.source_type);
-                let icon_color = with_opacity(TEXT_PRIMARY, effective_opacity);
                 painter.text(
                     icon_rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    icon_text,
+                    source_icon(&row.source_type),
                     egui::FontId::proportional(10.0),
-                    icon_color,
+                    with_opacity(TEXT_PRIMARY, effective_opacity),
                 );
                 cursor_x += icon_size + 6.0;
 
-                // ── Name (TEXT_PRIMARY, 11px) ──
-                let name_color = with_opacity(TEXT_PRIMARY, effective_opacity);
+                // Name.
                 painter.text(
                     egui::pos2(cursor_x, center_y),
                     egui::Align2::LEFT_CENTER,
                     &row.name,
                     egui::FontId::proportional(11.0),
-                    name_color,
+                    with_opacity(TEXT_PRIMARY, effective_opacity),
                 );
 
-                // ── Right-aligned controls ──
-                let right_x = row_rect.right() - 4.0;
-
-                // Visibility toggle eye icon.
+                // Eye icon.
+                let right_x = paint_rect.right() - 4.0;
                 let eye_text = if row.visible {
                     egui_phosphor::regular::EYE
                 } else {
                     egui_phosphor::regular::EYE_SLASH
                 };
-                let eye_width = 16.0;
                 let eye_rect = Rect::from_center_size(
-                    egui::pos2(right_x - eye_width / 2.0, center_y),
-                    vec2(eye_width, row_height),
+                    egui::pos2(right_x - 8.0, center_y),
+                    vec2(16.0, row_height),
                 );
-
                 let eye_hovered = ui.rect_contains_pointer(eye_rect);
                 let eye_color = if eye_hovered {
                     with_opacity(TEXT_PRIMARY, effective_opacity)
@@ -346,7 +419,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     eye_color,
                 );
 
-                // Handle eye click — toggle per-scene visibility override.
+                // Eye click.
                 if eye_hovered && row_response.clicked() {
                     let current_visible = row.visible;
                     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id)
@@ -359,22 +432,22 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     state.scenes_last_changed = std::time::Instant::now();
                 }
 
-                // Source context menu (right-click) for quick transform actions.
+                // Context menu.
                 crate::ui::transform_handles::show_source_context_menu(
                     ui,
                     &row_response,
                     state,
                     row.id,
-                    egui::Vec2::new(1920.0, 1080.0), // TODO: read from settings
+                    egui::Vec2::new(1920.0, 1080.0),
                 );
 
-                // Separator line between items (skip if being dragged).
+                // Separator (skip for dragged row).
                 if idx + 1 < source_count && !is_being_dragged {
-                    let sep_y = row_rect.bottom();
+                    let sep_y = paint_rect.bottom() ;
                     painter.line_segment(
                         [
-                            egui::pos2(row_rect.left(), sep_y),
-                            egui::pos2(row_rect.right(), sep_y),
+                            egui::pos2(paint_rect.left(), sep_y),
+                            egui::pos2(paint_rect.right(), sep_y),
                         ],
                         Stroke::new(1.0, BORDER),
                     );
@@ -382,52 +455,17 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             });
         }
 
-        // ── Drag-to-reorder: insertion indicator + drop detection ──
-        if let Some(payload) = egui::DragAndDrop::payload::<ReorderPayload>(ui.ctx())
-            && let Some(pointer_pos) = ui.ctx().pointer_interact_pos()
+        // Detect drop.
+        if dragged_id.is_some()
+            && ui.input(|i| i.pointer.any_released())
+            && let (Some(did), Some(ins)) = (dragged_id, insert_idx)
         {
-                let dragged_id = payload.source_id;
-
-                // Find the insertion index based on pointer Y position.
-                let mut insert_idx = row_rects.len(); // default: end
-                for (i, (_id, rect)) in row_rects.iter().enumerate() {
-                    if pointer_pos.y < rect.center().y {
-                        insert_idx = i;
-                        break;
-                    }
-                }
-
-                // Draw insertion line.
-                let line_y = if insert_idx < row_rects.len() {
-                    row_rects[insert_idx].1.top()
-                } else {
-                    row_rects
-                        .last()
-                        .map(|(_, r)| r.bottom())
-                        .unwrap_or(0.0)
-                };
-                let line_left = row_rects
-                    .first()
-                    .map(|(_, r)| r.left())
-                    .unwrap_or(0.0);
-                let line_right = row_rects
-                    .first()
-                    .map(|(_, r)| r.right())
-                    .unwrap_or(0.0);
-                ui.painter().line_segment(
-                    [
-                        egui::pos2(line_left, line_y),
-                        egui::pos2(line_right, line_y),
-                    ],
-                    Stroke::new(2.0, DEFAULT_ACCENT),
-                );
-
-                // Detect drop.
-                if ui.input(|i| i.pointer.any_released()) {
-                    reorder_drop = Some((dragged_id, insert_idx));
-                }
+            reorder_drop = Some((did, ins));
         }
     });
+
+    // Store animated offsets.
+    ui.data_mut(|d| d.insert_temp(offsets_id, offsets));
 
     // ── Apply drag-to-reorder ──
     // Display is reversed (top-most first), so display index 0 = last in data.

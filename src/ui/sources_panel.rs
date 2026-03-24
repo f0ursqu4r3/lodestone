@@ -390,23 +390,32 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     }
 
     // ── Drop zone: accept SourceId dragged from library panel ──
-    // Allocate remaining space as an invisible drop target.
-    let remaining = ui.available_size();
-    let (drop_rect, drop_response) =
-        ui.allocate_exact_size(remaining, Sense::hover());
+    // The entire panel is a drop target, not just the empty space at the bottom.
+    let panel_rect = ui.min_rect();
+    let has_drag_payload = egui::DragAndDrop::has_payload_of_type::<SourceId>(ui.ctx());
+    let pointer_in_panel = ui
+        .input(|i| i.pointer.hover_pos())
+        .is_some_and(|p| panel_rect.contains(p));
+    let pointer_released = ui.input(|i| i.pointer.any_released());
 
-    // Show visual hint when a library source is being dragged over.
-    if drop_response.dnd_hover_payload::<SourceId>().is_some() {
+    // Show visual hint when a library source is being dragged over the panel.
+    if has_drag_payload && pointer_in_panel {
         ui.painter().rect_stroke(
-            drop_rect,
+            panel_rect,
             CornerRadius::same(RADIUS_SM as u8),
             Stroke::new(1.0, DEFAULT_ACCENT),
             egui::StrokeKind::Inside,
         );
     }
 
-    // Accept the drop.
-    if let Some(payload) = drop_response.dnd_release_payload::<SourceId>() {
+    // Accept the drop when pointer is released over the panel.
+    let dropped_payload = if has_drag_payload && pointer_in_panel && pointer_released {
+        egui::DragAndDrop::take_payload::<SourceId>(ui.ctx())
+    } else {
+        None
+    };
+
+    if let Some(payload) = dropped_payload {
         let src_id = *payload;
         let already_in_scene = state
             .active_scene()

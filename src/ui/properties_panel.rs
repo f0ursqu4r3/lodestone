@@ -5,7 +5,7 @@
 //! - **Scene mode** — source is in the active scene: edits scene overrides, shows override dots
 
 use crate::gstreamer::{CaptureSourceConfig, GstCommand, GstError};
-use crate::scene::{SourceProperties, SourceType};
+use crate::scene::{SourceId, SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -73,7 +73,37 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     let mut changed = false;
 
-    // ── TRANSFORM ──
+    changed |= draw_transform_section(ui, state, selected_id, lib_idx, in_active_scene);
+
+    ui.add_space(12.0);
+
+    changed |= draw_opacity_section(ui, state, selected_id, lib_idx, in_active_scene);
+
+    ui.add_space(12.0);
+
+    changed |= draw_source_properties(ui, state, selected_id, lib_idx);
+
+    // Mark dirty so the scene collection gets persisted.
+    if changed {
+        state.scenes_dirty = true;
+        state.scenes_last_changed = std::time::Instant::now();
+    }
+}
+
+/// Draw the transform section (position x/y, size w/h).
+///
+/// In scene mode, shows an override dot and reads/writes scene overrides.
+/// In library mode, edits the library source directly.
+///
+/// Returns `true` if any value changed.
+fn draw_transform_section(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    selected_id: SourceId,
+    lib_idx: usize,
+    in_active_scene: bool,
+) -> bool {
+    let mut changed = false;
 
     if in_active_scene {
         // Read current values from scene override + library.
@@ -157,9 +187,23 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         });
     }
 
-    ui.add_space(12.0);
+    changed
+}
 
-    // ── OPACITY ──
+/// Draw the opacity slider section.
+///
+/// In scene mode, shows an override dot and reads/writes scene overrides.
+/// In library mode, edits the library source directly.
+///
+/// Returns `true` if any value changed.
+fn draw_opacity_section(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    selected_id: SourceId,
+    lib_idx: usize,
+    in_active_scene: bool,
+) -> bool {
+    let mut changed = false;
 
     if in_active_scene {
         // Read current values from scene override + library.
@@ -235,9 +279,21 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         });
     }
 
-    ui.add_space(12.0);
+    changed
+}
 
-    // ── SOURCE (device config — always edits library directly) ──
+/// Draw source-type-specific property controls (device config — always edits library directly).
+///
+/// Dispatches to Display/Image/Window/Camera UI based on the source type.
+///
+/// Returns `true` if any value changed.
+fn draw_source_properties(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    selected_id: SourceId,
+    lib_idx: usize,
+) -> bool {
+    let mut changed = false;
 
     let source_type = state.library[lib_idx].source_type.clone();
     match source_type {
@@ -353,7 +409,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 ref mut owner_name,
             } = source.properties
             else {
-                return;
+                return changed;
             };
 
             let prev_window_id = *window_id;
@@ -427,7 +483,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 ref mut device_name,
             } = source.properties
             else {
-                return;
+                return changed;
             };
 
             let prev_device_index = *device_index;
@@ -473,11 +529,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         }
     }
 
-    // Mark dirty so the scene collection gets persisted.
-    if changed {
-        state.scenes_dirty = true;
-        state.scenes_last_changed = std::time::Instant::now();
-    }
+    changed
 }
 
 /// Draw a small override indicator dot. Returns `true` if the user right-clicked

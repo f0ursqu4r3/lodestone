@@ -82,6 +82,19 @@ pub fn parse_hex_color(hex: &str) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
+/// Read the current accent color from egui context data (set per-frame by the render loop).
+/// Falls back to `DEFAULT_ACCENT` if not set.
+pub fn accent_color(ctx: &egui::Context) -> Color32 {
+    ctx.data(|d| d.get_temp(egui::Id::new("accent_color")))
+        .unwrap_or(DEFAULT_ACCENT)
+}
+
+/// Read the accent color from a `Ui` handle.
+pub fn accent_color_ui(ui: &egui::Ui) -> Color32 {
+    ui.data(|d| d.get_temp(egui::Id::new("accent_color")))
+        .unwrap_or(DEFAULT_ACCENT)
+}
+
 /// Derive a dim version of the accent color at ~15% opacity for selection backgrounds.
 pub fn accent_dim(accent: Color32) -> Color32 {
     Color32::from_rgba_premultiplied(

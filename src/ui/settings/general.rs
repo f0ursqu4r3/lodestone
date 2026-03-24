@@ -26,6 +26,14 @@ pub(super) fn draw(ui: &mut Ui, settings: &mut GeneralSettings) -> bool {
         &mut settings.confirm_close_while_streaming,
     );
 
+    section_header(ui, "CAPTURE");
+
+    changed |= draw_toggle(
+        ui,
+        "Exclude Lodestone from capture",
+        &mut settings.exclude_self_from_capture,
+    );
+
     section_header(ui, "EDITOR");
 
     changed |= draw_toggle(ui, "Snap to grid", &mut settings.snap_to_grid);

@@ -61,6 +61,8 @@ pub struct GeneralSettings {
     pub confirm_close_while_streaming: bool,
     pub snap_to_grid: bool,
     pub snap_grid_size: f32,
+    /// Exclude Lodestone windows from display capture.
+    pub exclude_self_from_capture: bool,
 }
 
 impl Default for GeneralSettings {
@@ -72,6 +74,7 @@ impl Default for GeneralSettings {
             confirm_close_while_streaming: true,
             snap_to_grid: true,
             snap_grid_size: 10.0,
+            exclude_self_from_capture: true,
         }
     }
 }

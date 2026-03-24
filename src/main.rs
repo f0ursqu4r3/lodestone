@@ -456,6 +456,7 @@ impl ApplicationHandler for AppManager {
                                         source_id: src_id,
                                         config: gstreamer::CaptureSourceConfig::Screen {
                                             screen_index: *screen_index,
+                                            exclude_self: false,
                                         },
                                     });
                                 }

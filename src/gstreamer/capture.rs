@@ -18,7 +18,7 @@ pub fn build_capture_pipeline(
 
     // Create source element based on capture config
     let src = match source {
-        CaptureSourceConfig::Screen { screen_index } => {
+        CaptureSourceConfig::Screen { screen_index, .. } => {
             gstreamer::ElementFactory::make("avfvideosrc")
                 .name("capture-source")
                 .property("capture-screen", true)
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn build_capture_pipeline_creates_valid_pipeline() {
         gstreamer::init().unwrap();
-        let config = CaptureSourceConfig::Screen { screen_index: 0 };
+        let config = CaptureSourceConfig::Screen { screen_index: 0, exclude_self: false };
         let result = build_capture_pipeline(&config, 1920, 1080, 30);
         match result {
             Ok((pipeline, appsink)) => {

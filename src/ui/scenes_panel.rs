@@ -396,6 +396,7 @@ fn apply_scene_diff(
                         source_id: src_id,
                         config: CaptureSourceConfig::Screen {
                             screen_index: *screen_index,
+                            exclude_self: false,
                         },
                     });
                 }
@@ -486,6 +487,7 @@ fn send_capture_for_scene(
                         source_id: src_id,
                         config: CaptureSourceConfig::Screen {
                             screen_index: *screen_index,
+                            exclude_self: false,
                         },
                     });
                     any_started = true;

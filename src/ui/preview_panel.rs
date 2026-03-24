@@ -216,6 +216,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                             source_id: src_id,
                             config: crate::gstreamer::CaptureSourceConfig::Screen {
                                 screen_index: *screen_index,
+                                exclude_self: false,
                             },
                         });
                         state.capture_active = true;

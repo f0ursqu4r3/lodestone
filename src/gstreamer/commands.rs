@@ -77,7 +77,7 @@ pub enum GstCommand {
 /// Capture source selection.
 #[derive(Debug, Clone)]
 pub enum CaptureSourceConfig {
-    Screen { screen_index: u32 },
+    Screen { screen_index: u32, exclude_self: bool },
     Window { window_id: u32 },
     Camera { device_index: u32 },
 }
@@ -241,10 +241,10 @@ mod tests {
 
     #[test]
     fn capture_source_config_screen() {
-        let config = CaptureSourceConfig::Screen { screen_index: 0 };
+        let config = CaptureSourceConfig::Screen { screen_index: 0, exclude_self: false };
         assert!(matches!(
             config,
-            CaptureSourceConfig::Screen { screen_index: 0 }
+            CaptureSourceConfig::Screen { screen_index: 0, .. }
         ));
     }
 

@@ -807,7 +807,7 @@ mod tests {
             .command_tx
             .try_send(GstCommand::AddCaptureSource {
                 source_id: SourceId(1),
-                config: CaptureSourceConfig::Screen { screen_index: 0 },
+                config: CaptureSourceConfig::Screen { screen_index: 0, exclude_self: false },
             })
             .unwrap();
         main_ch

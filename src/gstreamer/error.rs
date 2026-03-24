@@ -1,20 +1,22 @@
 /// Errors reported from the GStreamer thread to the main thread.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum GstError {
     /// Screen/window/camera capture failed.
     CaptureFailure { message: String },
     /// H.264 encoding failed.
     EncodeFailure { message: String },
     /// RTMP connection was lost during streaming.
+    #[allow(dead_code)]
     StreamConnectionLost { message: String },
     /// GStreamer pipeline state transition failed.
+    #[allow(dead_code)]
     PipelineStateChange {
         from: String,
         to: String,
         message: String,
     },
     /// macOS Screen Recording permission denied.
+    #[allow(dead_code)]
     PermissionDenied { message: String },
     /// Audio capture device failed (mic unplugged, permission denied).
     AudioCaptureFailure { message: String },

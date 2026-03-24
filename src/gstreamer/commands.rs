@@ -35,7 +35,6 @@ impl Default for AudioEncoderConfig {
 
 /// Commands sent from the UI thread to the GStreamer thread.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum GstCommand {
     StartStream(StreamConfig),
     StopStream,
@@ -44,6 +43,7 @@ pub enum GstCommand {
         format: RecordingFormat,
     },
     StopRecording,
+    #[allow(dead_code)]
     UpdateEncoder(EncoderConfig),
     SetAudioDevice {
         source: AudioSourceKind,
@@ -70,6 +70,7 @@ pub enum GstCommand {
         source_id: SourceId,
         frame: RgbaFrame,
     },
+    #[allow(dead_code)]
     Shutdown,
 }
 
@@ -83,9 +84,9 @@ pub enum CaptureSourceConfig {
 
 /// Recording container format.
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub enum RecordingFormat {
     Mkv,
+    #[allow(dead_code)]
     Mp4,
 }
 

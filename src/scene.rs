@@ -137,13 +137,13 @@ impl SceneSource {
     }
 
     /// Resolve the effective muted state, using the override if set, otherwise the library default.
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn resolve_muted(&self, lib: &LibrarySource) -> bool {
         self.overrides.muted.unwrap_or(lib.muted)
     }
 
     /// Resolve the effective volume, using the override if set, otherwise the library default.
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn resolve_volume(&self, lib: &LibrarySource) -> f32 {
         self.overrides.volume.unwrap_or(lib.volume)
     }
@@ -159,19 +159,19 @@ impl SceneSource {
     }
 
     /// Returns true if visibility is overridden for this scene.
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn is_visible_overridden(&self) -> bool {
         self.overrides.visible.is_some()
     }
 
     /// Returns true if muted state is overridden for this scene.
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn is_muted_overridden(&self) -> bool {
         self.overrides.muted.is_some()
     }
 
     /// Returns true if volume is overridden for this scene.
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn is_volume_overridden(&self) -> bool {
         self.overrides.volume.is_some()
     }
@@ -179,7 +179,7 @@ impl SceneSource {
 
 impl Scene {
     /// Move a source one position earlier (lower z-index / further back).
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn move_source_up(&mut self, source_id: SourceId) {
         if let Some(pos) = self.sources.iter().position(|s| s.source_id == source_id)
             && pos > 0
@@ -189,7 +189,7 @@ impl Scene {
     }
 
     /// Move a source one position later (higher z-index / further forward).
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn move_source_down(&mut self, source_id: SourceId) {
         if let Some(pos) = self.sources.iter().position(|s| s.source_id == source_id)
             && pos + 1 < self.sources.len()

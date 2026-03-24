@@ -849,7 +849,8 @@ impl ApplicationHandler for AppManager {
                     || matches!(
                         app_state.recording_status,
                         crate::state::RecordingStatus::Recording { .. }
-                    );
+                    )
+                    || app_state.virtual_camera_active;
                 if is_encoding {
                     gpu.compositor.scale_to_output(&mut encoder);
                 }

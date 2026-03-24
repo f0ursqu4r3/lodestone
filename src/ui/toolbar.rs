@@ -64,6 +64,9 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) -> bool {
 
                     divider(ui);
 
+                    // ── Virtual Camera button ──
+                    draw_virtual_camera_button(ui, state);
+
                     // ── Record button ──
                     draw_record_button(ui, state);
 
@@ -222,6 +225,38 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
     // Request repaint for pulse animation when live.
     if is_live {
         ui.ctx().request_repaint();
+    }
+}
+
+/// Virtual Camera toggle button.
+fn draw_virtual_camera_button(ui: &mut egui::Ui, state: &mut AppState) {
+    let is_active = state.virtual_camera_active;
+
+    let vcam_color = Color32::from_rgb(0x22, 0xAA, 0x55);
+
+    let icon = egui_phosphor::regular::WEBCAM;
+    let (label, fill, text_color) = if is_active {
+        (format!("{icon} V-Cam"), vcam_color, Color32::WHITE)
+    } else {
+        (format!("{icon} V-Cam"), Color32::TRANSPARENT, vcam_color)
+    };
+
+    let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.0, vcam_color))
+        .corner_radius(RADIUS_SM)
+        .min_size(Vec2::new(64.0, 26.0));
+
+    if ui.add(btn).clicked()
+        && let Some(ref tx) = state.command_tx
+    {
+        if is_active {
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StopVirtualCamera);
+            state.virtual_camera_active = false;
+        } else {
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StartVirtualCamera);
+            state.virtual_camera_active = true;
+        }
     }
 }
 

@@ -30,7 +30,7 @@ pub enum RecordingStatus {
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub scenes: Vec<Scene>,
-    pub sources: Vec<LibrarySource>,
+    pub library: Vec<LibrarySource>,
     pub active_scene_id: Option<SceneId>,
     pub selected_source_id: Option<SourceId>,
     pub audio_levels: crate::gstreamer::AudioLevelUpdate,
@@ -56,7 +56,7 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             scenes: Vec::new(),
-            sources: Vec::new(),
+            library: Vec::new(),
             active_scene_id: None,
             selected_source_id: None,
             audio_levels: crate::gstreamer::AudioLevelUpdate::default(),
@@ -77,6 +77,48 @@ impl Default for AppState {
             recording_status: RecordingStatus::Idle,
             command_tx: None,
         }
+    }
+}
+
+#[allow(dead_code)] // Helpers will be used by upcoming UI tasks (Tasks 4–9)
+impl AppState {
+    /// Find a library source by ID.
+    pub fn find_library_source(&self, id: SourceId) -> Option<&LibrarySource> {
+        self.library.iter().find(|s| s.id == id)
+    }
+
+    /// Find a mutable library source by ID.
+    pub fn find_library_source_mut(&mut self, id: SourceId) -> Option<&mut LibrarySource> {
+        self.library.iter_mut().find(|s| s.id == id)
+    }
+
+    /// Get the active scene.
+    pub fn active_scene(&self) -> Option<&Scene> {
+        self.active_scene_id
+            .and_then(|id| self.scenes.iter().find(|s| s.id == id))
+    }
+
+    /// Get the active scene mutably.
+    pub fn active_scene_mut(&mut self) -> Option<&mut Scene> {
+        self.active_scene_id
+            .and_then(|id| self.scenes.iter_mut().find(|s| s.id == id))
+    }
+
+    /// Count how many scenes reference a given source.
+    pub fn source_usage_count(&self, source_id: SourceId) -> usize {
+        self.scenes
+            .iter()
+            .filter(|s| s.sources.iter().any(|ss| ss.source_id == source_id))
+            .count()
+    }
+
+    /// Get scene names that reference a given source.
+    pub fn scenes_using_source(&self, source_id: SourceId) -> Vec<String> {
+        self.scenes
+            .iter()
+            .filter(|s| s.sources.iter().any(|ss| ss.source_id == source_id))
+            .map(|s| s.name.clone())
+            .collect()
     }
 }
 

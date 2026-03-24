@@ -26,7 +26,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     };
 
     // Find the source index so we can get a mutable reference later.
-    let Some(source_idx) = state.sources.iter().position(|s| s.id == selected_id) else {
+    let Some(source_idx) = state.library.iter().position(|s| s.id == selected_id) else {
         ui.label(
             egui::RichText::new("Source not found")
                 .color(TEXT_MUTED)
@@ -44,7 +44,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     ui.add_space(4.0);
 
     {
-        let source = &mut state.sources[source_idx];
+        let source = &mut state.library[source_idx];
 
         // X / Y row
         ui.horizontal(|ui| {
@@ -72,7 +72,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     ui.add_space(4.0);
 
     {
-        let source = &mut state.sources[source_idx];
+        let source = &mut state.library[source_idx];
         ui.horizontal(|ui| {
             let slider = egui::Slider::new(&mut source.opacity, 0.0..=1.0).show_value(false);
             if ui.add(slider).changed() {
@@ -91,14 +91,14 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     // ── SOURCE ──
 
-    let source_type = state.sources[source_idx].source_type.clone();
+    let source_type = state.library[source_idx].source_type.clone();
     match source_type {
         SourceType::Display => {
             section_label(ui, "SOURCE");
             ui.add_space(4.0);
 
             let monitor_count = state.monitor_count;
-            let source = &mut state.sources[source_idx];
+            let source = &mut state.library[source_idx];
             if let SourceProperties::Display {
                 ref mut screen_index,
             } = source.properties
@@ -130,7 +130,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let cmd_tx = state.command_tx.clone();
             let src_id = selected_id;
 
-            let source = &mut state.sources[source_idx];
+            let source = &mut state.library[source_idx];
             if let SourceProperties::Image { ref mut path } = source.properties {
                 // Path text input.
                 let hint = if path.is_empty() {
@@ -198,7 +198,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let windows = state.available_windows.clone();
             let cmd_tx = state.command_tx.clone();
 
-            let source = &mut state.sources[source_idx];
+            let source = &mut state.library[source_idx];
             let SourceProperties::Window {
                 ref mut window_id,
                 ref mut window_title,
@@ -273,7 +273,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let cameras = state.available_cameras.clone();
             let cmd_tx = state.command_tx.clone();
 
-            let source = &mut state.sources[source_idx];
+            let source = &mut state.library[source_idx];
             let SourceProperties::Camera {
                 ref mut device_index,
                 ref mut device_name,
@@ -359,7 +359,7 @@ fn load_and_send_image(
 ) {
     match crate::image_source::load_image_source(&path) {
         Ok(frame) => {
-            let source = &mut state.sources[source_idx];
+            let source = &mut state.library[source_idx];
             // Update the stored path.
             if let SourceProperties::Image { path: ref mut p } = source.properties {
                 *p = path;

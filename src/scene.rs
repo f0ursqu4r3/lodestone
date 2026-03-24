@@ -8,11 +8,6 @@ pub struct SceneId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SourceId(pub u64);
 
-/// Backward-compatible alias for `LibrarySource`. Will be removed in Task 3.
-#[deprecated(note = "Use LibrarySource instead — will be removed in Task 3")]
-#[allow(dead_code)] // Kept for external/migration compatibility until Task 3
-pub type Source = LibrarySource;
-
 /// A scene contains an ordered list of source references with optional per-scene overrides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scene {
@@ -308,20 +303,6 @@ mod legacy {
 }
 
 impl SceneCollection {
-    /// Backward-compatible accessor for the source library. Will be removed in Task 3.
-    #[deprecated(note = "Use .library instead — will be removed in Task 3")]
-    #[allow(dead_code)] // Will be used by migration path in Task 2
-    pub fn sources(&self) -> &Vec<LibrarySource> {
-        &self.library
-    }
-
-    /// Backward-compatible mutable accessor for the source library. Will be removed in Task 3.
-    #[deprecated(note = "Use .library instead — will be removed in Task 3")]
-    #[allow(dead_code)] // Will be used by migration path in Task 2
-    pub fn sources_mut(&mut self) -> &mut Vec<LibrarySource> {
-        &mut self.library
-    }
-
     /// Parse a TOML string into a `SceneCollection`, automatically detecting
     /// and migrating the legacy format if needed.
     ///

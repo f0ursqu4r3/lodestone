@@ -182,7 +182,7 @@ impl AppManager {
 
         let initial_state = AppState {
             scenes: collection.scenes,
-            sources: collection.library,
+            library: collection.library,
             active_scene_id: collection.active_scene_id,
             next_scene_id: collection.next_scene_id,
             next_source_id: collection.next_source_id,
@@ -404,7 +404,7 @@ impl ApplicationHandler for AppManager {
                 && let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id)
             {
                 for src_id in scene.source_ids() {
-                    if let Some(source) = state.sources.iter().find(|s| s.id == src_id) {
+                    if let Some(source) = state.library.iter().find(|s| s.id == src_id) {
                         match &source.properties {
                             crate::scene::SourceProperties::Display { screen_index } => {
                                 if let Some(ref tx) = state.command_tx {
@@ -509,7 +509,7 @@ impl ApplicationHandler for AppManager {
                         if app_state.scenes_dirty {
                             let collection = crate::scene::SceneCollection {
                                 scenes: app_state.scenes.clone(),
-                                library: app_state.sources.clone(),
+                                library: app_state.library.clone(),
                                 active_scene_id: app_state.active_scene_id,
                                 next_scene_id: app_state.next_scene_id,
                                 next_source_id: app_state.next_source_id,
@@ -611,7 +611,7 @@ impl ApplicationHandler for AppManager {
                             {
                                 let collection = crate::scene::SceneCollection {
                                     scenes: app_state.scenes.clone(),
-                                    library: app_state.sources.clone(),
+                                    library: app_state.library.clone(),
                                     active_scene_id: app_state.active_scene_id,
                                     next_scene_id: app_state.next_scene_id,
                                     next_source_id: app_state.next_source_id,
@@ -696,7 +696,7 @@ impl ApplicationHandler for AppManager {
                 let mut app_state = self.state.lock().expect("lock AppState");
                 for (source_id, frame) in &drained_frames {
                     let new_size = (frame.width as f32, frame.height as f32);
-                    if let Some(s) = app_state.sources.iter_mut().find(|s| s.id == *source_id)
+                    if let Some(s) = app_state.library.iter_mut().find(|s| s.id == *source_id)
                         && s.native_size != new_size
                     {
                         // If this is the first real frame (native_size was the default
@@ -758,7 +758,7 @@ impl ApplicationHandler for AppManager {
 
                 let resolved_sources: Vec<&crate::scene::LibrarySource> = source_ids
                     .iter()
-                    .filter_map(|sid| app_state.sources.iter().find(|s| s.id == *sid))
+                    .filter_map(|sid| app_state.library.iter().find(|s| s.id == *sid))
                     .collect();
 
                 let mut encoder =

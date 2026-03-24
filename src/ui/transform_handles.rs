@@ -420,7 +420,7 @@ pub fn draw_transform_handles(
                 .filter_map(|ss| {
                     let src_id = ss.source_id;
                     state
-                        .sources
+                        .library
                         .iter()
                         .find(|s| s.id == src_id && s.visible)
                         .map(|s| {
@@ -439,7 +439,7 @@ pub fn draw_transform_handles(
         if primary_clicked && panel_rect.contains(mouse_pos) {
             // Check if we clicked a handle on the selected source first — don't re-select.
             let clicked_handle = state.selected_source_id.and_then(|sel_id| {
-                state.sources.iter().find(|s| s.id == sel_id).and_then(|s| {
+                state.library.iter().find(|s| s.id == sel_id).and_then(|s| {
                     let r = transform_to_screen_rect(&s.transform, viewport_rect, canvas_size);
                     hit_test_handles(mouse_pos, r)
                 })
@@ -541,7 +541,7 @@ pub fn draw_transform_handles(
     let Some(selected_id) = state.selected_source_id else {
         return;
     };
-    let Some(source) = state.sources.iter().find(|s| s.id == selected_id) else {
+    let Some(source) = state.library.iter().find(|s| s.id == selected_id) else {
         return;
     };
     let transform = source.transform;
@@ -578,7 +578,7 @@ pub fn draw_transform_handles(
             } => {
                 let delta = screen_to_canvas(mouse_pos, viewport_rect, canvas_size)
                     - screen_to_canvas(*start_mouse, viewport_rect, canvas_size);
-                if let Some(s) = state.sources.iter_mut().find(|s| s.id == selected_id) {
+                if let Some(s) = state.library.iter_mut().find(|s| s.id == selected_id) {
                     s.transform.x = start_transform.x + delta.x;
                     s.transform.y = start_transform.y + delta.y;
                 }
@@ -591,7 +591,7 @@ pub fn draw_transform_handles(
             } => {
                 let delta = screen_to_canvas(mouse_pos, viewport_rect, canvas_size)
                     - screen_to_canvas(*start_mouse, viewport_rect, canvas_size);
-                if let Some(s) = state.sources.iter_mut().find(|s| s.id == selected_id) {
+                if let Some(s) = state.library.iter_mut().find(|s| s.id == selected_id) {
                     apply_resize(
                         &mut s.transform,
                         start_transform,
@@ -610,18 +610,18 @@ pub fn draw_transform_handles(
             let grid = state.settings.general.snap_grid_size;
 
             let other_transforms: Vec<Transform> = state
-                .sources
+                .library
                 .iter()
                 .filter(|s| s.id != selected_id && s.visible)
                 .map(|s| s.transform)
                 .collect();
             let other_refs: Vec<&Transform> = other_transforms.iter().collect();
 
-            if let Some(s) = state.sources.iter_mut().find(|s| s.id == selected_id) {
+            if let Some(s) = state.library.iter_mut().find(|s| s.id == selected_id) {
                 snap_transform(&mut s.transform, canvas_size, grid, &other_refs);
             }
 
-            if let Some(s) = state.sources.iter().find(|s| s.id == selected_id) {
+            if let Some(s) = state.library.iter().find(|s| s.id == selected_id) {
                 draw_snap_guides(
                     ui.painter(),
                     &s.transform,
@@ -669,7 +669,7 @@ pub fn show_source_context_menu_items(
     let ch = canvas_size.y;
 
     let (src_w, src_h) = state
-        .sources
+        .library
         .iter()
         .find(|s| s.id == source_id)
         .map(|s| (s.transform.width, s.transform.height))
@@ -711,7 +711,7 @@ pub fn show_source_context_menu_items(
 
     // Apply the action.
     if let Some(act) = action {
-        if let Some(s) = state.sources.iter_mut().find(|s| s.id == source_id) {
+        if let Some(s) = state.library.iter_mut().find(|s| s.id == source_id) {
             match act {
                 Action::Fit => {
                     let (w, h) = if src_aspect > canvas_aspect {

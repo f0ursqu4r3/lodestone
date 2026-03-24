@@ -157,7 +157,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
         apply_scene_diff(
             &cmd_tx,
-            &state.sources,
+            &state.library,
             old_scene.as_ref(),
             new_scene.as_ref(),
         );
@@ -225,7 +225,7 @@ fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hov
 /// Send `AddCaptureSource` / `RemoveCaptureSource` commands for the delta between two scenes.
 fn apply_scene_diff(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    sources: &[crate::scene::LibrarySource],
+    library: &[crate::scene::LibrarySource],
     old_scene: Option<&Scene>,
     new_scene: Option<&Scene>,
 ) {
@@ -243,7 +243,7 @@ fn apply_scene_diff(
     }
 
     for &src_id in new_ids.difference(&old_ids) {
-        if let Some(source) = sources.iter().find(|s| s.id == src_id) {
+        if let Some(source) = library.iter().find(|s| s.id == src_id) {
             match &source.properties {
                 crate::scene::SourceProperties::Display { screen_index } => {
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
@@ -302,7 +302,7 @@ fn delete_scene_by_id(
                 let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
             }
         }
-        state.sources.retain(|s| !src_ids.contains(&s.id));
+        state.library.retain(|s| !src_ids.contains(&s.id));
     }
 
     // Remove the scene itself.
@@ -313,7 +313,7 @@ fn delete_scene_by_id(
     let first_scene = state.scenes.first().cloned();
     if let Some(ref scene) = first_scene {
         state.active_scene_id = Some(scene.id);
-        send_capture_for_scene(cmd_tx, &state.sources, scene);
+        send_capture_for_scene(cmd_tx, &state.library, scene);
         state.capture_active = !scene.sources.is_empty();
     } else {
         state.active_scene_id = None;
@@ -327,13 +327,13 @@ fn delete_scene_by_id(
 /// Start capture for all sources in a scene, or `StopCapture` if it has none.
 fn send_capture_for_scene(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
-    sources: &[crate::scene::LibrarySource],
+    library: &[crate::scene::LibrarySource],
     scene: &Scene,
 ) {
     let Some(tx) = cmd_tx else { return };
     let mut any_started = false;
     for src_id in scene.source_ids() {
-        if let Some(source) = sources.iter().find(|s| s.id == src_id) {
+        if let Some(source) = library.iter().find(|s| s.id == src_id) {
             match &source.properties {
                 crate::scene::SourceProperties::Display { screen_index } => {
                     let _ = tx.try_send(GstCommand::AddCaptureSource {

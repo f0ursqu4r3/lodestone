@@ -120,7 +120,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (idx, &src_id) in source_ids.iter().enumerate() {
-            let source = state.sources.iter().find(|s| s.id == src_id);
+            let source = state.library.iter().find(|s| s.id == src_id);
             let Some(source) = source else { continue };
 
             let is_selected = state.selected_source_id == Some(src_id);
@@ -217,7 +217,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 // Handle eye click (toggle visibility).
                 if eye_hovered
                     && row_response.clicked()
-                    && let Some(source) = state.sources.iter_mut().find(|s| s.id == src_id)
+                    && let Some(source) = state.library.iter_mut().find(|s| s.id == src_id)
                 {
                     source.visible = !source.visible;
                     state.scenes_dirty = true;
@@ -320,7 +320,7 @@ fn add_display_source(
         volume: 1.0,
         folder: None,
     };
-    state.sources.push(new_source);
+    state.library.push(new_source);
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
         scene.sources.push(SceneSource::new(new_src_id));
     }
@@ -363,7 +363,7 @@ fn add_window_source(state: &mut AppState, active_id: crate::scene::SceneId) {
         volume: 1.0,
         folder: None,
     };
-    state.sources.push(new_source);
+    state.library.push(new_source);
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
         scene.sources.push(SceneSource::new(new_src_id));
     }
@@ -408,7 +408,7 @@ fn add_camera_source(
         volume: 1.0,
         folder: None,
     };
-    state.sources.push(new_source);
+    state.library.push(new_source);
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
         scene.sources.push(SceneSource::new(new_src_id));
     }
@@ -447,7 +447,7 @@ fn add_image_source(
         volume: 1.0,
         folder: None,
     };
-    state.sources.push(source);
+    state.library.push(source);
     if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
         scene.sources.push(SceneSource::new(new_src_id));
     }
@@ -469,7 +469,7 @@ fn remove_source(
     }
     // Check source type before removing — only capture-based sources need a GstCommand.
     let has_capture_pipeline = state
-        .sources
+        .library
         .iter()
         .find(|s| s.id == src_id)
         .map(|s| {
@@ -480,7 +480,7 @@ fn remove_source(
         })
         .unwrap_or(false);
     // Remove from global sources list.
-    state.sources.retain(|s| s.id != src_id);
+    state.library.retain(|s| s.id != src_id);
     // Send GstCommand only for sources with capture pipelines.
     if has_capture_pipeline && let Some(tx) = cmd_tx {
         let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });

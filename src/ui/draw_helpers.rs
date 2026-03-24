@@ -5,7 +5,7 @@
 
 use crate::scene::SourceType;
 use crate::ui::theme::{
-    BG_ELEVATED, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_dim,
+    BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_color_ui, accent_dim,
 };
 use egui::{Color32, CornerRadius, Painter, Rect, Sense, Stroke, vec2};
 
@@ -60,7 +60,7 @@ pub fn draw_segmented_buttons(
             painter.rect_filled(
                 btn_rect,
                 CornerRadius::same(RADIUS_SM as u8),
-                accent_dim(DEFAULT_ACCENT),
+                accent_dim(accent_color_ui(ui)),
             );
         } else if response.hovered() {
             painter.rect_filled(btn_rect, CornerRadius::same(RADIUS_SM as u8), BORDER);

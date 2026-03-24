@@ -10,7 +10,7 @@ use crate::state::AppState;
 use crate::ui::draw_helpers::{draw_segmented_buttons, draw_selection_highlight, source_icon};
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{
-    BG_ELEVATED, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
     accent_dim,
 };
 use egui::{CornerRadius, Rect, Sense, Stroke, vec2};
@@ -510,7 +510,7 @@ fn draw_source_grid(
     let cols = ((available_width + spacing) / (tile_size + spacing))
         .floor()
         .max(1.0) as usize;
-    let selected_bg = accent_dim(DEFAULT_ACCENT);
+    let selected_bg = accent_dim(state.accent_color);
 
     let rows_count = items.len().div_ceil(cols);
     for row_idx in 0..rows_count {
@@ -693,7 +693,7 @@ fn draw_source_row(
     delete_source: &mut Option<SourceId>,
 ) {
     let is_selected = state.selected_library_source_id == Some(row.id);
-    let selected_bg = accent_dim(DEFAULT_ACCENT);
+    let selected_bg = accent_dim(state.accent_color);
 
     ui.push_id(row.id.0, |ui| {
         let row_height = 28.0;

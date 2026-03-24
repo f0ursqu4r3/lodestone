@@ -574,10 +574,11 @@ pub fn draw_transform_handles(
             if let Some(t) = flash_transform {
                 let r = transform_to_screen_rect(&t, viewport_rect, canvas_size);
                 let alpha = 1.0 - elapsed / duration;
+                let accent = crate::ui::theme::accent_color_ui(ui);
                 let color = egui::Color32::from_rgba_unmultiplied(
-                    crate::ui::theme::DEFAULT_ACCENT.r(),
-                    crate::ui::theme::DEFAULT_ACCENT.g(),
-                    crate::ui::theme::DEFAULT_ACCENT.b(),
+                    accent.r(),
+                    accent.g(),
+                    accent.b(),
                     (255.0 * alpha) as u8,
                 );
                 ui.painter().rect_stroke(

@@ -10,7 +10,7 @@ use crate::state::AppState;
 use crate::ui::draw_helpers::{draw_selection_highlight, source_icon, with_opacity};
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{
-    BG_ELEVATED, BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_dim,
+    BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_dim,
 };
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, vec2};
 
@@ -125,7 +125,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     }
 
     let source_count = scene_sources.len();
-    let selected_bg = accent_dim(DEFAULT_ACCENT);
+    let selected_bg = accent_dim(state.accent_color);
 
     // Reverse the list so top-most source (highest z-order) appears at the top.
     let rows: Vec<SourceRow> = scene_sources
@@ -305,7 +305,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         ui.painter().rect_stroke(
             panel_rect,
             CornerRadius::same(RADIUS_SM as u8),
-            Stroke::new(1.0, DEFAULT_ACCENT),
+            Stroke::new(1.0, state.accent_color),
             egui::StrokeKind::Inside,
         );
     }
@@ -467,10 +467,11 @@ fn draw_source_row(
         let duration = 0.6;
         if elapsed < duration {
             let alpha = (1.0 - elapsed / duration) * 0.4;
+            let acc = state.accent_color;
             let flash_color = Color32::from_rgba_premultiplied(
-                (DEFAULT_ACCENT.r() as f32 * alpha) as u8,
-                (DEFAULT_ACCENT.g() as f32 * alpha) as u8,
-                (DEFAULT_ACCENT.b() as f32 * alpha) as u8,
+                (acc.r() as f32 * alpha) as u8,
+                (acc.g() as f32 * alpha) as u8,
+                (acc.b() as f32 * alpha) as u8,
                 (255.0 * alpha) as u8,
             );
             ui.painter()

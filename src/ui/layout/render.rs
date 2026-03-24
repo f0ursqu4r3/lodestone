@@ -14,15 +14,13 @@ use super::render_grid::render_dividers;
 use super::render_tabs::{TabBarContext, render_content, render_tab_bar};
 use super::tree::{DockLayout, DropZone, GroupId, NodeId, PanelType};
 
-use crate::ui::theme::{DEFAULT_ACCENT, TAB_BAR_HEIGHT, TEXT_PRIMARY};
+use crate::ui::theme::{TAB_BAR_HEIGHT, TEXT_PRIMARY, accent_color};
 
 /// Drop-zone highlight: accent at ~15% opacity.
-pub(crate) const DROP_ZONE_TINT: egui::Color32 = egui::Color32::from_rgba_premultiplied(
-    DEFAULT_ACCENT.r(),
-    DEFAULT_ACCENT.g(),
-    DEFAULT_ACCENT.b(),
-    38,
-);
+fn drop_zone_tint(ctx: &egui::Context) -> egui::Color32 {
+    let c = accent_color(ctx);
+    egui::Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 38)
+}
 
 // ---------------------------------------------------------------------------
 // LayoutAction
@@ -259,7 +257,7 @@ pub fn render_layout(
                     egui::Id::new("group_dock_overlay"),
                 );
                 let overlay_painter = ctx.layer_painter(overlay_layer);
-                overlay_painter.rect_filled(highlight, 0.0, DROP_ZONE_TINT);
+                overlay_painter.rect_filled(highlight, 0.0, drop_zone_tint(ctx));
             }
 
             // On release: move group to target or detach to float
@@ -346,7 +344,7 @@ fn render_drag_overlay(
             let overlay_layer =
                 egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop_overlay"));
             let overlay_painter = ctx.layer_painter(overlay_layer);
-            overlay_painter.rect_filled(highlight, 0.0, DROP_ZONE_TINT);
+            overlay_painter.rect_filled(highlight, 0.0, drop_zone_tint(ctx));
         }
 
         // On mouse release: emit drop action or cancel

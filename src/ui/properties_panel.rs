@@ -8,7 +8,7 @@ use crate::gstreamer::{CaptureSourceConfig, GstCommand, GstError};
 use crate::scene::{SourceId, SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
-use crate::ui::theme::{DEFAULT_ACCENT, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::ui::theme::{TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, accent_color_ui};
 
 /// Draw the properties panel. Shows an empty-state message when no source is
 /// selected, or transform / opacity / source-specific controls when one is.
@@ -57,7 +57,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             .unwrap_or_default();
         ui.label(
             egui::RichText::new(format!("SCENE OVERRIDE — {}", scene_name.to_uppercase()))
-                .color(DEFAULT_ACCENT)
+                .color(state.accent_color)
                 .size(9.0),
         );
     } else {
@@ -538,7 +538,7 @@ fn override_dot(ui: &mut egui::Ui, is_overridden: bool) -> bool {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
     if is_overridden {
         ui.painter()
-            .circle_filled(rect.center(), size / 2.0, DEFAULT_ACCENT);
+            .circle_filled(rect.center(), size / 2.0, accent_color_ui(ui));
     }
     // Right-click to reset.
     let mut reset = false;

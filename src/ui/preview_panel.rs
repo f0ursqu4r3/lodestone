@@ -186,7 +186,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
         ui.painter().rect_stroke(
             preview_rect,
             0.0,
-            egui::Stroke::new(2.0, crate::ui::theme::DEFAULT_ACCENT),
+            egui::Stroke::new(2.0, state.accent_color),
             egui::StrokeKind::Inside,
         );
     }

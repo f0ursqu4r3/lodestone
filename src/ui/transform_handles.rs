@@ -654,31 +654,25 @@ pub fn show_source_context_menu_items(
     enum Action { Fit, Stretch, Fill, Center, Reset }
     let mut action: Option<Action> = None;
 
-    // Use justified layout with frameless buttons — matches egui's context_menu style.
-    ui.allocate_ui_with_layout(
-        egui::vec2(160.0, 0.0),
-        egui::Layout::top_down_justified(egui::Align::LEFT),
-        |ui| {
-            ui.style_mut().spacing.button_padding = egui::vec2(6.0, 2.0);
-
-            if ui.add(egui::Button::new("Fit to Canvas").frame(false)).clicked() {
-                action = Some(Action::Fit);
-            }
-            if ui.add(egui::Button::new("Stretch to Canvas").frame(false)).clicked() {
-                action = Some(Action::Stretch);
-            }
-            if ui.add(egui::Button::new("Fill Canvas").frame(false)).clicked() {
-                action = Some(Action::Fill);
-            }
-            ui.separator();
-            if ui.add(egui::Button::new("Center on Canvas").frame(false)).clicked() {
-                action = Some(Action::Center);
-            }
-            if ui.add(egui::Button::new("Reset Transform").frame(false)).clicked() {
-                action = Some(Action::Reset);
-            }
-        },
-    );
+    use crate::ui::theme::{styled_menu, menu_item};
+    styled_menu(ui, |ui| {
+        if menu_item(ui, "Fit to Canvas") {
+            action = Some(Action::Fit);
+        }
+        if menu_item(ui, "Stretch to Canvas") {
+            action = Some(Action::Stretch);
+        }
+        if menu_item(ui, "Fill Canvas") {
+            action = Some(Action::Fill);
+        }
+        ui.separator();
+        if menu_item(ui, "Center on Canvas") {
+            action = Some(Action::Center);
+        }
+        if menu_item(ui, "Reset Transform") {
+            action = Some(Action::Reset);
+        }
+    });
 
     // Apply the action.
     if let Some(act) = action {

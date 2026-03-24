@@ -71,23 +71,25 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 &add_response,
                 egui::PopupCloseBehavior::CloseOnClickOutside,
                 |ui: &mut egui::Ui| {
-                    ui.set_min_width(120.0);
-                    if ui.button("Display").clicked() {
-                        add_display_source(state, &cmd_tx, active_id);
-                        ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
-                    }
-                    if ui.button("Window").clicked() {
-                        add_window_source(state, active_id);
-                        ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
-                    }
-                    if ui.button("Camera").clicked() {
-                        add_camera_source(state, &cmd_tx, active_id);
-                        ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
-                    }
-                    if ui.button("Image").clicked() {
-                        add_image_source(state, &cmd_tx, active_id);
-                        ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
-                    }
+                    use crate::ui::theme::{styled_menu, menu_item_icon};
+                    styled_menu(ui, |ui| {
+                        if menu_item_icon(ui, egui_phosphor::regular::MONITOR, "Display") {
+                            add_display_source(state, &cmd_tx, active_id);
+                            ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
+                        }
+                        if menu_item_icon(ui, egui_phosphor::regular::APP_WINDOW, "Window") {
+                            add_window_source(state, active_id);
+                            ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
+                        }
+                        if menu_item_icon(ui, egui_phosphor::regular::VIDEO_CAMERA, "Camera") {
+                            add_camera_source(state, &cmd_tx, active_id);
+                            ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
+                        }
+                        if menu_item_icon(ui, egui_phosphor::regular::IMAGE, "Image") {
+                            add_image_source(state, &cmd_tx, active_id);
+                            ui.memory_mut(|m: &mut egui::Memory| m.close_popup(popup_id));
+                        }
+                    });
                 },
             );
         });

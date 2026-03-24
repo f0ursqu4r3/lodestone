@@ -67,7 +67,7 @@ fn draw_channel_strip(
             // VU meter + volume fader side by side, filling available height.
             let vu_width = 8.0_f32;
             let fader_width = 8.0_f32;
-            let strip_gap = 4.0_f32;
+            let strip_gap = 8.0_f32;
             // overhead: spacer + dB + spacer + mute
             let fixed_overhead = 4.0 + 14.0 + 4.0 + 16.0;
             let vu_height = (ui.available_height() - fixed_overhead).max(20.0);
@@ -78,10 +78,7 @@ fn draw_channel_strip(
             let (strip_rect, _) =
                 ui.allocate_exact_size(egui::vec2(total_width, vu_height), egui::Sense::hover());
             // VU meter on the left, volume fader on the right.
-            let rect = egui::Rect::from_min_size(
-                strip_rect.min,
-                egui::vec2(vu_width, vu_height),
-            );
+            let rect = egui::Rect::from_min_size(strip_rect.min, egui::vec2(vu_width, vu_height));
             let fader_rect = egui::Rect::from_min_size(
                 egui::pos2(strip_rect.min.x + vu_width + strip_gap, strip_rect.min.y),
                 egui::vec2(fader_width, vu_height),
@@ -197,8 +194,8 @@ fn draw_channel_strip(
                 if fader_response.dragged()
                     && let Some(pos) = ui.input(|i| i.pointer.hover_pos())
                 {
-                    volume = 1.0
-                        - ((pos.y - fader_rect.min.y) / fader_rect.height()).clamp(0.0, 1.0);
+                    volume =
+                        1.0 - ((pos.y - fader_rect.min.y) / fader_rect.height()).clamp(0.0, 1.0);
                     if let Some(ref tx) = state.command_tx {
                         let _ = tx.try_send(GstCommand::SetAudioVolume {
                             source: kind,

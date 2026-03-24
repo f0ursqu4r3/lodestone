@@ -212,7 +212,8 @@ impl AppManager {
     /// Try to load a saved layout from disk. Falls back to default.
     ///
     /// If the saved layout is missing essential panels (e.g. Library was added
-    /// in a newer version), the missing panels are injected into existing groups.
+    /// in a newer version), the missing panels are injected and the layout is
+    /// re-saved immediately.
     fn load_layout() -> DockLayout {
         let path = settings::config_dir().join("layout.toml");
         if path.exists()
@@ -221,7 +222,14 @@ impl AppManager {
             match deserialize_full_layout(&contents) {
                 Ok((mut layout, _detached)) => {
                     log::info!("Loaded layout from {}", path.display());
-                    Self::ensure_essential_panels(&mut layout);
+                    let modified = Self::ensure_essential_panels(&mut layout);
+                    if modified {
+                        // Re-save so the injected panels persist.
+                        if let Ok(toml_str) = serialize_full_layout(&layout, &[]) {
+                            let _ = std::fs::write(&path, toml_str);
+                            log::info!("Re-saved layout after injecting missing panels");
+                        }
+                    }
                     return layout;
                 }
                 Err(e) => {
@@ -233,14 +241,14 @@ impl AppManager {
     }
 
     /// Ensure essential panels exist in the layout, injecting missing ones
-    /// as tabs in appropriate existing groups.
-    fn ensure_essential_panels(layout: &mut DockLayout) {
+    /// as tabs in appropriate existing groups. Returns `true` if the layout was modified.
+    fn ensure_essential_panels(layout: &mut DockLayout) -> bool {
         let all_panels = layout.collect_all_panels();
         let has = |pt: PanelType| all_panels.iter().any(|(_, t)| *t == pt);
+        let mut modified = false;
 
         // Library panel: add as a tab alongside Sources if missing.
         if !has(PanelType::Library) {
-            // Find a group containing Sources to add Library alongside it.
             let target_group = layout
                 .groups
                 .iter()
@@ -251,15 +259,16 @@ impl AppManager {
                 if let Some(group) = layout.groups.get_mut(&gid) {
                     group.add_tab(PanelType::Library);
                     log::info!("Injected Library panel into Sources group");
+                    modified = true;
                 }
-            } else {
-                // No Sources group — add to any group.
-                if let Some(group) = layout.groups.values_mut().next() {
-                    group.add_tab(PanelType::Library);
-                    log::info!("Injected Library panel into first available group");
-                }
+            } else if let Some(group) = layout.groups.values_mut().next() {
+                group.add_tab(PanelType::Library);
+                log::info!("Injected Library panel into first available group");
+                modified = true;
             }
         }
+
+        modified
     }
 
     /// Save the current main window layout to disk.
@@ -537,7 +546,8 @@ impl ApplicationHandler for AppManager {
         match event {
             WindowEvent::CloseRequested => {
                 if Some(window_id) == self.main_window_id {
-                    // Save scenes before exiting
+                    // Save layout and scenes before exiting.
+                    self.save_layout();
                     {
                         let app_state = self.state.lock().unwrap();
                         if app_state.scenes_dirty {

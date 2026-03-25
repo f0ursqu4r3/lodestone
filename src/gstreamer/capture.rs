@@ -54,13 +54,21 @@ pub fn build_capture_pipeline(
         .build()
         .context("Failed to create videorate")?;
 
-    // Configure appsink to emit RGBA frames at the target resolution/fps
-    let caps = gstreamer_video::VideoCapsBuilder::new()
-        .format(gstreamer_video::VideoFormat::Rgba)
-        .width(width as i32)
-        .height(height as i32)
-        .framerate(gstreamer::Fraction::new(fps as i32, 1))
-        .build();
+    // Configure appsink caps. For cameras, don't force a resolution — let the
+    // device negotiate its native size so the aspect ratio is preserved. For
+    // screen capture, force the target resolution.
+    let caps = match source {
+        CaptureSourceConfig::Camera { .. } => gstreamer_video::VideoCapsBuilder::new()
+            .format(gstreamer_video::VideoFormat::Rgba)
+            .framerate(gstreamer::Fraction::new(fps as i32, 1))
+            .build(),
+        _ => gstreamer_video::VideoCapsBuilder::new()
+            .format(gstreamer_video::VideoFormat::Rgba)
+            .width(width as i32)
+            .height(height as i32)
+            .framerate(gstreamer::Fraction::new(fps as i32, 1))
+            .build(),
+    };
 
     let appsink = AppSink::builder()
         .name("capture-sink")

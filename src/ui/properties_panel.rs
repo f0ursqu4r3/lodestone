@@ -104,6 +104,9 @@ fn draw_transform_section(
 ) -> bool {
     let mut changed = false;
 
+    // Read native size for the reset button.
+    let native_size = state.library[lib_idx].native_size;
+
     if in_active_scene {
         // Read current values from scene override + library.
         let lib_source = &state.library[lib_idx];
@@ -148,11 +151,25 @@ fn draw_transform_section(
 
         ui.add_space(2.0);
 
-        // W / H row
+        // W / H row + reset size button
         ui.horizontal(|ui| {
             transform_changed |= drag_field_colored(ui, "W", &mut transform.width, text_color);
             ui.add_space(8.0);
             transform_changed |= drag_field_colored(ui, "H", &mut transform.height, text_color);
+            ui.add_space(4.0);
+            if ui
+                .add(egui::Button::new(
+                    egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                        .size(12.0)
+                        .color(TEXT_SECONDARY),
+                ).frame(false))
+                .on_hover_text("Reset to native size")
+                .clicked()
+            {
+                transform.width = native_size.0;
+                transform.height = native_size.1;
+                transform_changed = true;
+            }
         });
 
         if transform_changed
@@ -178,11 +195,25 @@ fn draw_transform_section(
 
         ui.add_space(2.0);
 
-        // W / H row
+        // W / H row + reset size button
         ui.horizontal(|ui| {
             changed |= drag_field(ui, "W", &mut source.transform.width);
             ui.add_space(8.0);
             changed |= drag_field(ui, "H", &mut source.transform.height);
+            ui.add_space(4.0);
+            if ui
+                .add(egui::Button::new(
+                    egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                        .size(12.0)
+                        .color(TEXT_SECONDARY),
+                ).frame(false))
+                .on_hover_text("Reset to native size")
+                .clicked()
+            {
+                source.transform.width = native_size.0;
+                source.transform.height = native_size.1;
+                changed = true;
+            }
         });
     }
 

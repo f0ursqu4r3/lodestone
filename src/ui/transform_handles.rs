@@ -779,6 +779,7 @@ pub fn show_source_context_menu_items(
         Stretch,
         Fill,
         Center,
+        ResetSize,
         Reset,
     }
     let mut action: Option<Action> = None;
@@ -797,6 +798,9 @@ pub fn show_source_context_menu_items(
         ui.separator();
         if menu_item(ui, "Center on Canvas") {
             action = Some(Action::Center);
+        }
+        if menu_item(ui, "Reset Size") {
+            action = Some(Action::ResetSize);
         }
         if menu_item(ui, "Reset Transform") {
             action = Some(Action::Reset);
@@ -840,6 +844,10 @@ pub fn show_source_context_menu_items(
                     current.width,
                     current.height,
                 ),
+                Action::ResetSize => {
+                    let (nw, nh) = native_size;
+                    Transform::new(current.x, current.y, nw, nh)
+                }
                 Action::Reset => {
                     let (nw, nh) = native_size;
                     Transform::new((cw - nw) / 2.0, (ch - nh) / 2.0, nw, nh)

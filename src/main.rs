@@ -927,6 +927,7 @@ impl ApplicationHandler for AppManager {
 
         // Create windows for any pending detach requests.
         if let Some(gpu) = &self.gpu {
+            let had_detaches = !self.pending_detaches.is_empty();
             for detach in self.pending_detaches.drain(..) {
                 let attrs = WindowAttributes::default()
                     .with_title(detach.panel_type.display_name())
@@ -948,7 +949,9 @@ impl ApplicationHandler for AppManager {
                         .expect("init detached window");
                 self.windows.insert(window.id(), win_state);
             }
-            self.refresh_display_exclusion();
+            if had_detaches {
+                self.refresh_display_exclusion();
+            }
         }
 
         // Request redraws only when new content arrived — avoids a tight busy

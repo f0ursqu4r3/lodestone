@@ -778,32 +778,37 @@ impl GstThread {
         let start_time = std::time::Instant::now();
 
         loop {
-            // Check for commands (non-blocking)
-            match self.channels.command_rx.try_recv() {
-                Ok(cmd) => {
-                    if self.handle_command(cmd) {
-                        return; // Shutdown
-                    }
-                }
-                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                    log::info!("Command channel disconnected, shutting down GStreamer thread");
-                    self.stop_pipeline(PipelineKind::Stream);
-                    self.stop_pipeline(PipelineKind::Record);
-                    self.stop_audio_capture(AudioSourceKind::Mic);
-                    self.stop_audio_capture(AudioSourceKind::System);
-                    for (_, handle) in self.captures.drain() {
-                        if let Some(ref running) = handle.capture_running {
-                            running.store(false, Ordering::Relaxed);
+            // Drain pending commands (up to 8 per tick) so the channel doesn't back up
+            // while still leaving time for frame pulling.
+            for _ in 0..8 {
+                match self.channels.command_rx.try_recv() {
+                    Ok(cmd) => {
+                        if self.handle_command(cmd) {
+                            return; // Shutdown
                         }
-                        #[cfg(target_os = "macos")]
-                        if let Some(sck) = handle.sck_handle {
-                            let _ = super::screencapturekit::stop_display_capture(sck);
-                        }
-                        let _ = handle.pipeline.set_state(gstreamer::State::Null);
                     }
-                    return;
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                        log::info!(
+                            "Command channel disconnected, shutting down GStreamer thread"
+                        );
+                        self.stop_pipeline(PipelineKind::Stream);
+                        self.stop_pipeline(PipelineKind::Record);
+                        self.stop_audio_capture(AudioSourceKind::Mic);
+                        self.stop_audio_capture(AudioSourceKind::System);
+                        for (_, handle) in self.captures.drain() {
+                            if let Some(ref running) = handle.capture_running {
+                                running.store(false, Ordering::Relaxed);
+                            }
+                            #[cfg(target_os = "macos")]
+                            if let Some(sck) = handle.sck_handle {
+                                let _ = super::screencapturekit::stop_display_capture(sck);
+                            }
+                            let _ = handle.pipeline.set_state(gstreamer::State::Null);
+                        }
+                        return;
+                    }
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
                 }
-                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
             }
 
             let pts = gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);

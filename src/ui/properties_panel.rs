@@ -70,6 +70,16 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     ui.add_space(8.0);
 
+    // Track continuous edits (drag fields, sliders) so the undo system
+    // captures one snapshot per gesture rather than one per frame.
+    let editing_id = egui::Id::new("props_editing");
+    let was_editing: bool = ui.memory(|m| m.data.get_temp(editing_id).unwrap_or(false));
+    let any_drag_active = ui.ctx().is_using_pointer();
+
+    if was_editing {
+        state.begin_continuous_edit();
+    }
+
     let mut changed = false;
 
     changed |= draw_transform_section(ui, state, selected_id, lib_idx, in_active_scene);
@@ -82,11 +92,15 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     changed |= draw_source_properties(ui, state, selected_id, lib_idx);
 
-    // Mark dirty so the scene collection gets persisted.
     if changed {
-        state.scenes_dirty = true;
-        state.scenes_last_changed = std::time::Instant::now();
+        state.mark_dirty();
     }
+
+    let still_editing = changed || (was_editing && any_drag_active);
+    if was_editing && !still_editing {
+        state.end_continuous_edit();
+    }
+    ui.memory_mut(|m| m.data.insert_temp(editing_id, still_editing));
 }
 
 /// Draw the transform section (position x/y, size w/h).
@@ -106,6 +120,7 @@ fn draw_transform_section(
 
     // Read native size for the reset button.
     let native_size = state.library[lib_idx].native_size;
+    let aspect_locked = state.library[lib_idx].aspect_ratio_locked;
 
     if in_active_scene {
         // Read current values from scene override + library.
@@ -151,10 +166,17 @@ fn draw_transform_section(
 
         ui.add_space(2.0);
 
-        // W / H row + reset size button
+        // W / H row with aspect-ratio lock + reset size button
+        let prev_w = transform.width;
+        let prev_h = transform.height;
         ui.horizontal(|ui| {
             transform_changed |= drag_field_colored(ui, "W", &mut transform.width, text_color);
-            ui.add_space(8.0);
+            ui.add_space(4.0);
+            if aspect_lock_button(ui, aspect_locked) {
+                state.library[lib_idx].aspect_ratio_locked = !aspect_locked;
+                changed = true;
+            }
+            ui.add_space(4.0);
             transform_changed |= drag_field_colored(ui, "H", &mut transform.height, text_color);
             ui.add_space(4.0);
             if ui
@@ -172,6 +194,11 @@ fn draw_transform_section(
             }
         });
 
+        // Enforce aspect ratio after drag.
+        if transform_changed && aspect_locked {
+            enforce_aspect_ratio(&mut transform.width, &mut transform.height, prev_w, prev_h);
+        }
+
         if transform_changed
             && let Some(scene) = state.active_scene_mut()
             && let Some(ss) = scene.find_source_mut(selected_id)
@@ -184,37 +211,61 @@ fn draw_transform_section(
         section_label(ui, "TRANSFORM");
         ui.add_space(4.0);
 
-        let source = &mut state.library[lib_idx];
-
         // X / Y row
-        ui.horizontal(|ui| {
-            changed |= drag_field(ui, "X", &mut source.transform.x);
-            ui.add_space(8.0);
-            changed |= drag_field(ui, "Y", &mut source.transform.y);
-        });
+        {
+            let source = &mut state.library[lib_idx];
+            ui.horizontal(|ui| {
+                changed |= drag_field(ui, "X", &mut source.transform.x);
+                ui.add_space(8.0);
+                changed |= drag_field(ui, "Y", &mut source.transform.y);
+            });
+        }
 
         ui.add_space(2.0);
 
-        // W / H row + reset size button
-        ui.horizontal(|ui| {
-            changed |= drag_field(ui, "W", &mut source.transform.width);
-            ui.add_space(8.0);
-            changed |= drag_field(ui, "H", &mut source.transform.height);
-            ui.add_space(4.0);
-            if ui
-                .add(egui::Button::new(
-                    egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
-                        .size(12.0)
-                        .color(TEXT_SECONDARY),
-                ).frame(false))
-                .on_hover_text("Reset to native size")
-                .clicked()
-            {
-                source.transform.width = native_size.0;
-                source.transform.height = native_size.1;
-                changed = true;
-            }
-        });
+        // W / H row with aspect-ratio lock + reset size button
+        let prev_w = state.library[lib_idx].transform.width;
+        let prev_h = state.library[lib_idx].transform.height;
+        let mut lock_toggled = false;
+        {
+            let source = &mut state.library[lib_idx];
+            ui.horizontal(|ui| {
+                changed |= drag_field(ui, "W", &mut source.transform.width);
+                ui.add_space(4.0);
+                lock_toggled = aspect_lock_button(ui, aspect_locked);
+                ui.add_space(4.0);
+                changed |= drag_field(ui, "H", &mut source.transform.height);
+                ui.add_space(4.0);
+                if ui
+                    .add(egui::Button::new(
+                        egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                            .size(12.0)
+                            .color(TEXT_SECONDARY),
+                    ).frame(false))
+                    .on_hover_text("Reset to native size")
+                    .clicked()
+                {
+                    source.transform.width = native_size.0;
+                    source.transform.height = native_size.1;
+                    changed = true;
+                }
+            });
+        }
+
+        if lock_toggled {
+            state.library[lib_idx].aspect_ratio_locked = !aspect_locked;
+        }
+
+        // Enforce aspect ratio after drag.
+        if changed && aspect_locked {
+            let source = &mut state.library[lib_idx];
+            enforce_aspect_ratio(
+                &mut source.transform.width,
+                &mut source.transform.height,
+                prev_w,
+                prev_h,
+            );
+        }
     }
 
     changed
@@ -443,6 +494,11 @@ fn draw_source_properties(
             section_label(ui, "SOURCE");
             ui.add_space(4.0);
 
+            // Auto-refresh window list if empty.
+            if state.available_windows.is_empty() {
+                state.available_windows = crate::gstreamer::devices::enumerate_windows();
+            }
+
             // Clone to avoid borrow conflicts.
             let windows = state.available_windows.clone();
             let cmd_tx = state.command_tx.clone();
@@ -630,6 +686,43 @@ fn drag_field_colored(
             .update_while_editing(false),
     )
     .changed()
+}
+
+/// Draw the aspect-ratio lock toggle between W and H. Returns `true` if clicked.
+fn aspect_lock_button(ui: &mut egui::Ui, locked: bool) -> bool {
+    let icon = if locked {
+        egui_phosphor::regular::LOCK_SIMPLE
+    } else {
+        egui_phosphor::regular::LOCK_SIMPLE_OPEN
+    };
+    let color = if locked { TEXT_PRIMARY } else { TEXT_MUTED };
+    ui.add(
+        egui::Button::new(egui::RichText::new(icon).size(12.0).color(color)).frame(false),
+    )
+    .on_hover_text(if locked {
+        "Unlock aspect ratio"
+    } else {
+        "Lock aspect ratio"
+    })
+    .clicked()
+}
+
+/// Adjust width or height to preserve aspect ratio after one of them changed.
+///
+/// Compares current values against `prev_w`/`prev_h` to decide which axis
+/// was edited, then scales the other axis proportionally.
+fn enforce_aspect_ratio(w: &mut f32, h: &mut f32, prev_w: f32, prev_h: f32) {
+    if prev_w.abs() < f32::EPSILON || prev_h.abs() < f32::EPSILON {
+        return;
+    }
+    let ratio = prev_w / prev_h;
+    let w_changed = (*w - prev_w).abs() > f32::EPSILON;
+    let h_changed = (*h - prev_h).abs() > f32::EPSILON;
+    if w_changed && !h_changed {
+        *h = *w / ratio;
+    } else if h_changed {
+        *w = *h * ratio;
+    }
 }
 
 /// Load an image from `path`, update the source properties/transform, and send the frame

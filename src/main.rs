@@ -33,6 +33,8 @@ use winit::{
 struct NativeMenu {
     #[allow(dead_code)]
     menu: Menu,
+    undo: MenuId,
+    redo: MenuId,
     add_preview: MenuId,
     add_library: MenuId,
     add_audio_mixer: MenuId,
@@ -64,10 +66,14 @@ impl NativeMenu {
             .ok();
         menu.append(&file_menu).ok();
 
-        // Edit menu
+        // Edit menu — use custom items for Undo/Redo so we receive menu events
+        // (PredefinedMenuItem::undo/redo are handled by the macOS responder chain
+        // and never reach our event handler).
         let edit_menu = Submenu::new("Edit", true);
-        edit_menu.append(&PredefinedMenuItem::undo(None)).ok();
-        edit_menu.append(&PredefinedMenuItem::redo(None)).ok();
+        let undo_item = MenuItem::new("Undo", true, Some(muda::accelerator::Accelerator::new(Some(muda::accelerator::Modifiers::SUPER), muda::accelerator::Code::KeyZ)));
+        let redo_item = MenuItem::new("Redo", true, Some(muda::accelerator::Accelerator::new(Some(muda::accelerator::Modifiers::SUPER | muda::accelerator::Modifiers::SHIFT), muda::accelerator::Code::KeyZ)));
+        edit_menu.append(&undo_item).ok();
+        edit_menu.append(&redo_item).ok();
         edit_menu.append(&PredefinedMenuItem::separator()).ok();
         edit_menu.append(&PredefinedMenuItem::cut(None)).ok();
         edit_menu.append(&PredefinedMenuItem::copy(None)).ok();
@@ -106,6 +112,8 @@ impl NativeMenu {
 
         Self {
             menu,
+            undo: undo_item.id().clone(),
+            redo: redo_item.id().clone(),
             add_preview: add_preview.id().clone(),
             add_library: add_library.id().clone(),
             add_audio_mixer: add_audio_mixer.id().clone(),
@@ -170,6 +178,8 @@ impl AppManager {
                 Vec::new()
             }
         };
+        let available_windows = crate::gstreamer::devices::enumerate_windows();
+        log::info!("Found {} window(s)", available_windows.len());
 
         use crate::scene::SceneCollection;
         let scenes_path = settings::scenes_path();
@@ -189,6 +199,7 @@ impl AppManager {
             next_source_id: collection.next_source_id,
             command_tx: Some(main_channels.command_tx.clone()),
             available_cameras,
+            available_windows,
             settings: saved_settings,
             ..AppState::default()
         };
@@ -306,6 +317,21 @@ impl AppManager {
             return;
         };
 
+        // Undo / Redo via Edit menu
+        if *id == native_menu.undo || *id == native_menu.redo {
+            let is_redo = *id == native_menu.redo;
+            let mut app_state = self.state.lock().unwrap();
+            let restored = if is_redo {
+                app_state.redo()
+            } else {
+                app_state.undo()
+            };
+            if restored {
+                self.reconcile_captures(&app_state);
+            }
+            return;
+        }
+
         if *id == native_menu.reset_layout {
             self.reset_layout();
             return;
@@ -369,6 +395,24 @@ impl AppManager {
         {
             let _ =
                 tx.try_send(gstreamer::GstCommand::UpdateDisplayExclusion { exclude_self: true });
+        }
+    }
+
+    /// Reconcile GStreamer captures after undo/redo by stopping all captures
+    /// and restarting those in the active scene.
+    fn reconcile_captures(&self, app_state: &AppState) {
+        let cmd_tx = &app_state.command_tx;
+        if let Some(tx) = cmd_tx {
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StopCapture);
+        }
+        if let Some(scene) = app_state.active_scene() {
+            let scene = scene.clone();
+            crate::ui::scenes_panel::send_capture_for_scene(
+                cmd_tx,
+                &app_state.library,
+                &scene,
+                app_state.settings.general.exclude_self_from_capture,
+            );
         }
     }
 
@@ -555,6 +599,59 @@ impl ApplicationHandler for AppManager {
                 if *key_code == KeyCode::Escape && Some(window_id) == self.settings_window_id {
                     self.close_settings_window();
                     return;
+                }
+
+                // Undo / Redo (Cmd+Z / Cmd+Shift+Z) — fallback for non-macOS
+                // or if the menu accelerator doesn't fire.
+                if self.modifiers.super_key() && *key_code == KeyCode::KeyZ {
+                    let mut app_state = self.state.lock().unwrap();
+                    let restored = if shift {
+                        app_state.redo()
+                    } else {
+                        app_state.undo()
+                    };
+                    if restored {
+                        self.reconcile_captures(&app_state);
+                    }
+                    return;
+                }
+
+                // DEL / Backspace deletes the selected source.
+                // Skip if egui has keyboard focus (text fields, rename, etc.).
+                if matches!(key_code, KeyCode::Delete | KeyCode::Backspace) {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        // Don't delete while renaming.
+                        if app_state.renaming_source_id.is_some()
+                            || app_state.renaming_scene_id.is_some()
+                        {
+                            return;
+                        }
+                        if let Some(src_id) = app_state.selected_source_id {
+                            // Scene selection → remove from active scene only.
+                            if let Some(scene_id) = app_state.active_scene_id {
+                                let cmd_tx = app_state.command_tx.clone();
+                                crate::ui::sources_panel::remove_source_from_scene(
+                                    &mut app_state,
+                                    &cmd_tx,
+                                    scene_id,
+                                    src_id,
+                                );
+                            }
+                        } else if let Some(src_id) = app_state.selected_library_source_id {
+                            // Library selection → cascade delete.
+                            crate::ui::library_panel::delete_source_cascade(
+                                &mut app_state,
+                                src_id,
+                            );
+                        }
+                        return;
+                    }
                 }
             }
             _ => {}

@@ -138,8 +138,7 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
     if new_active != active_id {
         state.active_scene_id = new_active;
         state.selected_source_id = None;
-        state.scenes_dirty = true;
-        state.scenes_last_changed = std::time::Instant::now();
+        state.mark_dirty();
     }
 }
 

@@ -33,6 +33,9 @@ pub struct LibrarySource {
     /// source to its natural size. Updated when the source content changes.
     #[serde(default = "default_native_size")]
     pub native_size: (f32, f32),
+    /// When true, changing width or height preserves the current aspect ratio.
+    #[serde(default)]
+    pub aspect_ratio_locked: bool,
     /// Alpha opacity in the range [0.0, 1.0]. Values outside this range are clamped by the compositor.
     #[serde(default = "default_opacity")]
     pub opacity: f32,
@@ -351,6 +354,7 @@ impl SceneCollection {
                 properties: SourceProperties::Display { screen_index: 0 },
                 transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
                 native_size: (1920.0, 1080.0),
+                aspect_ratio_locked: false,
                 opacity: 1.0,
                 visible: true,
                 muted: false,
@@ -396,6 +400,7 @@ mod tests {
             properties: SourceProperties::default(),
             transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
             native_size: (1920.0, 1080.0),
+            aspect_ratio_locked: false,
             opacity: 1.0,
             visible: true,
             muted: false,
@@ -537,6 +542,7 @@ mod tests {
             properties: SourceProperties::default(),
             transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
             native_size: (1920.0, 1080.0),
+            aspect_ratio_locked: false,
             opacity: 0.5,
             visible: true,
             muted: false,

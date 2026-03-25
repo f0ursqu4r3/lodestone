@@ -118,6 +118,11 @@ impl WindowState {
             d.insert_temp(egui::Id::new("accent_color"), state.accent_color);
         });
 
+        // Capture pre-frame undo snapshot before any UI mutations.
+        if self.is_main {
+            state.begin_frame_for_undo();
+        }
+
         let raw_input = self.egui_state.take_egui_input(self.window);
 
         let layout = &self.layout;
@@ -250,6 +255,11 @@ impl WindowState {
 
     /// Render the settings window content.
     pub fn render_settings(&mut self, gpu: &SharedGpuState, state: &mut AppState) -> Result<()> {
+        // Sync accent color so settings widgets (toggle switches, etc.) can read it.
+        self.egui_ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new("accent_color"), state.accent_color);
+        });
+
         let raw_input = self.egui_state.take_egui_input(self.window);
 
         let full_output = self.egui_ctx.run(raw_input, |ctx| {

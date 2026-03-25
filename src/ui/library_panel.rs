@@ -324,6 +324,7 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
         folder: None,
         transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
         native_size: (1920.0, 1080.0),
+        aspect_ratio_locked: false,
         opacity: 1.0,
         visible: true,
         muted: false,
@@ -332,12 +333,11 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
 
     state.library.push(lib_source);
     state.selected_library_source_id = Some(new_id);
-    state.scenes_dirty = true;
-    state.scenes_last_changed = std::time::Instant::now();
+    state.mark_dirty();
 }
 
 /// Delete a source from the library and cascade-remove it from all scenes.
-fn delete_source_cascade(state: &mut AppState, src_id: SourceId) {
+pub(crate) fn delete_source_cascade(state: &mut AppState, src_id: SourceId) {
     // Remove from all scenes.
     for scene in &mut state.scenes {
         scene.sources.retain(|s| s.source_id != src_id);
@@ -359,8 +359,7 @@ fn delete_source_cascade(state: &mut AppState, src_id: SourceId) {
         state.selected_library_source_id = None;
     }
 
-    state.scenes_dirty = true;
-    state.scenes_last_changed = std::time::Instant::now();
+    state.mark_dirty();
 }
 
 // ---------------------------------------------------------------------------
@@ -666,8 +665,7 @@ fn draw_source_grid(
                                 {
                                     lib_src.name = new_name;
                                 }
-                                state.scenes_dirty = true;
-                                state.scenes_last_changed = std::time::Instant::now();
+                                state.mark_dirty();
                             }
                             state.renaming_source_id = None;
                         } else if cancelled {
@@ -803,8 +801,7 @@ fn draw_source_row(
                     if let Some(lib_src) = state.library.iter_mut().find(|s| s.id == row.id) {
                         lib_src.name = new_name;
                     }
-                    state.scenes_dirty = true;
-                    state.scenes_last_changed = std::time::Instant::now();
+                    state.mark_dirty();
                 }
                 state.renaming_source_id = None;
             } else if cancelled {

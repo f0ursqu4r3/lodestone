@@ -2,6 +2,70 @@ use crate::gstreamer::{GstCommand, GstError};
 use crate::scene::{LibrarySource, Scene, SceneId, SourceId};
 use crate::settings::AppSettings;
 
+// ── Undo / Redo ──────────────────────────────────────────────────────────────
+
+const UNDO_MAX_DEPTH: usize = 50;
+
+/// Snapshot of the undoable portion of app state.
+#[derive(Clone, Debug)]
+pub(crate) struct UndoSnapshot {
+    scenes: Vec<Scene>,
+    library: Vec<LibrarySource>,
+    active_scene_id: Option<SceneId>,
+    next_scene_id: u64,
+    next_source_id: u64,
+}
+
+/// Snapshot-based undo/redo stack.
+#[derive(Clone, Default)]
+pub struct UndoStack {
+    pub(crate) undo: Vec<UndoSnapshot>,
+    pub(crate) redo: Vec<UndoSnapshot>,
+}
+
+impl std::fmt::Debug for UndoStack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UndoStack")
+            .field("undo_depth", &self.undo.len())
+            .field("redo_depth", &self.redo.len())
+            .finish()
+    }
+}
+
+impl UndoStack {
+    fn restore(snapshot: UndoSnapshot, state: &mut AppState) {
+        state.scenes = snapshot.scenes;
+        state.library = snapshot.library;
+        state.active_scene_id = snapshot.active_scene_id;
+        state.next_scene_id = snapshot.next_scene_id;
+        state.next_source_id = snapshot.next_source_id;
+
+        // Clear selections that reference sources/scenes that no longer exist.
+        if let Some(id) = state.selected_source_id
+            && !state.library.iter().any(|s| s.id == id)
+        {
+            state.selected_source_id = None;
+        }
+        if let Some(id) = state.selected_library_source_id
+            && !state.library.iter().any(|s| s.id == id)
+        {
+            state.selected_library_source_id = None;
+        }
+
+        state.mark_dirty_no_undo();
+    }
+
+    #[allow(dead_code)]
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
+    #[allow(dead_code)]
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum StreamStatus {
     Offline,
@@ -66,6 +130,13 @@ pub struct AppState {
     pub command_tx: Option<tokio::sync::mpsc::Sender<GstCommand>>,
     /// Resolved accent color from settings, cached to avoid parsing hex every frame.
     pub accent_color: egui::Color32,
+    /// Undo/redo history stack.
+    pub undo_stack: UndoStack,
+    /// Whether a continuous edit gesture is in progress (drag, slider).
+    pub(crate) in_continuous_edit: bool,
+    /// Pre-frame snapshot for undo. Captured at the start of each UI frame
+    /// so `mark_dirty()` can push it as the undo point.
+    pub(crate) frame_snapshot: Option<UndoSnapshot>,
 }
 
 impl Default for AppState {
@@ -100,6 +171,9 @@ impl Default for AppState {
             virtual_camera_active: false,
             command_tx: None,
             accent_color: crate::ui::theme::DEFAULT_ACCENT,
+            undo_stack: UndoStack::default(),
+            in_continuous_edit: false,
+            frame_snapshot: None,
         }
     }
 }
@@ -146,6 +220,131 @@ impl AppState {
             .map(|s| s.name.clone())
             .collect()
     }
+
+    // ── Undo-aware dirty marking ──────────────────────────────────────────
+
+    // ── Undo-aware dirty marking ──────────────────────────────────────────
+
+    /// Capture a snapshot of the current state at the start of each UI frame.
+    /// If any mutation calls `mark_dirty()` during this frame, the snapshot
+    /// is pushed onto the undo stack (capturing the pre-mutation state).
+    /// Must be called once per frame before any UI code runs.
+    pub fn begin_frame_for_undo(&mut self) {
+        // If we're in a continuous edit, the snapshot was already captured
+        // at the start of the gesture — don't overwrite it.
+        if self.in_continuous_edit {
+            return;
+        }
+        self.frame_snapshot = Some(UndoSnapshot {
+            scenes: self.scenes.clone(),
+            library: self.library.clone(),
+            active_scene_id: self.active_scene_id,
+            next_scene_id: self.next_scene_id,
+            next_source_id: self.next_source_id,
+        });
+    }
+
+    /// Mark the scene collection as dirty and push the pre-frame undo snapshot.
+    ///
+    /// This is the **single chokepoint** for all scene/library mutations.
+    /// Call this instead of setting `scenes_dirty` directly so that every
+    /// mutation is automatically undoable.
+    pub fn mark_dirty(&mut self) {
+        // Push a pre-mutation snapshot onto the undo stack — but only once
+        // per user action. `frame_snapshot` is set by `begin_frame_for_undo()`
+        // at the start of each UI frame and consumed here on the first mutation.
+        //
+        // For mutations outside the frame (keyboard handlers), frame_snapshot
+        // may be None. In that case we capture one now — the keyboard handler
+        // runs before the mutation, so current state IS the pre-mutation state.
+        //
+        // For continuous edits, frame_snapshot is None (consumed by the first
+        // mark_dirty of the gesture), and `in_continuous_edit` prevents
+        // begin_frame_for_undo from replacing it, so subsequent calls are no-ops.
+        let snapshot = self.frame_snapshot.take();
+        if let Some(snap) = snapshot {
+            self.undo_stack.redo.clear();
+            self.undo_stack.undo.push(snap);
+            if self.undo_stack.undo.len() > UNDO_MAX_DEPTH {
+                self.undo_stack.undo.remove(0);
+            }
+        } else if !self.in_continuous_edit && !self.scenes_dirty {
+            // No frame snapshot and not in a continuous edit — this is a
+            // mutation from outside the UI frame (keyboard handler, menu event).
+            // Capture current state as the undo point.
+            self.undo_stack.redo.clear();
+            self.undo_stack.undo.push(UndoSnapshot {
+                scenes: self.scenes.clone(),
+                library: self.library.clone(),
+                active_scene_id: self.active_scene_id,
+                next_scene_id: self.next_scene_id,
+                next_source_id: self.next_source_id,
+            });
+            if self.undo_stack.undo.len() > UNDO_MAX_DEPTH {
+                self.undo_stack.undo.remove(0);
+            }
+        }
+        self.scenes_dirty = true;
+        self.scenes_last_changed = std::time::Instant::now();
+    }
+
+    /// Mark dirty without pushing an undo snapshot.
+    /// Used only by the undo/redo restore path.
+    pub fn mark_dirty_no_undo(&mut self) {
+        self.scenes_dirty = true;
+        self.scenes_last_changed = std::time::Instant::now();
+    }
+
+    /// Begin a continuous edit gesture (drag, slider).
+    /// Takes the pre-frame snapshot so it's preserved for the entire gesture.
+    /// Subsequent `mark_dirty()` calls during the gesture will not push
+    /// additional snapshots.
+    pub fn begin_continuous_edit(&mut self) {
+        if !self.in_continuous_edit {
+            // The frame_snapshot was captured at frame start — take() it so
+            // mark_dirty() can push it on the first call, but further
+            // begin_frame_for_undo() calls won't overwrite it.
+            self.in_continuous_edit = true;
+        }
+    }
+
+    /// End a continuous edit gesture. The next frame will capture a fresh
+    /// snapshot.
+    pub fn end_continuous_edit(&mut self) {
+        self.in_continuous_edit = false;
+    }
+
+    /// Undo the last action. Returns `true` if state was restored.
+    pub fn undo(&mut self) -> bool {
+        let Some(snapshot) = self.undo_stack.undo.pop() else {
+            return false;
+        };
+        self.undo_stack.redo.push(UndoSnapshot {
+            scenes: self.scenes.clone(),
+            library: self.library.clone(),
+            active_scene_id: self.active_scene_id,
+            next_scene_id: self.next_scene_id,
+            next_source_id: self.next_source_id,
+        });
+        UndoStack::restore(snapshot, self);
+        true
+    }
+
+    /// Redo the last undone action. Returns `true` if state was restored.
+    pub fn redo(&mut self) -> bool {
+        let Some(snapshot) = self.undo_stack.redo.pop() else {
+            return false;
+        };
+        self.undo_stack.undo.push(UndoSnapshot {
+            scenes: self.scenes.clone(),
+            library: self.library.clone(),
+            active_scene_id: self.active_scene_id,
+            next_scene_id: self.next_scene_id,
+            next_source_id: self.next_source_id,
+        });
+        UndoStack::restore(snapshot, self);
+        true
+    }
 }
 
 #[cfg(test)]
@@ -157,6 +356,42 @@ mod tests {
         let state = AppState::default();
         assert!(matches!(state.stream_status, StreamStatus::Offline));
         assert!(state.scenes.is_empty());
+    }
+
+    #[test]
+    fn undo_restores_scene_after_source_removal() {
+        use crate::scene::{Scene, SceneId, SourceId, SceneSource, SourceOverrides};
+        let mut state = AppState::default();
+        let scene_id = SceneId(1);
+        let src_id = SourceId(10);
+        state.scenes.push(Scene {
+            id: scene_id,
+            name: "Test".into(),
+            sources: vec![SceneSource {
+                source_id: src_id,
+                overrides: SourceOverrides::default(),
+            }],
+            pinned: false,
+        });
+        state.active_scene_id = Some(scene_id);
+        state.next_scene_id = 2;
+        state.next_source_id = 11;
+
+        // Simulate a frame start, then mutate, then mark dirty.
+        state.begin_frame_for_undo();
+        state.scenes[0].sources.clear();
+        state.mark_dirty();
+
+        assert!(state.scenes[0].sources.is_empty());
+
+        // Undo should restore the source.
+        assert!(state.undo());
+        assert_eq!(state.scenes[0].sources.len(), 1);
+        assert_eq!(state.scenes[0].sources[0].source_id, src_id);
+
+        // Redo should remove it again.
+        assert!(state.redo());
+        assert!(state.scenes[0].sources.is_empty());
     }
 
     #[test]

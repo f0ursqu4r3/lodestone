@@ -617,6 +617,7 @@ pub fn draw_transform_handles(
             DragMode::None => {
                 if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open {
                     if let Some(handle) = hit_test_handles(mouse_pos, screen_rect) {
+                        state.begin_continuous_edit();
                         drag_mode = DragMode::Resize {
                             handle,
                             start_mouse: mouse_pos,
@@ -624,6 +625,7 @@ pub fn draw_transform_handles(
                             aspect_ratio: transform.width / transform.height.max(1.0),
                         };
                     } else if screen_rect.contains(mouse_pos) {
+                        state.begin_continuous_edit();
                         drag_mode = DragMode::Move {
                             start_mouse: mouse_pos,
                             start_transform: transform,
@@ -655,12 +657,18 @@ pub fn draw_transform_handles(
                 let delta = screen_to_canvas(mouse_pos, viewport_rect, canvas_size)
                     - screen_to_canvas(*start_mouse, viewport_rect, canvas_size);
                 let mut new_transform = *start_transform;
+                let locked = state
+                    .library
+                    .iter()
+                    .find(|s| s.id == selected_id)
+                    .map(|s| s.aspect_ratio_locked)
+                    .unwrap_or(false);
                 apply_resize(
                     &mut new_transform,
                     start_transform,
                     *handle,
                     delta,
-                    shift_held,
+                    shift_held || locked,
                     *aspect_ratio,
                 );
                 if let Some(scene) = state.active_scene_mut()
@@ -720,8 +728,8 @@ pub fn draw_transform_handles(
         }
 
         if primary_released && is_dragging {
-            state.scenes_dirty = true;
-            state.scenes_last_changed = std::time::Instant::now();
+            state.end_continuous_edit();
+            state.mark_dirty();
             drag_mode = DragMode::None;
         }
     }
@@ -860,14 +868,9 @@ pub fn show_source_context_menu_items(
                 ss.overrides.transform = Some(new_transform);
             }
         }
-        mark_dirty(state);
+        state.mark_dirty();
     }
     action.is_some()
-}
-
-fn mark_dirty(state: &mut AppState) {
-    state.scenes_dirty = true;
-    state.scenes_last_changed = std::time::Instant::now();
 }
 
 #[cfg(test)]

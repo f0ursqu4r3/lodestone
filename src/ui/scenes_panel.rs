@@ -105,8 +105,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                                 pinned: false,
                             });
                             state.active_scene_id = Some(new_id);
-                            state.scenes_dirty = true;
-                            state.scenes_last_changed = std::time::Instant::now();
+                            state.mark_dirty();
                         }
                     }
                 }
@@ -139,8 +138,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             if let Some(ref scene) = new_scene {
                 state.capture_active = !scene.sources.is_empty();
             }
-            state.scenes_dirty = true;
-            state.scenes_last_changed = std::time::Instant::now();
+            state.mark_dirty();
         }
         Some(SceneAction::Delete(del_id)) => {
             delete_scene_by_id(state, &cmd_tx, del_id);
@@ -228,8 +226,7 @@ fn draw_scene_card(
                 if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
                     scene.name = new_name;
                 }
-                state.scenes_dirty = true;
-                state.scenes_last_changed = std::time::Instant::now();
+                state.mark_dirty();
             }
             state.renaming_scene_id = None;
         } else if cancelled {
@@ -280,8 +277,7 @@ fn draw_scene_card(
             if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
                 scene.pinned = !scene.pinned;
             }
-            state.scenes_dirty = true;
-            state.scenes_last_changed = std::time::Instant::now();
+            state.mark_dirty();
             ui.close();
         }
         if ui.button("Rename").clicked() {
@@ -474,12 +470,11 @@ fn delete_scene_by_id(
         state.capture_active = false;
     }
 
-    state.scenes_dirty = true;
-    state.scenes_last_changed = std::time::Instant::now();
+    state.mark_dirty();
 }
 
 /// Start capture for all sources in a scene, or `StopCapture` if it has none.
-fn send_capture_for_scene(
+pub(crate) fn send_capture_for_scene(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     library: &[crate::scene::LibrarySource],
     scene: &Scene,

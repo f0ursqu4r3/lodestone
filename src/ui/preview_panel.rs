@@ -244,8 +244,6 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
             }
             state.selected_source_id = Some(src_id);
             state.selected_library_source_id = None;
-            state.scenes_dirty = true;
-            state.scenes_last_changed = std::time::Instant::now();
         }
     }
 }

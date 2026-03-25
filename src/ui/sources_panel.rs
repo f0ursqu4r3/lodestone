@@ -88,8 +88,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 }
                 start_capture_from_properties(state, &cmd_tx, src_id, &props);
                 state.selected_source_id = Some(src_id);
-                state.scenes_dirty = true;
-                state.scenes_last_changed = std::time::Instant::now();
+                state.mark_dirty();
             }
         });
     });
@@ -260,32 +259,35 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // ── Apply drag-to-reorder ──
     // Display is reversed (top-most first), so display index 0 = last in data.
     // Convert: data_index = data_len - 1 - display_index
-    if let Some((dragged_id, display_insert_idx)) = reorder_drop
-        && let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id)
-    {
-        let data_len = scene.sources.len();
-        // Find current position in data.
-        if let Some(from_data) = scene
-            .sources
-            .iter()
-            .position(|ss| ss.source_id == dragged_id)
-        {
-            // Convert display insert index to data insert index.
-            // Display idx 0 = top of list = data idx (data_len - 1), etc.
-            let to_data = data_len.saturating_sub(display_insert_idx);
-            // Clamp and skip no-ops.
-            let to_data = to_data.min(data_len);
-            if from_data != to_data && from_data + 1 != to_data {
-                let entry = scene.sources.remove(from_data);
-                let adjusted = if to_data > from_data {
-                    to_data - 1
-                } else {
-                    to_data
-                };
-                scene.sources.insert(adjusted, entry);
-                state.scenes_dirty = true;
-                state.scenes_last_changed = std::time::Instant::now();
+    if let Some((dragged_id, display_insert_idx)) = reorder_drop {
+        let mut did_reorder = false;
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
+            let data_len = scene.sources.len();
+            // Find current position in data.
+            if let Some(from_data) = scene
+                .sources
+                .iter()
+                .position(|ss| ss.source_id == dragged_id)
+            {
+                // Convert display insert index to data insert index.
+                // Display idx 0 = top of list = data idx (data_len - 1), etc.
+                let to_data = data_len.saturating_sub(display_insert_idx);
+                // Clamp and skip no-ops.
+                let to_data = to_data.min(data_len);
+                if from_data != to_data && from_data + 1 != to_data {
+                    let entry = scene.sources.remove(from_data);
+                    let adjusted = if to_data > from_data {
+                        to_data - 1
+                    } else {
+                        to_data
+                    };
+                    scene.sources.insert(adjusted, entry);
+                    did_reorder = true;
+                }
             }
+        }
+        if did_reorder {
+            state.mark_dirty();
         }
     }
 
@@ -337,8 +339,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 start_capture_from_properties(state, &cmd_tx, src_id, &properties);
             }
             state.selected_source_id = Some(src_id);
-            state.scenes_dirty = true;
-            state.scenes_last_changed = std::time::Instant::now();
+            state.mark_dirty();
         }
     }
 }
@@ -554,8 +555,7 @@ fn draw_source_row(
         {
             scene_src.overrides.visible = Some(!current_visible);
         }
-        state.scenes_dirty = true;
-        state.scenes_last_changed = std::time::Instant::now();
+        state.mark_dirty();
     }
 
     // Context menu.
@@ -637,7 +637,7 @@ fn stop_capture_for_source(
 }
 
 /// Remove a source from the active scene only (does NOT delete from library).
-fn remove_source_from_scene(
+pub(crate) fn remove_source_from_scene(
     state: &mut AppState,
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     active_id: SceneId,
@@ -676,6 +676,5 @@ fn remove_source_from_scene(
         let _ = tx.try_send(GstCommand::StopCapture);
     }
     state.capture_active = has_sources;
-    state.scenes_dirty = true;
-    state.scenes_last_changed = std::time::Instant::now();
+    state.mark_dirty();
 }

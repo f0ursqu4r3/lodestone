@@ -1099,8 +1099,7 @@ fn draw_source_properties(
             // Cache audio devices (same pattern as Window/Camera panels).
             if state.available_audio_devices.is_empty() {
                 state.available_audio_devices =
-                    crate::gstreamer::devices::enumerate_audio_input_devices()
-                        .unwrap_or_default();
+                    crate::gstreamer::devices::enumerate_audio_input_devices().unwrap_or_default();
             }
             let audio_devices = state.available_audio_devices.clone();
             let cmd_tx = state.command_tx.clone();

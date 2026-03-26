@@ -11,7 +11,9 @@ use crate::ui::theme::{RADIUS_SM, RED_GLOW, RED_LIVE, TEXT_MUTED};
 // ── Zoom levels ──────────────────────────────────────────────────────────────
 
 /// Discrete zoom levels used for scroll-wheel stepping.
-const ZOOM_LEVELS: &[f32] = &[0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0];
+const ZOOM_LEVELS: &[f32] = &[
+    0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0,
+];
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 8.0;
 
@@ -158,13 +160,21 @@ fn zoom_level_down(current: f32) -> f32 {
 }
 
 /// Clamp pan so at least 10% of canvas remains visible in the panel.
-fn clamp_pan(pan: egui::Vec2, panel: egui::Rect, canvas_w: u32, canvas_h: u32, zoom: f32) -> egui::Vec2 {
+fn clamp_pan(
+    pan: egui::Vec2,
+    panel: egui::Rect,
+    canvas_w: u32,
+    canvas_h: u32,
+    zoom: f32,
+) -> egui::Vec2 {
     let base = letterboxed_rect(panel, canvas_w, canvas_h);
     let base_size = base.size();
     let zoomed_size = base_size * zoom;
     // Allow panning until only 10% of the canvas is visible
-    let max_offset_x = (zoomed_size.x * 0.9 + panel.width() * 0.5) / (zoomed_size.x / canvas_w as f32);
-    let max_offset_y = (zoomed_size.y * 0.9 + panel.height() * 0.5) / (zoomed_size.y / canvas_h as f32);
+    let max_offset_x =
+        (zoomed_size.x * 0.9 + panel.width() * 0.5) / (zoomed_size.x / canvas_w as f32);
+    let max_offset_y =
+        (zoomed_size.y * 0.9 + panel.height() * 0.5) / (zoomed_size.y / canvas_h as f32);
     egui::Vec2::new(
         pan.x.clamp(-max_offset_x, max_offset_x),
         pan.y.clamp(-max_offset_y, max_offset_y),
@@ -313,12 +323,7 @@ fn draw_thirds(
 
     for i in 1..=2 {
         let frac = i as f32 / 3.0;
-        let sx = canvas_to_screen(
-            egui::pos2(canvas_size.x * frac, 0.0),
-            viewport,
-            canvas_size,
-        )
-        .x;
+        let sx = canvas_to_screen(egui::pos2(canvas_size.x * frac, 0.0), viewport, canvas_size).x;
         painter.line_segment(
             [
                 egui::pos2(sx, viewport.top()),
@@ -327,12 +332,7 @@ fn draw_thirds(
             stroke,
         );
 
-        let sy = canvas_to_screen(
-            egui::pos2(0.0, canvas_size.y * frac),
-            viewport,
-            canvas_size,
-        )
-        .y;
+        let sy = canvas_to_screen(egui::pos2(0.0, canvas_size.y * frac), viewport, canvas_size).y;
         painter.line_segment(
             [
                 egui::pos2(viewport.left(), sy),
@@ -423,22 +423,28 @@ fn draw_custom_guides(
     for guide in guides {
         match guide.axis {
             GuideAxis::Horizontal => {
-                let sy = canvas_to_screen(
-                    egui::pos2(0.0, guide.position),
-                    viewport,
-                    canvas_size,
-                )
-                .y;
-                draw_dashed_horizontal(painter, sy, viewport.left(), viewport.right(), dash_len, gap_len, stroke);
+                let sy = canvas_to_screen(egui::pos2(0.0, guide.position), viewport, canvas_size).y;
+                draw_dashed_horizontal(
+                    painter,
+                    sy,
+                    viewport.left(),
+                    viewport.right(),
+                    dash_len,
+                    gap_len,
+                    stroke,
+                );
             }
             GuideAxis::Vertical => {
-                let sx = canvas_to_screen(
-                    egui::pos2(guide.position, 0.0),
-                    viewport,
-                    canvas_size,
-                )
-                .x;
-                draw_dashed_vertical(painter, sx, viewport.top(), viewport.bottom(), dash_len, gap_len, stroke);
+                let sx = canvas_to_screen(egui::pos2(guide.position, 0.0), viewport, canvas_size).x;
+                draw_dashed_vertical(
+                    painter,
+                    sx,
+                    viewport.top(),
+                    viewport.bottom(),
+                    dash_len,
+                    gap_len,
+                    stroke,
+                );
             }
         }
     }
@@ -525,7 +531,10 @@ fn draw_rulers_and_guide_interaction(
     // Corner square
     let corner = egui::Rect::from_min_max(
         panel_rect.left_top(),
-        egui::pos2(panel_rect.left() + RULER_WIDTH, panel_rect.top() + RULER_WIDTH),
+        egui::pos2(
+            panel_rect.left() + RULER_WIDTH,
+            panel_rect.top() + RULER_WIDTH,
+        ),
     );
     painter.rect_filled(corner, 0.0, ruler_bg);
 
@@ -542,76 +551,75 @@ fn draw_rulers_and_guide_interaction(
             if top_ruler.contains(mouse_pos) {
                 ruler_state.dragging = true;
                 ruler_state.axis = Some(GuideAxis::Vertical);
-                let canvas_x =
-                    (mouse_pos.x - viewport.min.x) * canvas_size.x / viewport.width();
+                let canvas_x = (mouse_pos.x - viewport.min.x) * canvas_size.x / viewport.width();
                 ruler_state.position = canvas_x;
             } else if left_ruler.contains(mouse_pos) {
                 ruler_state.dragging = true;
                 ruler_state.axis = Some(GuideAxis::Horizontal);
-                let canvas_y =
-                    (mouse_pos.y - viewport.min.y) * canvas_size.y / viewport.height();
+                let canvas_y = (mouse_pos.y - viewport.min.y) * canvas_size.y / viewport.height();
                 ruler_state.position = canvas_y;
             }
         }
 
         // Update position during drag
-        if ruler_state.dragging && primary_down {
-            if let Some(axis) = ruler_state.axis {
-                match axis {
-                    GuideAxis::Vertical => {
-                        ruler_state.position =
-                            (mouse_pos.x - viewport.min.x) * canvas_size.x / viewport.width();
-                    }
-                    GuideAxis::Horizontal => {
-                        ruler_state.position =
-                            (mouse_pos.y - viewport.min.y) * canvas_size.y / viewport.height();
-                    }
+        if ruler_state.dragging
+            && primary_down
+            && let Some(axis) = ruler_state.axis
+        {
+            match axis {
+                GuideAxis::Vertical => {
+                    ruler_state.position =
+                        (mouse_pos.x - viewport.min.x) * canvas_size.x / viewport.width();
                 }
-
-                // Draw preview of the guide being created
-                let guide_color = state.settings.general.guide_color;
-                let guide_opacity = state.settings.general.guide_opacity;
-                let color = egui::Color32::from_rgba_unmultiplied(
-                    guide_color[0],
-                    guide_color[1],
-                    guide_color[2],
-                    (255.0 * guide_opacity) as u8,
-                );
-                let stroke = egui::Stroke::new(1.0, color);
-                match axis {
-                    GuideAxis::Vertical => {
-                        let sx = canvas_to_screen(
-                            egui::pos2(ruler_state.position, 0.0),
-                            viewport,
-                            canvas_size,
-                        )
-                        .x;
-                        painter.line_segment(
-                            [
-                                egui::pos2(sx, viewport.top()),
-                                egui::pos2(sx, viewport.bottom()),
-                            ],
-                            stroke,
-                        );
-                    }
-                    GuideAxis::Horizontal => {
-                        let sy = canvas_to_screen(
-                            egui::pos2(0.0, ruler_state.position),
-                            viewport,
-                            canvas_size,
-                        )
-                        .y;
-                        painter.line_segment(
-                            [
-                                egui::pos2(viewport.left(), sy),
-                                egui::pos2(viewport.right(), sy),
-                            ],
-                            stroke,
-                        );
-                    }
+                GuideAxis::Horizontal => {
+                    ruler_state.position =
+                        (mouse_pos.y - viewport.min.y) * canvas_size.y / viewport.height();
                 }
-                ui.ctx().request_repaint();
             }
+
+            // Draw preview of the guide being created
+            let guide_color = state.settings.general.guide_color;
+            let guide_opacity = state.settings.general.guide_opacity;
+            let color = egui::Color32::from_rgba_unmultiplied(
+                guide_color[0],
+                guide_color[1],
+                guide_color[2],
+                (255.0 * guide_opacity) as u8,
+            );
+            let stroke = egui::Stroke::new(1.0, color);
+            match axis {
+                GuideAxis::Vertical => {
+                    let sx = canvas_to_screen(
+                        egui::pos2(ruler_state.position, 0.0),
+                        viewport,
+                        canvas_size,
+                    )
+                    .x;
+                    painter.line_segment(
+                        [
+                            egui::pos2(sx, viewport.top()),
+                            egui::pos2(sx, viewport.bottom()),
+                        ],
+                        stroke,
+                    );
+                }
+                GuideAxis::Horizontal => {
+                    let sy = canvas_to_screen(
+                        egui::pos2(0.0, ruler_state.position),
+                        viewport,
+                        canvas_size,
+                    )
+                    .y;
+                    painter.line_segment(
+                        [
+                            egui::pos2(viewport.left(), sy),
+                            egui::pos2(viewport.right(), sy),
+                        ],
+                        stroke,
+                    );
+                }
+            }
+            ui.ctx().request_repaint();
         }
 
         // Release: create the guide
@@ -698,12 +706,10 @@ fn draw_rulers_and_guide_interaction(
         .ctx()
         .data(|d| d.get_temp(egui::Id::new("guide_ctx_open")).unwrap_or(false));
     if ctx_open {
-        let ctx_pos: egui::Pos2 = ui
-            .ctx()
-            .data(|d| {
-                d.get_temp(egui::Id::new("guide_ctx_pos"))
-                    .unwrap_or(egui::Pos2::ZERO)
-            });
+        let ctx_pos: egui::Pos2 = ui.ctx().data(|d| {
+            d.get_temp(egui::Id::new("guide_ctx_pos"))
+                .unwrap_or(egui::Pos2::ZERO)
+        });
         let hit_idx: i64 = ui
             .ctx()
             .data(|d| d.get_temp(egui::Id::new("guide_ctx_hit")).unwrap_or(-1));
@@ -719,17 +725,15 @@ fn draw_rulers_and_guide_interaction(
                 egui::Frame::menu(ui.style()).show(ui, |ui| {
                     use crate::ui::theme::{menu_item, styled_menu};
                     styled_menu(ui, |ui| {
-                        if hit_idx >= 0 {
-                            if menu_item(ui, "Delete Guide") {
-                                if let Some(scene) = state.active_scene_mut() {
-                                    let idx = hit_idx as usize;
-                                    if idx < scene.guides.len() {
-                                        scene.guides.remove(idx);
-                                    }
+                        if hit_idx >= 0 && menu_item(ui, "Delete Guide") {
+                            if let Some(scene) = state.active_scene_mut() {
+                                let idx = hit_idx as usize;
+                                if idx < scene.guides.len() {
+                                    scene.guides.remove(idx);
                                 }
-                                state.mark_dirty();
-                                close = true;
                             }
+                            state.mark_dirty();
+                            close = true;
                         }
                         if menu_item(ui, "Clear All Guides") {
                             if let Some(scene) = state.active_scene_mut() {
@@ -763,8 +767,7 @@ fn draw_rulers_and_guide_interaction(
         }
     }
 
-    ui.ctx()
-        .data_mut(|d| d.insert_temp(ruler_id, ruler_state));
+    ui.ctx().data_mut(|d| d.insert_temp(ruler_id, ruler_state));
 }
 
 // ── Public draw entry point ──────────────────────────────────────────────────
@@ -860,16 +863,26 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
 
             // Cursor-centered zoom: keep the canvas point under the cursor fixed
             if let Some(cursor_pos) = ui.input(|i| i.pointer.hover_pos()) {
-                let old_viewport =
-                    zoomed_viewport(panel_rect, preview_width, preview_height, old_zoom, view.pan_offset);
+                let old_viewport = zoomed_viewport(
+                    panel_rect,
+                    preview_width,
+                    preview_height,
+                    old_zoom,
+                    view.pan_offset,
+                );
                 let canvas_pos =
                     screen_to_canvas(cursor_pos, old_viewport, preview_width, preview_height);
 
                 view.zoom = new_zoom;
 
                 // Recompute viewport with new zoom, find where canvas_pos ended up
-                let new_viewport =
-                    zoomed_viewport(panel_rect, preview_width, preview_height, new_zoom, view.pan_offset);
+                let new_viewport = zoomed_viewport(
+                    panel_rect,
+                    preview_width,
+                    preview_height,
+                    new_zoom,
+                    view.pan_offset,
+                );
                 let new_screen = egui::Pos2::new(
                     new_viewport.min.x + canvas_pos.x * new_viewport.width() / preview_width as f32,
                     new_viewport.min.y
@@ -878,73 +891,73 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
 
                 // Adjust pan to compensate
                 let diff = cursor_pos - new_screen;
-                let pixels_per_canvas =
-                    (base_rect.width() * new_zoom) / preview_width as f32;
+                let pixels_per_canvas = (base_rect.width() * new_zoom) / preview_width as f32;
                 view.pan_offset.x += diff.x / pixels_per_canvas;
                 view.pan_offset.y += diff.y / pixels_per_canvas;
             } else {
                 view.zoom = new_zoom;
             }
 
-            view.pan_offset =
-                clamp_pan(view.pan_offset, panel_rect, preview_width, preview_height, view.zoom);
+            view.pan_offset = clamp_pan(
+                view.pan_offset,
+                panel_rect,
+                preview_width,
+                preview_height,
+                view.zoom,
+            );
         }
     }
 
     // ── Trackpad pinch zoom ──
 
-    if cursor_in_panel {
-        if let Some(touch) = ui.input(|i| i.multi_touch()) {
-            if (touch.zoom_delta - 1.0).abs() > 0.001 {
-                let old_zoom = view.zoom;
-                let new_zoom = (old_zoom * touch.zoom_delta).clamp(ZOOM_MIN, ZOOM_MAX);
+    if cursor_in_panel
+        && let Some(touch) = ui.input(|i| i.multi_touch())
+        && (touch.zoom_delta - 1.0).abs() > 0.001
+    {
+        let old_zoom = view.zoom;
+        let new_zoom = (old_zoom * touch.zoom_delta).clamp(ZOOM_MIN, ZOOM_MAX);
 
-                // Cursor-centered pinch zoom
-                if let Some(cursor_pos) = ui.input(|i| i.pointer.hover_pos()) {
-                    let old_viewport = zoomed_viewport(
-                        panel_rect,
-                        preview_width,
-                        preview_height,
-                        old_zoom,
-                        view.pan_offset,
-                    );
-                    let canvas_pos =
-                        screen_to_canvas(cursor_pos, old_viewport, preview_width, preview_height);
+        // Cursor-centered pinch zoom
+        if let Some(cursor_pos) = ui.input(|i| i.pointer.hover_pos()) {
+            let old_viewport = zoomed_viewport(
+                panel_rect,
+                preview_width,
+                preview_height,
+                old_zoom,
+                view.pan_offset,
+            );
+            let canvas_pos =
+                screen_to_canvas(cursor_pos, old_viewport, preview_width, preview_height);
 
-                    view.zoom = new_zoom;
+            view.zoom = new_zoom;
 
-                    let new_viewport = zoomed_viewport(
-                        panel_rect,
-                        preview_width,
-                        preview_height,
-                        new_zoom,
-                        view.pan_offset,
-                    );
-                    let new_screen = egui::Pos2::new(
-                        new_viewport.min.x
-                            + canvas_pos.x * new_viewport.width() / preview_width as f32,
-                        new_viewport.min.y
-                            + canvas_pos.y * new_viewport.height() / preview_height as f32,
-                    );
+            let new_viewport = zoomed_viewport(
+                panel_rect,
+                preview_width,
+                preview_height,
+                new_zoom,
+                view.pan_offset,
+            );
+            let new_screen = egui::Pos2::new(
+                new_viewport.min.x + canvas_pos.x * new_viewport.width() / preview_width as f32,
+                new_viewport.min.y + canvas_pos.y * new_viewport.height() / preview_height as f32,
+            );
 
-                    let diff = cursor_pos - new_screen;
-                    let pixels_per_canvas =
-                        (base_rect.width() * new_zoom) / preview_width as f32;
-                    view.pan_offset.x += diff.x / pixels_per_canvas;
-                    view.pan_offset.y += diff.y / pixels_per_canvas;
-                } else {
-                    view.zoom = new_zoom;
-                }
-
-                view.pan_offset = clamp_pan(
-                    view.pan_offset,
-                    panel_rect,
-                    preview_width,
-                    preview_height,
-                    view.zoom,
-                );
-            }
+            let diff = cursor_pos - new_screen;
+            let pixels_per_canvas = (base_rect.width() * new_zoom) / preview_width as f32;
+            view.pan_offset.x += diff.x / pixels_per_canvas;
+            view.pan_offset.y += diff.y / pixels_per_canvas;
+        } else {
+            view.zoom = new_zoom;
         }
+
+        view.pan_offset = clamp_pan(
+            view.pan_offset,
+            panel_rect,
+            preview_width,
+            preview_height,
+            view.zoom,
+        );
     }
 
     // ── Pan (middle-click drag or spacebar + left-click drag) ──
@@ -957,8 +970,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
         let delta = ui.input(|i| i.pointer.delta());
         if delta.length_sq() > 0.0 {
             // Convert screen delta to canvas delta
-            let pixels_per_canvas =
-                (base_rect.width() * view.zoom) / preview_width as f32;
+            let pixels_per_canvas = (base_rect.width() * view.zoom) / preview_width as f32;
             view.pan_offset.x += delta.x / pixels_per_canvas;
             view.pan_offset.y += delta.y / pixels_per_canvas;
             view.pan_offset = clamp_pan(
@@ -985,8 +997,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     );
 
     // Store view state back for next frame
-    ui.ctx()
-        .data_mut(|d| d.insert_temp(view_id, view.clone()));
+    ui.ctx().data_mut(|d| d.insert_temp(view_id, view.clone()));
 
     // ── GPU paint callback ──
     // Render into the zoomed rect, but clip to panel_rect so the quad doesn't

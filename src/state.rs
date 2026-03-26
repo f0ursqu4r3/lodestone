@@ -48,10 +48,10 @@ impl UndoStack {
         state
             .selected_source_ids
             .retain(|id| active_source_ids.contains(id));
-        if let Some(primary) = state.primary_selected_id {
-            if !state.selected_source_ids.contains(&primary) {
-                state.primary_selected_id = state.selected_source_ids.last().copied();
-            }
+        if let Some(primary) = state.primary_selected_id
+            && !state.selected_source_ids.contains(&primary)
+        {
+            state.primary_selected_id = state.selected_source_ids.last().copied();
         }
         if let Some(id) = state.selected_library_source_id
             && !state.library.iter().any(|s| s.id == id)
@@ -470,5 +470,69 @@ mod tests {
         };
         assert!(status.is_live());
         assert!(!StreamStatus::Offline.is_live());
+    }
+
+    // ── Selection helper tests ────────────────────────────────────────────
+
+    #[test]
+    fn select_source_sets_selection() {
+        use crate::scene::SourceId;
+        let mut state = AppState::default();
+        let id = SourceId(42);
+        state.select_source(id);
+        assert!(state.is_source_selected(id));
+        assert_eq!(state.primary_selected_id, Some(id));
+        assert_eq!(state.selected_source_ids.len(), 1);
+    }
+
+    #[test]
+    fn select_source_replaces_previous_selection() {
+        use crate::scene::SourceId;
+        let mut state = AppState::default();
+        let a = SourceId(1);
+        let b = SourceId(2);
+        state.select_source(a);
+        state.select_source(b);
+        assert!(!state.is_source_selected(a));
+        assert!(state.is_source_selected(b));
+        assert_eq!(state.primary_selected_id, Some(b));
+    }
+
+    #[test]
+    fn deselect_all_clears_selection() {
+        use crate::scene::SourceId;
+        let mut state = AppState::default();
+        state.select_source(SourceId(1));
+        state.deselect_all();
+        assert!(state.selected_source_ids.is_empty());
+        assert_eq!(state.primary_selected_id, None);
+    }
+
+    #[test]
+    fn toggle_source_selection_adds_and_removes() {
+        use crate::scene::SourceId;
+        let mut state = AppState::default();
+        let a = SourceId(10);
+        let b = SourceId(20);
+
+        // Toggle in two sources.
+        state.toggle_source_selection(a);
+        state.toggle_source_selection(b);
+        assert!(state.is_source_selected(a));
+        assert!(state.is_source_selected(b));
+        assert_eq!(state.primary_selected_id, Some(b));
+
+        // Toggle b out — primary should fall back to a.
+        state.toggle_source_selection(b);
+        assert!(!state.is_source_selected(b));
+        assert!(state.is_source_selected(a));
+        assert_eq!(state.primary_selected_id, Some(a));
+    }
+
+    #[test]
+    fn is_source_selected_returns_false_when_empty() {
+        use crate::scene::SourceId;
+        let state = AppState::default();
+        assert!(!state.is_source_selected(SourceId(99)));
     }
 }

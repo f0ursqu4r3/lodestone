@@ -1,6 +1,6 @@
 //! Interactive transform handles for repositioning and resizing sources in the preview.
 
-use egui::{pos2, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use egui::{Pos2, Rect, Stroke, StrokeKind, Vec2, pos2};
 
 use crate::scene::Transform;
 use crate::state::AppState;
@@ -471,11 +471,7 @@ fn compute_snap(
 
     // Other source edges and centers.
     for other in other_sources {
-        x_targets.extend_from_slice(&[
-            other.x,
-            other.x + other.width,
-            other.x + other.width / 2.0,
-        ]);
+        x_targets.extend_from_slice(&[other.x, other.x + other.width, other.x + other.width / 2.0]);
         y_targets.extend_from_slice(&[
             other.y,
             other.y + other.height,
@@ -502,7 +498,7 @@ fn compute_snap(
         for &target in &x_targets {
             let dist = (edge_val - target).abs();
             if dist < attract {
-                let is_better = best_x.map_or(true, |(_, _, bd)| dist < bd);
+                let is_better = best_x.is_none_or(|(_, _, bd)| dist < bd);
                 if is_better {
                     best_x = Some((target, edge_kind, dist));
                 }
@@ -521,7 +517,7 @@ fn compute_snap(
         for &target in &y_targets {
             let dist = (edge_val - target).abs();
             if dist < attract {
-                let is_better = best_y.map_or(true, |(_, _, bd)| dist < bd);
+                let is_better = best_y.is_none_or(|(_, _, bd)| dist < bd);
                 if is_better {
                     best_y = Some((target, edge_kind, dist));
                 }
@@ -909,8 +905,7 @@ pub fn draw_transform_handles(
     let Some(selected_id) = state.selected_source_id() else {
         // No primary selection — still need to handle marquee drag.
         let drag_id = egui::Id::new("transform_drag_marquee");
-        let mut drag_mode: DragMode =
-            ui.memory(|m| m.data.get_temp(drag_id).unwrap_or_default());
+        let mut drag_mode: DragMode = ui.memory(|m| m.data.get_temp(drag_id).unwrap_or_default());
 
         if let Some(mouse_pos) = pointer {
             match &drag_mode {
@@ -1001,7 +996,9 @@ pub fn draw_transform_handles(
         match &mut drag_mode {
             DragMode::None => {
                 if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open && !is_locked {
-                    if let Some(handle) = hit_test_handles(mouse_pos, screen_rect, transform.rotation) {
+                    if let Some(handle) =
+                        hit_test_handles(mouse_pos, screen_rect, transform.rotation)
+                    {
                         let is_corner = matches!(
                             handle,
                             HandlePosition::TopLeft
@@ -1035,7 +1032,7 @@ pub fn draw_transform_handles(
                                 .library
                                 .iter()
                                 .find(|s| s.id == sid)
-                                .and_then(|lib| {
+                                .map(|lib| {
                                     let t = state
                                         .active_scene()
                                         .and_then(|s| s.find_source(sid))
@@ -1043,7 +1040,7 @@ pub fn draw_transform_handles(
                                         .unwrap_or(lib.transform);
                                     let r =
                                         transform_to_screen_rect(&t, viewport_rect, canvas_size);
-                                    Some(r.contains(mouse_pos))
+                                    r.contains(mouse_pos)
                                 })
                                 .unwrap_or(false)
                         });
@@ -1057,7 +1054,7 @@ pub fn draw_transform_handles(
                                         .library
                                         .iter()
                                         .find(|s| s.id == sid)
-                                        .and_then(|lib| {
+                                        .map(|lib| {
                                             let t = state
                                                 .active_scene()
                                                 .and_then(|s| s.find_source(sid))
@@ -1068,7 +1065,7 @@ pub fn draw_transform_handles(
                                                 viewport_rect,
                                                 canvas_size,
                                             );
-                                            Some(r.contains(mouse_pos))
+                                            r.contains(mouse_pos)
                                         })
                                         .unwrap_or(false)
                                 })
@@ -1153,10 +1150,8 @@ pub fn draw_transform_handles(
                     let height = anchor_start.height;
 
                     // Collect other source transforms (excluding all selected sources).
-                    let selected_set: Vec<SourceId> = start_transforms
-                        .iter()
-                        .map(|(sid, _)| *sid)
-                        .collect();
+                    let selected_set: Vec<SourceId> =
+                        start_transforms.iter().map(|(sid, _)| *sid).collect();
                     let other_transforms: Vec<Transform> = state
                         .active_scene()
                         .map(|scene| {
@@ -1188,13 +1183,13 @@ pub fn draw_transform_handles(
                     let mut extra_y: Vec<f32> = Vec::new();
 
                     // Custom guides
-                    if state.settings.general.show_guides {
-                        if let Some(scene) = state.active_scene() {
-                            for guide in &scene.guides {
-                                match guide.axis {
-                                    crate::scene::GuideAxis::Vertical => extra_x.push(guide.position),
-                                    crate::scene::GuideAxis::Horizontal => extra_y.push(guide.position),
-                                }
+                    if state.settings.general.show_guides
+                        && let Some(scene) = state.active_scene()
+                    {
+                        for guide in &scene.guides {
+                            match guide.axis {
+                                crate::scene::GuideAxis::Vertical => extra_x.push(guide.position),
+                                crate::scene::GuideAxis::Horizontal => extra_y.push(guide.position),
                             }
                         }
                     }
@@ -1221,7 +1216,15 @@ pub fn draw_transform_handles(
 
                     // Build a raw transform for snap computation.
                     let raw_transform = Transform::new(new_raw_x, new_raw_y, width, height);
-                    let snap = compute_snap(&raw_transform, canvas_size, grid, &other_refs, attract, &extra_x, &extra_y);
+                    let snap = compute_snap(
+                        &raw_transform,
+                        canvas_size,
+                        grid,
+                        &other_refs,
+                        attract,
+                        &extra_x,
+                        &extra_y,
+                    );
 
                     // X axis: magnetic two-zone logic.
                     if let Some((line, edge)) = snapped_x {
@@ -1360,43 +1363,42 @@ pub fn draw_transform_handles(
             snapped_y,
             ..
         } = &drag_mode
+            && (snapped_x.is_some() || snapped_y.is_some())
         {
-            if snapped_x.is_some() || snapped_y.is_some() {
-                let anchor = *anchor_id;
-                // Collect other source transforms for guide drawing (excluding selected).
-                let other_transforms: Vec<Transform> = state
-                    .active_scene()
-                    .map(|scene| {
-                        scene
-                            .sources
-                            .iter()
-                            .filter_map(|ss| {
-                                if state.is_source_selected(ss.source_id) {
-                                    return None;
-                                }
-                                state
-                                    .library
-                                    .iter()
-                                    .find(|s| s.id == ss.source_id)
-                                    .and_then(|lib| {
-                                        if !ss.resolve_visible(lib) {
-                                            return None;
-                                        }
-                                        Some(ss.resolve_transform(lib))
-                                    })
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let other_refs: Vec<&Transform> = other_transforms.iter().collect();
+            let anchor = *anchor_id;
+            // Collect other source transforms for guide drawing (excluding selected).
+            let other_transforms: Vec<Transform> = state
+                .active_scene()
+                .map(|scene| {
+                    scene
+                        .sources
+                        .iter()
+                        .filter_map(|ss| {
+                            if state.is_source_selected(ss.source_id) {
+                                return None;
+                            }
+                            state
+                                .library
+                                .iter()
+                                .find(|s| s.id == ss.source_id)
+                                .and_then(|lib| {
+                                    if !ss.resolve_visible(lib) {
+                                        return None;
+                                    }
+                                    Some(ss.resolve_transform(lib))
+                                })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let other_refs: Vec<&Transform> = other_transforms.iter().collect();
 
-                if let Some(t) = state
-                    .active_scene()
-                    .and_then(|s| s.find_source(anchor))
-                    .and_then(|ss| ss.overrides.transform)
-                {
-                    draw_snap_guides(ui.painter(), &t, canvas_size, viewport_rect, &other_refs);
-                }
+            if let Some(t) = state
+                .active_scene()
+                .and_then(|s| s.find_source(anchor))
+                .and_then(|ss| ss.overrides.transform)
+            {
+                draw_snap_guides(ui.painter(), &t, canvas_size, viewport_rect, &other_refs);
             }
         }
 
@@ -1637,5 +1639,85 @@ mod tests {
         assert!((corners[0].y - 0.0).abs() < 0.01);
         assert!((corners[1].x - 100.0).abs() < 0.01);
         assert!((corners[1].y - 0.0).abs() < 0.01);
+    }
+
+    // ── compute_snap tests ────────────────────────────────────────────────
+
+    fn make_transform(x: f32, y: f32, w: f32, h: f32) -> crate::scene::Transform {
+        crate::scene::Transform {
+            x,
+            y,
+            width: w,
+            height: h,
+            rotation: 0.0,
+        }
+    }
+
+    #[test]
+    fn snap_within_attract_zone_snaps_to_target() {
+        // Source left edge at x=8, attract zone is 12px, canvas edge at x=0.
+        // Distance is 8 < 12, so should snap.
+        let t = make_transform(8.0, 500.0, 200.0, 100.0);
+        let canvas = Vec2::new(1920.0, 1080.0);
+        let result = compute_snap(&t, canvas, 0.0, &[], SNAP_ATTRACT, &[], &[]);
+        // Left edge snaps to x=0 — offset_x should be -8.0.
+        assert!(result.snapped_x.is_some(), "expected snap on X axis");
+        assert!((result.offset_x - (-8.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn snap_outside_attract_zone_does_not_snap() {
+        // Source left edge at x=100, nearest target at x=0 (distance 100 > 12).
+        // Canvas edges are 0 and 1920; center is 960. None is within 12px.
+        let t = make_transform(100.0, 100.0, 50.0, 50.0);
+        let canvas = Vec2::new(1920.0, 1080.0);
+        let result = compute_snap(&t, canvas, 0.0, &[], SNAP_ATTRACT, &[], &[]);
+        assert!(result.snapped_x.is_none(), "should not snap on X");
+        assert!(result.snapped_y.is_none(), "should not snap on Y");
+    }
+
+    #[test]
+    fn snap_picks_closest_target_wins() {
+        // Source left edge at x=5, extra targets at x=0 (dist 5) and x=10 (dist 5
+        // from right — but left is closer to 0).
+        // More precisely: left=5 vs target 0 (dist 5), left=5 vs target 10 (dist 5),
+        // right=105 vs target 0 (dist 105 — no), right=105 vs target 10 (dist 95 — no).
+        // Two equally close targets; the loop picks whichever is found first (0 wins).
+        let t = make_transform(5.0, 500.0, 100.0, 50.0);
+        let canvas = Vec2::new(1920.0, 1080.0);
+        // Provide two extra X targets near the source: one at 0 (dist 5) and one at 8 (dist 3).
+        let result = compute_snap(&t, canvas, 0.0, &[], SNAP_ATTRACT, &[0.0, 8.0], &[]);
+        // The closest target to left edge (5) is 8 (dist 3), so snap to x=8 with offset +3.
+        assert!(result.snapped_x.is_some());
+        assert!((result.offset_x - 3.0).abs() < 0.01);
+    }
+
+    // ── point_in_rotated_rect additional tests ────────────────────────────
+
+    #[test]
+    fn point_in_rotated_rect_center_always_inside() {
+        // At any rotation the center of the rect is always inside.
+        let rect = Rect::from_min_max(Pos2::new(100.0, 100.0), Pos2::new(300.0, 200.0));
+        let center = rect.center();
+        assert!(point_in_rotated_rect(center, rect, 0.0));
+        assert!(point_in_rotated_rect(center, rect, 45.0));
+        assert!(point_in_rotated_rect(center, rect, 90.0));
+        assert!(point_in_rotated_rect(center, rect, 180.0));
+    }
+
+    #[test]
+    fn point_in_rotated_rect_45_center_inside() {
+        let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(200.0, 200.0));
+        let center = rect.center(); // (100, 100)
+        assert!(point_in_rotated_rect(center, rect, 45.0));
+    }
+
+    #[test]
+    fn point_in_rotated_rect_clearly_outside() {
+        let rect = Rect::from_min_max(Pos2::new(100.0, 100.0), Pos2::new(200.0, 200.0));
+        // Point far away should never be inside regardless of rotation.
+        assert!(!point_in_rotated_rect(Pos2::new(500.0, 500.0), rect, 0.0));
+        assert!(!point_in_rotated_rect(Pos2::new(500.0, 500.0), rect, 45.0));
+        assert!(!point_in_rotated_rect(Pos2::new(500.0, 500.0), rect, 90.0));
     }
 }

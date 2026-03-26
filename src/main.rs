@@ -698,16 +698,16 @@ impl ApplicationHandler for AppManager {
                         for id in ids {
                             let lib_transform =
                                 app_state.find_library_source(id).map(|ls| ls.transform);
-                            if let Some(scene) = app_state.active_scene_mut() {
-                                if let Some(ss) = scene.find_source_mut(id) {
-                                    let mut t = match ss.overrides.transform {
-                                        Some(t) => t,
-                                        None => lib_transform.unwrap_or_default(),
-                                    };
-                                    t.x += dx;
-                                    t.y += dy;
-                                    ss.overrides.transform = Some(t);
-                                }
+                            if let Some(scene) = app_state.active_scene_mut()
+                                && let Some(ss) = scene.find_source_mut(id)
+                            {
+                                let mut t = match ss.overrides.transform {
+                                    Some(t) => t,
+                                    None => lib_transform.unwrap_or_default(),
+                                };
+                                t.x += dx;
+                                t.y += dy;
+                                ss.overrides.transform = Some(t);
                             }
                         }
                         app_state.scenes_dirty = true;
@@ -754,12 +754,10 @@ impl ApplicationHandler for AppManager {
                         if let Some(scene) = app_state.active_scene().cloned() {
                             for &id in &sel_ids {
                                 if let Some(ss) = scene.find_source(id) {
-                                    app_state.clipboard.push(
-                                        crate::state::ClipboardEntry {
-                                            library_source_id: ss.source_id,
-                                            overrides_snapshot: ss.overrides.clone(),
-                                        },
-                                    );
+                                    app_state.clipboard.push(crate::state::ClipboardEntry {
+                                        library_source_id: ss.source_id,
+                                        overrides_snapshot: ss.overrides.clone(),
+                                    });
                                 }
                             }
                         }
@@ -823,8 +821,7 @@ impl ApplicationHandler for AppManager {
                                 .find_library_source(entry.library_source_id)
                                 .cloned()
                             {
-                                let new_id =
-                                    crate::scene::SourceId(app_state.next_source_id);
+                                let new_id = crate::scene::SourceId(app_state.next_source_id);
                                 app_state.next_source_id += 1;
                                 let mut new_lib = lib;
                                 new_lib.id = new_id;
@@ -871,36 +868,29 @@ impl ApplicationHandler for AppManager {
                         let mut new_ids = Vec::new();
                         if let Some(scene_data) = scene_clone {
                             for id in &ids {
-                                if let Some(ss) = scene_data.find_source(*id) {
-                                    if let Some(lib) = app_state
-                                        .find_library_source(ss.source_id)
-                                        .cloned()
-                                    {
-                                        let new_id = crate::scene::SourceId(
-                                            app_state.next_source_id,
-                                        );
-                                        app_state.next_source_id += 1;
-                                        let mut new_lib = lib;
-                                        new_lib.id = new_id;
-                                        new_lib.name =
-                                            format!("{} (Copy)", new_lib.name);
-                                        app_state.library.push(new_lib);
+                                if let Some(ss) = scene_data.find_source(*id)
+                                    && let Some(lib) =
+                                        app_state.find_library_source(ss.source_id).cloned()
+                                {
+                                    let new_id = crate::scene::SourceId(app_state.next_source_id);
+                                    app_state.next_source_id += 1;
+                                    let mut new_lib = lib;
+                                    new_lib.id = new_id;
+                                    new_lib.name = format!("{} (Copy)", new_lib.name);
+                                    app_state.library.push(new_lib);
 
-                                        let mut overrides = ss.overrides.clone();
-                                        if let Some(ref mut t) = overrides.transform {
-                                            t.x += 20.0;
-                                            t.y += 20.0;
-                                        }
-                                        let new_ss = crate::scene::SceneSource {
-                                            source_id: new_id,
-                                            overrides,
-                                        };
-                                        if let Some(scene) =
-                                            app_state.active_scene_mut()
-                                        {
-                                            scene.sources.push(new_ss);
-                                            new_ids.push(new_id);
-                                        }
+                                    let mut overrides = ss.overrides.clone();
+                                    if let Some(ref mut t) = overrides.transform {
+                                        t.x += 20.0;
+                                        t.y += 20.0;
+                                    }
+                                    let new_ss = crate::scene::SceneSource {
+                                        source_id: new_id,
+                                        overrides,
+                                    };
+                                    if let Some(scene) = app_state.active_scene_mut() {
+                                        scene.sources.push(new_ss);
+                                        new_ids.push(new_id);
                                     }
                                 }
                             }
@@ -1025,13 +1015,9 @@ impl ApplicationHandler for AppManager {
                                 }
                             }
                             app_state.deselect_all();
-                        } else if let Some(src_id) = app_state.selected_library_source_id
-                        {
+                        } else if let Some(src_id) = app_state.selected_library_source_id {
                             // Library selection → cascade delete.
-                            crate::ui::library_panel::delete_source_cascade(
-                                &mut app_state,
-                                src_id,
-                            );
+                            crate::ui::library_panel::delete_source_cascade(&mut app_state, src_id);
                         }
                         return;
                     }

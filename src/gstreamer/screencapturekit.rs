@@ -39,6 +39,38 @@ pub struct SCStreamHandle {
 // We only interact with them through message sends which are themselves thread-safe.
 unsafe impl Send for SCStreamHandle {}
 
+/// Info about a display available for capture, including its native resolution
+/// in logical points.
+#[derive(Debug, Clone)]
+pub struct DisplayInfo {
+    pub index: usize,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Enumerate available displays and their native resolutions via ScreenCaptureKit.
+///
+/// Returns a list of displays with their logical-point dimensions.
+/// Uses `SCDisplay.width()` and `SCDisplay.height()` which return logical points
+/// (not physical pixels on Retina displays).
+pub fn enumerate_displays() -> Result<Vec<DisplayInfo>> {
+    let content = get_shareable_content()?;
+    let displays: Retained<NSArray<SCDisplay>> = unsafe { content.displays() };
+    let count = displays.count();
+    let mut result = Vec::with_capacity(count);
+    for i in 0..count {
+        let display = unsafe { displays.objectAtIndex_unchecked(i) };
+        let width = unsafe { display.width() } as u32;
+        let height = unsafe { display.height() } as u32;
+        result.push(DisplayInfo {
+            index: i,
+            width,
+            height,
+        });
+    }
+    Ok(result)
+}
+
 /// Ivars for our ObjC delegate that receives captured frames.
 struct StreamOutputDelegateIvars {
     frame_tx: std_mpsc::Sender<RgbaFrame>,

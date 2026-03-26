@@ -187,6 +187,48 @@ fn draw_scene_card(
         egui::StrokeKind::Outside,
     );
 
+    // Draw miniature source rectangles inside the thumbnail.
+    if let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id) {
+        let canvas_w = 1920.0_f32;
+        let canvas_h = 1080.0_f32;
+        let scale_x = thumb_rect.width() / canvas_w;
+        let scale_y = thumb_rect.height() / canvas_h;
+
+        for scene_src in &scene.sources {
+            if let Some(lib_src) = state.library.iter().find(|s| s.id == scene_src.source_id) {
+                let visible = scene_src.resolve_visible(lib_src);
+                if !visible {
+                    continue;
+                }
+                let t = scene_src.resolve_transform(lib_src);
+                let mini_rect = egui::Rect::from_min_size(
+                    egui::pos2(
+                        thumb_rect.left() + t.x * scale_x,
+                        thumb_rect.top() + t.y * scale_y,
+                    ),
+                    egui::vec2(t.width * scale_x, t.height * scale_y),
+                );
+                // Clamp to thumbnail bounds
+                let clamped = mini_rect.intersect(thumb_rect);
+                if clamped.width() > 0.5 && clamped.height() > 0.5 {
+                    let fill = egui::Color32::from_rgba_premultiplied(
+                        theme.text_muted.r(),
+                        theme.text_muted.g(),
+                        theme.text_muted.b(),
+                        30,
+                    );
+                    painter.rect_filled(clamped, 1.0, fill);
+                    painter.rect_stroke(
+                        clamped,
+                        1.0,
+                        egui::Stroke::new(0.5, theme.text_muted),
+                        egui::StrokeKind::Outside,
+                    );
+                }
+            }
+        }
+    }
+
     // Pin indicator (top-right of thumbnail).
     if is_pinned {
         painter.text(

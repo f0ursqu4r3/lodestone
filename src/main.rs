@@ -635,7 +635,367 @@ impl ApplicationHandler for AppManager {
                     return;
                 }
 
-                // DEL / Backspace deletes the selected source.
+                // Cmd+0: Fit to panel (reset zoom/pan)
+                if self.modifiers.super_key() && *key_code == KeyCode::Digit0 {
+                    let mut app_state = self.state.lock().unwrap();
+                    app_state.reset_preview_zoom = true;
+                    return;
+                }
+
+                // Cmd+1: 100% zoom
+                if self.modifiers.super_key() && *key_code == KeyCode::Digit1 {
+                    let mut app_state = self.state.lock().unwrap();
+                    app_state.set_preview_zoom_100 = true;
+                    return;
+                }
+
+                // Arrow keys: nudge selected sources
+                if matches!(
+                    key_code,
+                    KeyCode::ArrowUp
+                        | KeyCode::ArrowDown
+                        | KeyCode::ArrowLeft
+                        | KeyCode::ArrowRight
+                ) {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        if app_state.selected_source_ids.is_empty() {
+                            return;
+                        }
+                        if app_state.renaming_source_id.is_some()
+                            || app_state.renaming_scene_id.is_some()
+                        {
+                            return;
+                        }
+
+                        let step = if shift { 10.0 } else { 1.0 };
+                        let (dx, dy) = match key_code {
+                            KeyCode::ArrowUp => (0.0, -step),
+                            KeyCode::ArrowDown => (0.0, step),
+                            KeyCode::ArrowLeft => (-step, 0.0),
+                            KeyCode::ArrowRight => (step, 0.0),
+                            _ => unreachable!(),
+                        };
+
+                        // Batch undo: only push snapshot if last nudge was >500ms ago
+                        let now = std::time::Instant::now();
+                        let batch = app_state
+                            .last_nudge_time
+                            .map(|t| now.duration_since(t).as_millis() < 500)
+                            .unwrap_or(false);
+                        if !batch {
+                            app_state.mark_dirty();
+                        }
+                        app_state.last_nudge_time = Some(now);
+
+                        // Apply delta to all selected sources
+                        let ids = app_state.selected_source_ids.clone();
+                        for id in ids {
+                            let lib_transform =
+                                app_state.find_library_source(id).map(|ls| ls.transform);
+                            if let Some(scene) = app_state.active_scene_mut() {
+                                if let Some(ss) = scene.find_source_mut(id) {
+                                    let mut t = match ss.overrides.transform {
+                                        Some(t) => t,
+                                        None => lib_transform.unwrap_or_default(),
+                                    };
+                                    t.x += dx;
+                                    t.y += dy;
+                                    ss.overrides.transform = Some(t);
+                                }
+                            }
+                        }
+                        app_state.scenes_dirty = true;
+                        app_state.scenes_last_changed = std::time::Instant::now();
+                        return;
+                    }
+                }
+
+                // Cmd+A: Select all unlocked sources in the active scene
+                if self.modifiers.super_key() && *key_code == KeyCode::KeyA {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        if let Some(scene) = app_state.active_scene() {
+                            let ids: Vec<crate::scene::SourceId> = scene
+                                .sources
+                                .iter()
+                                .filter(|ss| !ss.resolve_locked())
+                                .map(|ss| ss.source_id)
+                                .collect();
+                            app_state.selected_source_ids = ids;
+                            app_state.primary_selected_id =
+                                app_state.selected_source_ids.last().copied();
+                        }
+                        return;
+                    }
+                }
+
+                // Cmd+C: Copy selected sources to clipboard
+                if self.modifiers.super_key() && !shift && *key_code == KeyCode::KeyC {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        app_state.clipboard.clear();
+                        let sel_ids = app_state.selected_source_ids.clone();
+                        if let Some(scene) = app_state.active_scene().cloned() {
+                            for &id in &sel_ids {
+                                if let Some(ss) = scene.find_source(id) {
+                                    app_state.clipboard.push(
+                                        crate::state::ClipboardEntry {
+                                            library_source_id: ss.source_id,
+                                            overrides_snapshot: ss.overrides.clone(),
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // Cmd+V: Paste as reference (reuse existing library source)
+                if self.modifiers.super_key() && !shift && *key_code == KeyCode::KeyV {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        if app_state.clipboard.is_empty() {
+                            return;
+                        }
+                        let entries = app_state.clipboard.clone();
+                        let mut new_ids = Vec::new();
+                        for entry in &entries {
+                            let mut overrides = entry.overrides_snapshot.clone();
+                            if let Some(ref mut t) = overrides.transform {
+                                t.x += 20.0;
+                                t.y += 20.0;
+                            }
+                            let ss = crate::scene::SceneSource {
+                                source_id: entry.library_source_id,
+                                overrides,
+                            };
+                            if let Some(scene) = app_state.active_scene_mut() {
+                                scene.sources.push(ss);
+                                new_ids.push(entry.library_source_id);
+                            }
+                        }
+                        app_state.selected_source_ids = new_ids;
+                        app_state.primary_selected_id =
+                            app_state.selected_source_ids.last().copied();
+                        app_state.mark_dirty();
+                        return;
+                    }
+                }
+
+                // Cmd+Shift+V: Paste as clone (create new library sources)
+                if self.modifiers.super_key() && shift && *key_code == KeyCode::KeyV {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        if app_state.clipboard.is_empty() {
+                            return;
+                        }
+                        let entries = app_state.clipboard.clone();
+                        let mut new_ids = Vec::new();
+                        for entry in &entries {
+                            if let Some(lib) = app_state
+                                .find_library_source(entry.library_source_id)
+                                .cloned()
+                            {
+                                let new_id =
+                                    crate::scene::SourceId(app_state.next_source_id);
+                                app_state.next_source_id += 1;
+                                let mut new_lib = lib;
+                                new_lib.id = new_id;
+                                new_lib.name = format!("{} (Copy)", new_lib.name);
+                                app_state.library.push(new_lib);
+
+                                let mut overrides = entry.overrides_snapshot.clone();
+                                if let Some(ref mut t) = overrides.transform {
+                                    t.x += 20.0;
+                                    t.y += 20.0;
+                                }
+                                let ss = crate::scene::SceneSource {
+                                    source_id: new_id,
+                                    overrides,
+                                };
+                                if let Some(scene) = app_state.active_scene_mut() {
+                                    scene.sources.push(ss);
+                                    new_ids.push(new_id);
+                                }
+                            }
+                        }
+                        app_state.selected_source_ids = new_ids;
+                        app_state.primary_selected_id =
+                            app_state.selected_source_ids.last().copied();
+                        app_state.mark_dirty();
+                        return;
+                    }
+                }
+
+                // Cmd+D: Duplicate selected sources in current scene (clone)
+                if self.modifiers.super_key() && *key_code == KeyCode::KeyD {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        let ids = app_state.selected_source_ids.clone();
+                        if ids.is_empty() {
+                            return;
+                        }
+                        let scene_clone = app_state.active_scene().cloned();
+                        let mut new_ids = Vec::new();
+                        if let Some(scene_data) = scene_clone {
+                            for id in &ids {
+                                if let Some(ss) = scene_data.find_source(*id) {
+                                    if let Some(lib) = app_state
+                                        .find_library_source(ss.source_id)
+                                        .cloned()
+                                    {
+                                        let new_id = crate::scene::SourceId(
+                                            app_state.next_source_id,
+                                        );
+                                        app_state.next_source_id += 1;
+                                        let mut new_lib = lib;
+                                        new_lib.id = new_id;
+                                        new_lib.name =
+                                            format!("{} (Copy)", new_lib.name);
+                                        app_state.library.push(new_lib);
+
+                                        let mut overrides = ss.overrides.clone();
+                                        if let Some(ref mut t) = overrides.transform {
+                                            t.x += 20.0;
+                                            t.y += 20.0;
+                                        }
+                                        let new_ss = crate::scene::SceneSource {
+                                            source_id: new_id,
+                                            overrides,
+                                        };
+                                        if let Some(scene) =
+                                            app_state.active_scene_mut()
+                                        {
+                                            scene.sources.push(new_ss);
+                                            new_ids.push(new_id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        app_state.selected_source_ids = new_ids;
+                        app_state.primary_selected_id =
+                            app_state.selected_source_ids.last().copied();
+                        app_state.mark_dirty();
+                        return;
+                    }
+                }
+
+                // Cmd+]: Bring forward / Cmd+Shift+]: Bring to front
+                if self.modifiers.super_key() && *key_code == KeyCode::BracketRight {
+                    let mut app_state = self.state.lock().unwrap();
+                    let ids = app_state.selected_source_ids.clone();
+                    if ids.is_empty() {
+                        return;
+                    }
+                    if let Some(scene) = app_state.active_scene_mut() {
+                        if shift {
+                            // Bring to front — move each selected to end
+                            for id in &ids {
+                                if let Some(pos) =
+                                    scene.sources.iter().position(|s| s.source_id == *id)
+                                {
+                                    let s = scene.sources.remove(pos);
+                                    scene.sources.push(s);
+                                }
+                            }
+                        } else {
+                            for id in &ids {
+                                scene.move_source_up(*id);
+                            }
+                        }
+                    }
+                    app_state.mark_dirty();
+                    return;
+                }
+
+                // Cmd+[: Send backward / Cmd+Shift+[: Send to back
+                if self.modifiers.super_key() && *key_code == KeyCode::BracketLeft {
+                    let mut app_state = self.state.lock().unwrap();
+                    let ids = app_state.selected_source_ids.clone();
+                    if ids.is_empty() {
+                        return;
+                    }
+                    if let Some(scene) = app_state.active_scene_mut() {
+                        if shift {
+                            // Send to back — move each to front (in reverse to preserve order)
+                            for id in ids.iter().rev() {
+                                if let Some(pos) =
+                                    scene.sources.iter().position(|s| s.source_id == *id)
+                                {
+                                    let s = scene.sources.remove(pos);
+                                    scene.sources.insert(0, s);
+                                }
+                            }
+                        } else {
+                            for id in &ids {
+                                scene.move_source_down(*id);
+                            }
+                        }
+                    }
+                    app_state.mark_dirty();
+                    return;
+                }
+
+                // Cmd+L: Toggle lock on selected sources
+                if self.modifiers.super_key() && *key_code == KeyCode::KeyL {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        let ids = app_state.selected_source_ids.clone();
+                        if ids.is_empty() {
+                            return;
+                        }
+                        if let Some(scene) = app_state.active_scene_mut() {
+                            for id in ids {
+                                if let Some(ss) = scene.find_source_mut(id) {
+                                    let currently_locked = ss.resolve_locked();
+                                    ss.overrides.locked = Some(!currently_locked);
+                                }
+                            }
+                        }
+                        app_state.mark_dirty();
+                        return;
+                    }
+                }
+
+                // DEL / Backspace deletes selected sources.
                 // Skip if egui has keyboard focus (text fields, rename, etc.).
                 if matches!(key_code, KeyCode::Delete | KeyCode::Backspace) {
                     let egui_wants_input = self
@@ -651,20 +1011,27 @@ impl ApplicationHandler for AppManager {
                         {
                             return;
                         }
-                        if let Some(src_id) = app_state.selected_source_id() {
-                            // Scene selection → remove from active scene only.
+                        if !app_state.selected_source_ids.is_empty() {
+                            let ids = app_state.selected_source_ids.clone();
                             if let Some(scene_id) = app_state.active_scene_id {
                                 let cmd_tx = app_state.command_tx.clone();
-                                crate::ui::sources_panel::remove_source_from_scene(
-                                    &mut app_state,
-                                    &cmd_tx,
-                                    scene_id,
-                                    src_id,
-                                );
+                                for id in ids {
+                                    crate::ui::sources_panel::remove_source_from_scene(
+                                        &mut app_state,
+                                        &cmd_tx,
+                                        scene_id,
+                                        id,
+                                    );
+                                }
                             }
-                        } else if let Some(src_id) = app_state.selected_library_source_id {
+                            app_state.deselect_all();
+                        } else if let Some(src_id) = app_state.selected_library_source_id
+                        {
                             // Library selection → cascade delete.
-                            crate::ui::library_panel::delete_source_cascade(&mut app_state, src_id);
+                            crate::ui::library_panel::delete_source_cascade(
+                                &mut app_state,
+                                src_id,
+                            );
                         }
                         return;
                     }

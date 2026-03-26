@@ -159,6 +159,8 @@ pub struct AppState {
     /// Pre-frame snapshot for undo. Captured at the start of each UI frame
     /// so `mark_dirty()` can push it as the undo point.
     pub(crate) frame_snapshot: Option<UndoSnapshot>,
+    /// Timestamp of the last arrow-key nudge, for batching undo snapshots.
+    pub last_nudge_time: Option<std::time::Instant>,
 }
 
 impl Default for AppState {
@@ -200,6 +202,7 @@ impl Default for AppState {
             set_preview_zoom_100: false,
             in_continuous_edit: false,
             frame_snapshot: None,
+            last_nudge_time: None,
         }
     }
 }

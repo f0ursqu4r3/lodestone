@@ -210,14 +210,11 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopStream);
             state.stream_status = StreamStatus::Offline;
         } else {
-            let _ = tx.try_send(crate::gstreamer::GstCommand::UpdateEncoder(
-                encoder_config_from_settings(state),
-            ));
-            let config = crate::gstreamer::commands::StreamConfig {
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StartStream {
                 destination: crate::gstreamer::StreamDestination::Twitch,
                 stream_key: state.settings.stream.stream_key.clone(),
-            };
-            let _ = tx.try_send(crate::gstreamer::GstCommand::StartStream(config));
+                encoder_config: encoder_config_from_settings(state),
+            });
             state.stream_status = StreamStatus::Live {
                 uptime_secs: 0.0,
                 bitrate_kbps: 0.0,
@@ -298,12 +295,10 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
                 .unwrap_or(0);
             let filename = format!("lodestone-{timestamp}.mkv");
             let path = video_dir.join(filename);
-            let _ = tx.try_send(crate::gstreamer::GstCommand::UpdateEncoder(
-                encoder_config_from_settings(state),
-            ));
             let _ = tx.try_send(crate::gstreamer::GstCommand::StartRecording {
                 path: path.clone(),
                 format: crate::gstreamer::RecordingFormat::Mkv,
+                encoder_config: encoder_config_from_settings(state),
             });
             state.recording_status = RecordingStatus::Recording { path };
         }

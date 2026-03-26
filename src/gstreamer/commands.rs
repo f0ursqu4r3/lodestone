@@ -36,14 +36,18 @@ impl Default for AudioEncoderConfig {
 /// Commands sent from the UI thread to the GStreamer thread.
 #[derive(Debug)]
 pub enum GstCommand {
-    StartStream(StreamConfig),
+    StartStream {
+        destination: StreamDestination,
+        stream_key: String,
+        encoder_config: EncoderConfig,
+    },
     StopStream,
     StartRecording {
         path: PathBuf,
         format: RecordingFormat,
+        encoder_config: EncoderConfig,
     },
     StopRecording,
-    UpdateEncoder(EncoderConfig),
     SetAudioDevice {
         source: AudioSourceKind,
         device_uid: String,
@@ -206,13 +210,6 @@ impl StreamDestination {
             Self::CustomRtmp { url } => url,
         }
     }
-}
-
-/// Stream output configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamConfig {
-    pub destination: StreamDestination,
-    pub stream_key: String,
 }
 
 /// H.264 encoder settings.

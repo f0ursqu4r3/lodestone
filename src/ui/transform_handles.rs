@@ -11,8 +11,10 @@ const EDGE_SIZE: f32 = 6.0;
 const CORNER_HIT_SIZE: f32 = 16.0;
 const EDGE_HIT_SIZE: f32 = 12.0;
 const MIN_SOURCE_SIZE: f32 = 10.0;
-/// How close (in canvas pixels) a value must be to a snap target to snap.
-const SNAP_THRESHOLD: f32 = 8.0;
+/// Outer zone: pull source toward snap target (canvas pixels, scaled by zoom).
+const SNAP_ATTRACT: f32 = 12.0;
+/// Inner zone: resist leaving snap target (canvas pixels, scaled by zoom).
+const SNAP_DEAD: f32 = 4.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum HandlePosition {
@@ -26,6 +28,22 @@ enum HandlePosition {
     BottomRight,
 }
 
+/// Which edge of the source snapped to a target line.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SnapEdgeX {
+    Left,
+    Right,
+    Center,
+}
+
+/// Which edge of the source snapped to a target line.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SnapEdgeY {
+    Top,
+    Bottom,
+    Center,
+}
+
 #[derive(Clone, Debug, Default)]
 enum DragMode {
     #[default]
@@ -33,6 +51,14 @@ enum DragMode {
     Move {
         start_mouse: Pos2,
         start_transform: Transform,
+        /// Unsnapped X position (tracks true mouse intent).
+        raw_x: f32,
+        /// Unsnapped Y position.
+        raw_y: f32,
+        /// Active X snap: (snap line, which edge snapped).
+        snapped_x: Option<(f32, SnapEdgeX)>,
+        /// Active Y snap: (snap line, which edge snapped).
+        snapped_y: Option<(f32, SnapEdgeY)>,
     },
     Resize {
         handle: HandlePosition,
@@ -219,28 +245,26 @@ fn apply_resize(
 
 // ── Snapping ───────────────────────────────────────────────────────────────
 
-/// Snap a value to the nearest target if within threshold. Returns the snapped value.
-fn snap_value(value: f32, targets: &[f32], threshold: f32) -> f32 {
-    let mut best = value;
-    let mut best_dist = threshold;
-    for &t in targets {
-        let dist = (value - t).abs();
-        if dist < best_dist {
-            best = t;
-            best_dist = dist;
-        }
-    }
-    best
+/// Result of snap computation for a single axis.
+struct SnapResult {
+    /// The target X snap line (None = no snap).
+    snapped_x: Option<(f32, SnapEdgeX)>,
+    /// The target Y snap line (None = no snap).
+    snapped_y: Option<(f32, SnapEdgeY)>,
+    /// Delta to apply to transform.x to snap.
+    offset_x: f32,
+    /// Delta to apply to transform.y to snap.
+    offset_y: f32,
 }
 
-/// Apply snapping to a transform. Snaps edges to canvas boundaries, canvas center,
-/// grid lines, and other source edges.
-fn snap_transform(
-    transform: &mut Transform,
+/// Build snap targets and find the closest match for the given transform.
+fn compute_snap(
+    transform: &Transform,
     canvas_size: Vec2,
     grid_size: f32,
     other_sources: &[&Transform],
-) {
+    attract: f32,
+) -> SnapResult {
     let mut x_targets = Vec::new();
     let mut y_targets = Vec::new();
 
@@ -264,7 +288,11 @@ fn snap_transform(
 
     // Other source edges and centers.
     for other in other_sources {
-        x_targets.extend_from_slice(&[other.x, other.x + other.width, other.x + other.width / 2.0]);
+        x_targets.extend_from_slice(&[
+            other.x,
+            other.x + other.width,
+            other.x + other.width / 2.0,
+        ]);
         y_targets.extend_from_slice(&[
             other.y,
             other.y + other.height,
@@ -272,7 +300,7 @@ fn snap_transform(
         ]);
     }
 
-    // Snap all four edges + center of the source.
+    // Source edges.
     let left = transform.x;
     let right = transform.x + transform.width;
     let center_x = transform.x + transform.width / 2.0;
@@ -280,38 +308,82 @@ fn snap_transform(
     let bottom = transform.y + transform.height;
     let center_y = transform.y + transform.height / 2.0;
 
-    // Find the best snap for X (check left edge, right edge, center).
-    let snap_left = snap_value(left, &x_targets, SNAP_THRESHOLD);
-    let snap_right = snap_value(right, &x_targets, SNAP_THRESHOLD);
-    let snap_cx = snap_value(center_x, &x_targets, SNAP_THRESHOLD);
-
-    let dx_left = (snap_left - left).abs();
-    let dx_right = (snap_right - right).abs();
-    let dx_cx = (snap_cx - center_x).abs();
-
-    if dx_left <= dx_right && dx_left <= dx_cx && dx_left < SNAP_THRESHOLD {
-        transform.x = snap_left;
-    } else if dx_right <= dx_cx && dx_right < SNAP_THRESHOLD {
-        transform.x = snap_right - transform.width;
-    } else if dx_cx < SNAP_THRESHOLD {
-        transform.x = snap_cx - transform.width / 2.0;
+    // Find closest X snap.
+    let mut best_x: Option<(f32, SnapEdgeX, f32)> = None; // (snap_line, edge, distance)
+    let x_edges = [
+        (left, SnapEdgeX::Left),
+        (right, SnapEdgeX::Right),
+        (center_x, SnapEdgeX::Center),
+    ];
+    for &(edge_val, edge_kind) in &x_edges {
+        for &target in &x_targets {
+            let dist = (edge_val - target).abs();
+            if dist < attract {
+                let is_better = best_x.map_or(true, |(_, _, bd)| dist < bd);
+                if is_better {
+                    best_x = Some((target, edge_kind, dist));
+                }
+            }
+        }
     }
 
-    // Find the best snap for Y.
-    let snap_top = snap_value(top, &y_targets, SNAP_THRESHOLD);
-    let snap_bottom = snap_value(bottom, &y_targets, SNAP_THRESHOLD);
-    let snap_cy = snap_value(center_y, &y_targets, SNAP_THRESHOLD);
+    // Find closest Y snap.
+    let mut best_y: Option<(f32, SnapEdgeY, f32)> = None;
+    let y_edges = [
+        (top, SnapEdgeY::Top),
+        (bottom, SnapEdgeY::Bottom),
+        (center_y, SnapEdgeY::Center),
+    ];
+    for &(edge_val, edge_kind) in &y_edges {
+        for &target in &y_targets {
+            let dist = (edge_val - target).abs();
+            if dist < attract {
+                let is_better = best_y.map_or(true, |(_, _, bd)| dist < bd);
+                if is_better {
+                    best_y = Some((target, edge_kind, dist));
+                }
+            }
+        }
+    }
 
-    let dy_top = (snap_top - top).abs();
-    let dy_bottom = (snap_bottom - bottom).abs();
-    let dy_cy = (snap_cy - center_y).abs();
+    // Compute offsets.
+    let (snapped_x, offset_x) = match best_x {
+        Some((line, SnapEdgeX::Left, _)) => (Some((line, SnapEdgeX::Left)), line - left),
+        Some((line, SnapEdgeX::Right, _)) => (Some((line, SnapEdgeX::Right)), line - right),
+        Some((line, SnapEdgeX::Center, _)) => (Some((line, SnapEdgeX::Center)), line - center_x),
+        None => (None, 0.0),
+    };
 
-    if dy_top <= dy_bottom && dy_top <= dy_cy && dy_top < SNAP_THRESHOLD {
-        transform.y = snap_top;
-    } else if dy_bottom <= dy_cy && dy_bottom < SNAP_THRESHOLD {
-        transform.y = snap_bottom - transform.height;
-    } else if dy_cy < SNAP_THRESHOLD {
-        transform.y = snap_cy - transform.height / 2.0;
+    let (snapped_y, offset_y) = match best_y {
+        Some((line, SnapEdgeY::Top, _)) => (Some((line, SnapEdgeY::Top)), line - top),
+        Some((line, SnapEdgeY::Bottom, _)) => (Some((line, SnapEdgeY::Bottom)), line - bottom),
+        Some((line, SnapEdgeY::Center, _)) => (Some((line, SnapEdgeY::Center)), line - center_y),
+        None => (None, 0.0),
+    };
+
+    SnapResult {
+        snapped_x,
+        snapped_y,
+        offset_x,
+        offset_y,
+    }
+}
+
+/// Compute the raw edge position for a given snap edge kind.
+fn raw_edge_x(raw_x: f32, width: f32, edge: SnapEdgeX) -> f32 {
+    match edge {
+        SnapEdgeX::Left => raw_x,
+        SnapEdgeX::Right => raw_x + width,
+        SnapEdgeX::Center => raw_x + width / 2.0,
+    }
+}
+
+/// Compute the raw edge position for a given snap edge kind.
+fn raw_edge_y(raw_y: f32, height: f32, edge: SnapEdgeY) -> f32 {
+    match edge {
+        SnapEdgeY::Top => raw_y,
+        SnapEdgeY::Bottom => raw_y + height,
+        SnapEdgeY::Center => raw_y + height / 2.0,
     }
 }
 
@@ -414,6 +486,7 @@ pub fn draw_transform_handles(
     let primary_down = ui.input(|i| i.pointer.primary_down());
     let primary_released = ui.input(|i| i.pointer.primary_released());
     let shift_held = ui.input(|i| i.modifiers.shift);
+    let alt_held = ui.input(|i| i.modifiers.alt);
     let secondary_clicked = ui.input(|i| i.pointer.secondary_clicked());
 
     // ── Click-to-select / deselect ──
@@ -615,7 +688,7 @@ pub fn draw_transform_handles(
     let mut drag_mode: DragMode = ui.memory(|m| m.data.get_temp(drag_id).unwrap_or_default());
 
     if let Some(mouse_pos) = pointer {
-        match &drag_mode {
+        match &mut drag_mode {
             DragMode::None => {
                 if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open {
                     if let Some(handle) = hit_test_handles(mouse_pos, screen_rect) {
@@ -631,6 +704,10 @@ pub fn draw_transform_handles(
                         drag_mode = DragMode::Move {
                             start_mouse: mouse_pos,
                             start_transform: transform,
+                            raw_x: transform.x,
+                            raw_y: transform.y,
+                            snapped_x: None,
+                            snapped_y: None,
                         };
                     }
                 }
@@ -638,12 +715,117 @@ pub fn draw_transform_handles(
             DragMode::Move {
                 start_mouse,
                 start_transform,
+                raw_x,
+                raw_y,
+                snapped_x,
+                snapped_y,
             } => {
                 let delta = screen_to_canvas(mouse_pos, viewport_rect, canvas_size)
                     - screen_to_canvas(*start_mouse, viewport_rect, canvas_size);
+
+                // 1. Compute raw (unsnapped) position from mouse delta.
+                let new_raw_x = start_transform.x + delta.x;
+                let new_raw_y = start_transform.y + delta.y;
+                *raw_x = new_raw_x;
+                *raw_y = new_raw_y;
+
+                let mut final_x = new_raw_x;
+                let mut final_y = new_raw_y;
+
+                // 2. Apply magnetic snapping if enabled and Alt is not held.
+                let snap_enabled = state.settings.general.snap_to_grid && !alt_held;
+                if snap_enabled {
+                    let grid = state.settings.general.snap_grid_size;
+                    let scale = 1.0; // Will be replaced with 1.0 / zoom in Task 5
+                    let attract = SNAP_ATTRACT * scale;
+                    let dead = SNAP_DEAD * scale;
+
+                    let width = start_transform.width;
+                    let height = start_transform.height;
+
+                    // Collect other source transforms.
+                    let other_transforms: Vec<Transform> = state
+                        .active_scene()
+                        .map(|scene| {
+                            scene
+                                .sources
+                                .iter()
+                                .filter_map(|ss| {
+                                    if ss.source_id == selected_id {
+                                        return None;
+                                    }
+                                    state
+                                        .library
+                                        .iter()
+                                        .find(|s| s.id == ss.source_id)
+                                        .and_then(|lib| {
+                                            if !ss.resolve_visible(lib) {
+                                                return None;
+                                            }
+                                            Some(ss.resolve_transform(lib))
+                                        })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let other_refs: Vec<&Transform> = other_transforms.iter().collect();
+
+                    // Build a raw transform for snap computation.
+                    let raw_transform = Transform::new(new_raw_x, new_raw_y, width, height);
+                    let snap = compute_snap(&raw_transform, canvas_size, grid, &other_refs, attract);
+
+                    // X axis: magnetic two-zone logic.
+                    if let Some((line, edge)) = snapped_x {
+                        // Currently snapped — check dead zone escape.
+                        let raw_edge = raw_edge_x(new_raw_x, width, *edge);
+                        if (raw_edge - *line).abs() > dead {
+                            // Broke free — clear snap.
+                            *snapped_x = None;
+                            final_x = new_raw_x;
+                        } else {
+                            // Stay locked.
+                            final_x = match edge {
+                                SnapEdgeX::Left => *line,
+                                SnapEdgeX::Right => *line - width,
+                                SnapEdgeX::Center => *line - width / 2.0,
+                            };
+                        }
+                    } else {
+                        // Not snapped — check attraction zone.
+                        if let Some((line, edge)) = snap.snapped_x {
+                            *snapped_x = Some((line, edge));
+                            final_x = new_raw_x + snap.offset_x;
+                        }
+                    }
+
+                    // Y axis: magnetic two-zone logic.
+                    if let Some((line, edge)) = snapped_y {
+                        let raw_edge = raw_edge_y(new_raw_y, height, *edge);
+                        if (raw_edge - *line).abs() > dead {
+                            *snapped_y = None;
+                            final_y = new_raw_y;
+                        } else {
+                            final_y = match edge {
+                                SnapEdgeY::Top => *line,
+                                SnapEdgeY::Bottom => *line - height,
+                                SnapEdgeY::Center => *line - height / 2.0,
+                            };
+                        }
+                    } else {
+                        if let Some((line, edge)) = snap.snapped_y {
+                            *snapped_y = Some((line, edge));
+                            final_y = new_raw_y + snap.offset_y;
+                        }
+                    }
+                } else {
+                    // Snapping disabled or Alt held — clear snap state.
+                    *snapped_x = None;
+                    *snapped_y = None;
+                }
+
                 let mut new_transform = *start_transform;
-                new_transform.x = start_transform.x + delta.x;
-                new_transform.y = start_transform.y + delta.y;
+                new_transform.x = final_x;
+                new_transform.y = final_y;
                 if let Some(scene) = state.active_scene_mut()
                     && let Some(ss) = scene.find_source_mut(selected_id)
                 {
@@ -681,54 +863,52 @@ pub fn draw_transform_handles(
             }
         }
 
-        // Apply snapping if enabled and actively dragging.
-        let is_dragging = !matches!(drag_mode, DragMode::None);
-        if is_dragging && state.settings.general.snap_to_grid {
-            let grid = state.settings.general.snap_grid_size;
+        // Draw snap guides when actively snapped during a move.
+        if let DragMode::Move {
+            snapped_x,
+            snapped_y,
+            ..
+        } = &drag_mode
+        {
+            if snapped_x.is_some() || snapped_y.is_some() {
+                // Collect other source transforms for guide drawing.
+                let other_transforms: Vec<Transform> = state
+                    .active_scene()
+                    .map(|scene| {
+                        scene
+                            .sources
+                            .iter()
+                            .filter_map(|ss| {
+                                if ss.source_id == selected_id {
+                                    return None;
+                                }
+                                state
+                                    .library
+                                    .iter()
+                                    .find(|s| s.id == ss.source_id)
+                                    .and_then(|lib| {
+                                        if !ss.resolve_visible(lib) {
+                                            return None;
+                                        }
+                                        Some(ss.resolve_transform(lib))
+                                    })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let other_refs: Vec<&Transform> = other_transforms.iter().collect();
 
-            // Collect resolved transforms for other visible sources in the scene.
-            let other_transforms: Vec<Transform> = state
-                .active_scene()
-                .map(|scene| {
-                    scene
-                        .sources
-                        .iter()
-                        .filter_map(|ss| {
-                            if ss.source_id == selected_id {
-                                return None;
-                            }
-                            state
-                                .library
-                                .iter()
-                                .find(|s| s.id == ss.source_id)
-                                .and_then(|lib| {
-                                    if !ss.resolve_visible(lib) {
-                                        return None;
-                                    }
-                                    Some(ss.resolve_transform(lib))
-                                })
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let other_refs: Vec<&Transform> = other_transforms.iter().collect();
-
-            // Read the current scene override transform, snap it, then write back.
-            let current_transform = state
-                .active_scene()
-                .and_then(|s| s.find_source(selected_id))
-                .and_then(|ss| ss.overrides.transform);
-            if let Some(mut t) = current_transform {
-                snap_transform(&mut t, canvas_size, grid, &other_refs);
-                if let Some(scene) = state.active_scene_mut()
-                    && let Some(ss) = scene.find_source_mut(selected_id)
+                if let Some(t) = state
+                    .active_scene()
+                    .and_then(|s| s.find_source(selected_id))
+                    .and_then(|ss| ss.overrides.transform)
                 {
-                    ss.overrides.transform = Some(t);
+                    draw_snap_guides(ui.painter(), &t, canvas_size, viewport_rect, &other_refs);
                 }
-                draw_snap_guides(ui.painter(), &t, canvas_size, viewport_rect, &other_refs);
             }
         }
 
+        let is_dragging = !matches!(drag_mode, DragMode::None);
         if primary_released && is_dragging {
             state.end_continuous_edit();
             state.mark_dirty();

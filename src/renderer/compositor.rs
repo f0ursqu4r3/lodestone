@@ -230,6 +230,10 @@ pub struct Compositor {
     /// Readback buffer for CPU-side frame access (sized for output resolution).
     readback_buffer: wgpu::Buffer,
 
+    /// Sampler for the preview panel: nearest-neighbor magnification for pixel-sharp
+    /// display when zoomed past 1:1, linear minification for smooth zoom-out.
+    preview_sampler: wgpu::Sampler,
+
     /// Arc-wrapped canvas bind group for the preview panel paint callback.
     canvas_bind_group: Arc<wgpu::BindGroup>,
     /// Arc-wrapped preview pipeline for the preview panel paint callback.
@@ -459,13 +463,25 @@ impl Compositor {
             cache: None,
         });
 
+        // ---- Preview sampler (nearest mag for pixel-sharp zoom-in) ----------
+        let preview_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("compositor_preview_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
         // ---- Bind groups ---------------------------------------------------
         let canvas_bind_group = create_texture_bind_group(
             device,
             "canvas_preview_bind_group",
             &texture_bind_group_layout,
             &canvas_view,
-            &sampler,
+            &preview_sampler,
         );
 
         // Scale pass bind group: samples canvas_texture → output_texture.
@@ -494,6 +510,7 @@ impl Compositor {
             texture_bind_group_layout,
             source_layers: HashMap::new(),
             readback_buffer,
+            preview_sampler,
             canvas_bind_group: Arc::new(canvas_bind_group),
             canvas_pipeline: Arc::new(canvas_pipeline),
         }
@@ -794,13 +811,13 @@ impl Compositor {
                 create_render_texture(device, "compositor_canvas", new_cw, new_ch);
             self.canvas_view = self.canvas_texture.create_view(&Default::default());
 
-            // Recreate the preview bind group (points at canvas_view).
+            // Recreate the preview bind group (points at canvas_view, uses preview sampler).
             let canvas_bind_group = create_texture_bind_group(
                 device,
                 "canvas_preview_bind_group",
                 &self.texture_bind_group_layout,
                 &self.canvas_view,
-                &self.sampler,
+                &self.preview_sampler,
             );
             self.canvas_bind_group = Arc::new(canvas_bind_group);
         }

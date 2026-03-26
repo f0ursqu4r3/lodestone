@@ -12,10 +12,10 @@ use crate::ui::theme::{RADIUS_SM, RED_GLOW, RED_LIVE, TEXT_MUTED};
 
 /// Discrete zoom levels used for scroll-wheel stepping.
 const ZOOM_LEVELS: &[f32] = &[
-    0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0,
+    0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0,
 ];
 const ZOOM_MIN: f32 = 0.1;
-const ZOOM_MAX: f32 = 8.0;
+const ZOOM_MAX: f32 = 4.0;
 
 // ── Per-session zoom/pan state (stored in egui temp memory) ──────────────────
 
@@ -87,12 +87,18 @@ impl CallbackTrait for PreviewCallback {
         // points to physical pixels ourselves.  This avoids egui's viewport
         // clamping which distorts the fullscreen quad when the rect extends
         // beyond the window.
+        //
+        // Clamp dimensions to max_texture_dimension_2d (8192) to avoid wgpu
+        // validation errors on high-DPI displays at high zoom. The scissor
+        // rect clips the visible output regardless.
         let ppp = info.pixels_per_point;
         let vp_x = self.zoomed_rect.min.x * ppp;
         let vp_y = self.zoomed_rect.min.y * ppp;
-        let vp_w = self.zoomed_rect.width() * ppp;
-        let vp_h = self.zoomed_rect.height() * ppp;
-        render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
+        let vp_w = (self.zoomed_rect.width() * ppp).min(8192.0);
+        let vp_h = (self.zoomed_rect.height() * ppp).min(8192.0);
+        if vp_w > 0.0 && vp_h > 0.0 {
+            render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
+        }
 
         render_pass.set_pipeline(&resources.pipeline);
         render_pass.set_bind_group(0, &*resources.bind_group, &[]);

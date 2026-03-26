@@ -159,26 +159,18 @@ fn zoom_level_down(current: f32) -> f32 {
     ZOOM_MIN
 }
 
-/// Clamp pan so at least 10% of canvas remains visible in the panel.
+/// Clamp pan so at most 90% of the canvas can be off-screen in any direction,
+/// keeping at least 10% visible. Expressed in canvas-space coordinates.
 fn clamp_pan(
     pan: egui::Vec2,
-    panel: egui::Rect,
+    _panel: egui::Rect,
     canvas_w: u32,
     canvas_h: u32,
-    zoom: f32,
+    _zoom: f32,
 ) -> egui::Vec2 {
-    let base = letterboxed_rect(panel, canvas_w, canvas_h);
-    let base_size = base.size();
-    let zoomed_size = base_size * zoom;
-    // Allow panning until only 10% of the canvas is visible
-    let max_offset_x =
-        (zoomed_size.x * 0.9 + panel.width() * 0.5) / (zoomed_size.x / canvas_w as f32);
-    let max_offset_y =
-        (zoomed_size.y * 0.9 + panel.height() * 0.5) / (zoomed_size.y / canvas_h as f32);
-    egui::Vec2::new(
-        pan.x.clamp(-max_offset_x, max_offset_x),
-        pan.y.clamp(-max_offset_y, max_offset_y),
-    )
+    let max_x = canvas_w as f32 * 0.45;
+    let max_y = canvas_h as f32 * 0.45;
+    egui::Vec2::new(pan.x.clamp(-max_x, max_x), pan.y.clamp(-max_y, max_y))
 }
 
 // ── Canvas-to-screen mapping (mirrors transform_handles) ────────────────────
@@ -849,55 +841,80 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
         .input(|i| i.pointer.hover_pos())
         .is_some_and(|p| panel_rect.contains(p));
 
-    // ── Scroll-wheel zoom (cursor-centered) ──
+    // ── Scroll: pan (plain) or zoom (Cmd+scroll) ──
+    //
+    // On macOS, trackpad two-finger scroll generates `raw_scroll_delta`.
+    // Plain scroll → pan (Figma/Photoshop convention).
+    // Cmd+scroll   → discrete zoom, cursor-centered.
 
     if cursor_in_panel {
-        let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
-        if scroll_delta.abs() > 0.5 {
-            let old_zoom = view.zoom;
-            let new_zoom = if scroll_delta > 0.0 {
-                zoom_level_up(old_zoom)
-            } else {
-                zoom_level_down(old_zoom)
-            };
+        let (scroll_delta_x, scroll_delta_y, cmd_held) = ui.input(|i| {
+            (
+                i.raw_scroll_delta.x,
+                i.raw_scroll_delta.y,
+                i.modifiers.command,
+            )
+        });
 
-            // Cursor-centered zoom: keep the canvas point under the cursor fixed
-            if let Some(cursor_pos) = ui.input(|i| i.pointer.hover_pos()) {
-                let old_viewport = zoomed_viewport(
+        if cmd_held {
+            // Cmd+scroll → zoom (cursor-centered, discrete steps)
+            if scroll_delta_y.abs() > 0.5 {
+                let old_zoom = view.zoom;
+                let new_zoom = if scroll_delta_y > 0.0 {
+                    zoom_level_up(old_zoom)
+                } else {
+                    zoom_level_down(old_zoom)
+                };
+
+                if let Some(cursor_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                    let old_viewport = zoomed_viewport(
+                        panel_rect,
+                        preview_width,
+                        preview_height,
+                        old_zoom,
+                        view.pan_offset,
+                    );
+                    let canvas_pos =
+                        screen_to_canvas(cursor_pos, old_viewport, preview_width, preview_height);
+
+                    view.zoom = new_zoom;
+
+                    let new_viewport = zoomed_viewport(
+                        panel_rect,
+                        preview_width,
+                        preview_height,
+                        new_zoom,
+                        view.pan_offset,
+                    );
+                    let new_screen = egui::Pos2::new(
+                        new_viewport.min.x
+                            + canvas_pos.x * new_viewport.width() / preview_width as f32,
+                        new_viewport.min.y
+                            + canvas_pos.y * new_viewport.height() / preview_height as f32,
+                    );
+
+                    let diff = cursor_pos - new_screen;
+                    let pixels_per_canvas =
+                        (base_rect.width() * new_zoom) / preview_width as f32;
+                    view.pan_offset.x += diff.x / pixels_per_canvas;
+                    view.pan_offset.y += diff.y / pixels_per_canvas;
+                } else {
+                    view.zoom = new_zoom;
+                }
+
+                view.pan_offset = clamp_pan(
+                    view.pan_offset,
                     panel_rect,
                     preview_width,
                     preview_height,
-                    old_zoom,
-                    view.pan_offset,
+                    view.zoom,
                 );
-                let canvas_pos =
-                    screen_to_canvas(cursor_pos, old_viewport, preview_width, preview_height);
-
-                view.zoom = new_zoom;
-
-                // Recompute viewport with new zoom, find where canvas_pos ended up
-                let new_viewport = zoomed_viewport(
-                    panel_rect,
-                    preview_width,
-                    preview_height,
-                    new_zoom,
-                    view.pan_offset,
-                );
-                let new_screen = egui::Pos2::new(
-                    new_viewport.min.x + canvas_pos.x * new_viewport.width() / preview_width as f32,
-                    new_viewport.min.y
-                        + canvas_pos.y * new_viewport.height() / preview_height as f32,
-                );
-
-                // Adjust pan to compensate
-                let diff = cursor_pos - new_screen;
-                let pixels_per_canvas = (base_rect.width() * new_zoom) / preview_width as f32;
-                view.pan_offset.x += diff.x / pixels_per_canvas;
-                view.pan_offset.y += diff.y / pixels_per_canvas;
-            } else {
-                view.zoom = new_zoom;
             }
-
+        } else if scroll_delta_x.abs() > 0.5 || scroll_delta_y.abs() > 0.5 {
+            // Plain scroll → pan (same delta-to-canvas conversion as drag pan)
+            let pixels_per_canvas = (base_rect.width() * view.zoom) / preview_width as f32;
+            view.pan_offset.x += scroll_delta_x / pixels_per_canvas;
+            view.pan_offset.y += scroll_delta_y / pixels_per_canvas;
             view.pan_offset = clamp_pan(
                 view.pan_offset,
                 panel_rect,

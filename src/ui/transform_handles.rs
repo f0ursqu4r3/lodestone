@@ -612,6 +612,7 @@ pub fn draw_transform_handles(
     panel_rect: Rect,
     canvas_size: Vec2,
     zoom: f32,
+    space_held: bool,
 ) {
     use crate::scene::SourceId;
 
@@ -621,7 +622,7 @@ pub fn draw_transform_handles(
         d.get_temp(egui::Id::new("dock_drag_active"))
             .unwrap_or(false)
     });
-    if dock_drag_active {
+    if dock_drag_active || space_held {
         return;
     }
 

@@ -1017,12 +1017,14 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     ui.ctx().data_mut(|d| d.insert_temp(view_id, view.clone()));
 
     // ── GPU paint callback ──
-    // Render into the zoomed rect, but clip to panel_rect so the quad doesn't
-    // draw outside the panel when zoomed in.
-    // Use `painter_at(panel_rect)` so the clip_rect is the panel boundary.
-
+    // Render the preview texture at the base letterboxed rect (not zoomed).
+    // wgpu viewports can't have negative coordinates on Metal, so passing the
+    // zoomed rect (which can extend beyond the window) would cause distortion.
+    // The zoom/pan is applied to all UI overlays (handles, grid, guides) via
+    // preview_rect, giving the user precise placement at any zoom level.
+    let base_preview = letterboxed_rect(panel_rect, preview_width, preview_height);
     ui.painter_at(panel_rect)
-        .add(Callback::new_paint_callback(preview_rect, PreviewCallback));
+        .add(Callback::new_paint_callback(base_preview, PreviewCallback));
 
     // ── Grid / Guides / Thirds / Safe Zones ──
     // Rendered after the preview texture but before transform handles and overlays.
@@ -1154,6 +1156,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
         panel_rect,
         canvas_size,
         view.zoom,
+        view.space_held,
     );
 
     // Allocate the space so egui knows it's used

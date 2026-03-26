@@ -1,6 +1,7 @@
 use egui::Ui;
 
 use crate::settings::RecordSettings;
+use crate::ui::widgets::composite;
 
 pub(super) fn draw(
     ui: &mut Ui,
@@ -75,25 +76,21 @@ pub(super) fn draw(
 
     ui.separator();
 
-    // Encoder, quality, FPS — reuse shared helpers from stream.rs
+    // Encoder, quality, FPS — use widget library
     ui.label("Encoder");
-    if super::stream::draw_encoder_dropdown(ui, &mut settings.encoder, available_encoders) {
+    if composite::encoder_dropdown(ui, &mut settings.encoder, available_encoders) {
         changed = true;
     }
 
     ui.add_space(8.0);
     ui.label("Quality");
-    if super::stream::draw_quality_presets(
-        ui,
-        &mut settings.quality_preset,
-        &mut settings.bitrate_kbps,
-    ) {
+    if composite::quality_presets(ui, &mut settings.quality_preset, &mut settings.bitrate_kbps) {
         changed = true;
     }
 
     ui.add_space(8.0);
     ui.label("FPS");
-    if super::stream::draw_fps_toggles(ui, &mut settings.fps) {
+    if composite::fps_toggles(ui, &mut settings.fps) {
         changed = true;
     }
 

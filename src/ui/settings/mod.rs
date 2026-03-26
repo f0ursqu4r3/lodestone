@@ -217,7 +217,10 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
             ui.set_width(ui.available_width() - 24.0);
             match category {
                 SettingsCategory::General => general::draw(ui, state),
-                SettingsCategory::StreamOutput => stream::draw(ui, &mut state.settings.stream),
+                SettingsCategory::StreamOutput => {
+                    let available_encoders = state.available_encoders.clone();
+                    stream::draw(ui, &mut state.settings.stream, &available_encoders)
+                }
                 SettingsCategory::Audio => audio::draw(ui, state),
                 SettingsCategory::Video => video::draw(ui, &mut state.settings.video, state.detected_resolution),
                 SettingsCategory::Hotkeys => hotkeys::draw(ui, &mut state.settings.hotkeys),

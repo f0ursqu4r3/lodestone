@@ -1,4 +1,4 @@
-use crate::gstreamer::StreamDestination;
+use crate::gstreamer::{EncoderType, QualityPreset, RecordingFormat, StreamDestination};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,8 @@ pub struct AppSettings {
     pub general: GeneralSettings,
     #[serde(default)]
     pub stream: StreamSettings,
+    #[serde(default)]
+    pub record: RecordSettings,
     #[serde(default)]
     pub audio: AudioSettings,
     #[serde(default)]
@@ -130,11 +132,10 @@ impl Default for GeneralSettings {
 pub struct StreamSettings {
     pub stream_key: String,
     pub destination: StreamDestination,
-    pub encoder: String,
-    pub width: u32,
-    pub height: u32,
-    pub fps: u32,
+    pub encoder: EncoderType,
+    pub quality_preset: QualityPreset,
     pub bitrate_kbps: u32,
+    pub fps: u32,
 }
 
 impl Default for StreamSettings {
@@ -142,12 +143,57 @@ impl Default for StreamSettings {
         Self {
             stream_key: String::new(),
             destination: StreamDestination::Twitch,
-            encoder: "x264".to_string(),
-            width: 1920,
-            height: 1080,
-            fps: 30,
+            encoder: EncoderType::H264VideoToolbox,
+            quality_preset: QualityPreset::Medium,
             bitrate_kbps: 4500,
+            fps: 30,
         }
+    }
+}
+
+/// Recording output settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecordSettings {
+    pub format: RecordingFormat,
+    pub output_folder: PathBuf,
+    pub filename_template: String,
+    pub encoder: EncoderType,
+    pub quality_preset: QualityPreset,
+    pub bitrate_kbps: u32,
+    pub fps: u32,
+}
+
+impl Default for RecordSettings {
+    fn default() -> Self {
+        Self {
+            format: RecordingFormat::Mkv,
+            output_folder: dirs::video_dir()
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| PathBuf::from(".")),
+            filename_template: "{date}_{time}_{scene}".to_string(),
+            encoder: EncoderType::H264VideoToolbox,
+            quality_preset: QualityPreset::High,
+            bitrate_kbps: 8000,
+            fps: 30,
+        }
+    }
+}
+
+impl RecordSettings {
+    /// Expand a filename template, replacing tokens with actual values.
+    pub fn expand_template(template: &str, scene_name: &str, counter: u32) -> String {
+        let now = chrono::Local::now();
+        let sanitized_scene: String = scene_name
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' })
+            .collect();
+
+        template
+            .replace("{date}", &now.format("%Y-%m-%d").to_string())
+            .replace("{time}", &now.format("%H-%M-%S").to_string())
+            .replace("{scene}", &sanitized_scene)
+            .replace("{n}", &counter.to_string())
     }
 }
 
@@ -276,8 +322,6 @@ impl AppSettings {
             let mut settings = Self::default();
             settings.video.base_resolution = res_str.clone();
             settings.video.output_resolution = res_str;
-            settings.stream.width = w;
-            settings.stream.height = h;
             settings
         } else {
             Self::default()
@@ -311,6 +355,7 @@ pub fn scenes_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gstreamer::{EncoderType, QualityPreset};
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -355,8 +400,8 @@ controls_panel_open = true
             parsed.stream.destination,
             StreamDestination::Twitch
         ));
-        assert_eq!(parsed.stream.width, 1920);
-        assert_eq!(parsed.stream.height, 1080);
+        assert_eq!(parsed.stream.encoder, EncoderType::H264VideoToolbox);
+        assert_eq!(parsed.stream.quality_preset, QualityPreset::Medium);
         assert_eq!(parsed.stream.fps, 30);
     }
 
@@ -385,8 +430,6 @@ controls_panel_open = true
         let settings = AppSettings::load_or_detect(&path, Some((3360, 1890)));
         assert_eq!(settings.video.base_resolution, "3360x1890");
         assert_eq!(settings.video.output_resolution, "3360x1890");
-        assert_eq!(settings.stream.width, 3360);
-        assert_eq!(settings.stream.height, 1890);
     }
 
     #[test]
@@ -409,5 +452,45 @@ controls_panel_open = true
         // No file, no detection — should fall back to defaults
         let settings = AppSettings::load_or_detect(&path, None);
         assert_eq!(settings.video.base_resolution, "1920x1080");
+    }
+
+    #[test]
+    fn filename_template_basic_expansion() {
+        let result = RecordSettings::expand_template("{date}_{time}_{scene}", "Gaming", 1);
+        assert!(result.contains("Gaming"));
+        assert!(result.contains('_'));
+        assert!(!result.contains('{'));
+    }
+
+    #[test]
+    fn filename_template_scene_sanitization() {
+        let result = RecordSettings::expand_template("{scene}", "My Scene/Name", 1);
+        assert_eq!(result, "My_Scene_Name");
+    }
+
+    #[test]
+    fn filename_template_counter() {
+        let r1 = RecordSettings::expand_template("{n}", "scene", 1);
+        let r3 = RecordSettings::expand_template("{n}", "scene", 3);
+        assert_eq!(r1, "1");
+        assert_eq!(r3, "3");
+    }
+
+    #[test]
+    fn record_settings_default() {
+        let settings = RecordSettings::default();
+        assert_eq!(settings.format, RecordingFormat::Mkv);
+        assert_eq!(settings.filename_template, "{date}_{time}_{scene}");
+        assert_eq!(settings.quality_preset, QualityPreset::High);
+        assert_eq!(settings.fps, 30);
+    }
+
+    #[test]
+    fn record_settings_roundtrip() {
+        let settings = RecordSettings::default();
+        let toml_str = toml::to_string(&settings).unwrap();
+        let parsed: RecordSettings = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.format, settings.format);
+        assert_eq!(parsed.filename_template, settings.filename_template);
     }
 }

@@ -209,15 +209,16 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
         if is_live {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopStream);
             state.stream_status = StreamStatus::Offline;
+        } else if let Some(error_msg) = validate_stream_settings(state) {
+            state.active_errors.push(crate::gstreamer::GstError::EncodeFailure {
+                message: error_msg,
+            });
         } else {
-            let _ = tx.try_send(crate::gstreamer::GstCommand::UpdateEncoder(
-                encoder_config_from_settings(state),
-            ));
-            let config = crate::gstreamer::StreamConfig {
-                destination: crate::gstreamer::StreamDestination::Twitch,
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StartStream {
+                destination: state.settings.stream.destination.clone(),
                 stream_key: state.settings.stream.stream_key.clone(),
-            };
-            let _ = tx.try_send(crate::gstreamer::GstCommand::StartStream(config));
+                encoder_config: stream_encoder_config(state),
+            });
             state.stream_status = StreamStatus::Live {
                 uptime_secs: 0.0,
                 bitrate_kbps: 0.0,
@@ -270,13 +271,27 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
 
     let rec_color = Color32::from_rgb(0xCC, 0x33, 0x33);
 
-    let (label, fill, text_color) = if is_recording {
-        ("REC", rec_color, Color32::WHITE)
+    let label = if is_recording {
+        if let Some(started) = state.recording_started_at {
+            let elapsed = started.elapsed().as_secs();
+            let h = elapsed / 3600;
+            let m = (elapsed % 3600) / 60;
+            let s = elapsed % 60;
+            format!("REC {:02}:{:02}:{:02}", h, m, s)
+        } else {
+            "REC".to_string()
+        }
     } else {
-        ("Record", Color32::TRANSPARENT, rec_color)
+        "Record".to_string()
     };
 
-    let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
+    let (fill, text_color) = if is_recording {
+        (rec_color, Color32::WHITE)
+    } else {
+        (Color32::TRANSPARENT, rec_color)
+    };
+
+    let btn = egui::Button::new(RichText::new(&label).size(11.0).strong().color(text_color))
         .fill(fill)
         .stroke(egui::Stroke::new(1.0, rec_color))
         .corner_radius(RADIUS_SM)
@@ -288,37 +303,95 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
         if is_recording {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopRecording);
             state.recording_status = RecordingStatus::Idle;
+            state.recording_started_at = None;
         } else {
-            let video_dir = dirs::video_dir()
-                .or_else(dirs::home_dir)
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let filename = format!("lodestone-{timestamp}.mkv");
-            let path = video_dir.join(filename);
-            let _ = tx.try_send(crate::gstreamer::GstCommand::UpdateEncoder(
-                encoder_config_from_settings(state),
-            ));
+            state.recording_counter += 1;
+            let scene_name = "Main"; // TODO: get active scene name
+            let filename = crate::settings::RecordSettings::expand_template(
+                &state.settings.record.filename_template,
+                scene_name,
+                state.recording_counter,
+            );
+            let ext = match state.settings.record.format {
+                crate::gstreamer::RecordingFormat::Mkv => "mkv",
+                crate::gstreamer::RecordingFormat::Mp4 => "mp4",
+            };
+            let folder = if state.settings.record.output_folder.exists() {
+                state.settings.record.output_folder.clone()
+            } else {
+                dirs::video_dir()
+                    .or_else(dirs::home_dir)
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+            };
+            let path = folder.join(format!("{filename}.{ext}"));
+
             let _ = tx.try_send(crate::gstreamer::GstCommand::StartRecording {
                 path: path.clone(),
-                format: crate::gstreamer::RecordingFormat::Mkv,
+                format: state.settings.record.format,
+                encoder_config: record_encoder_config(state),
             });
             state.recording_status = RecordingStatus::Recording { path };
+            state.recording_started_at = Some(std::time::Instant::now());
         }
+    }
+
+    // Request repaint for timer when recording.
+    if is_recording {
+        ui.ctx().request_repaint();
     }
 }
 
-/// Build an [`EncoderConfig`] from the current app settings.
-///
-/// Uses the output resolution from video settings and bitrate/fps from stream settings.
-fn encoder_config_from_settings(state: &AppState) -> EncoderConfig {
+/// Validate stream settings before starting. Returns error message if invalid.
+fn validate_stream_settings(state: &AppState) -> Option<String> {
+    match &state.settings.stream.destination {
+        crate::gstreamer::StreamDestination::Twitch
+        | crate::gstreamer::StreamDestination::YouTube => {
+            if state.settings.stream.stream_key.trim().is_empty() {
+                return Some("Stream key is required".to_string());
+            }
+        }
+        crate::gstreamer::StreamDestination::CustomRtmp { url } => {
+            if url.trim().is_empty() {
+                return Some("RTMP URL is required".to_string());
+            }
+            if !url.starts_with("rtmp://") && !url.starts_with("rtmps://") {
+                return Some("RTMP URL must start with rtmp:// or rtmps://".to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Build an [`EncoderConfig`] for streaming from the current app settings.
+fn stream_encoder_config(state: &AppState) -> EncoderConfig {
     let (width, height) = parse_resolution(&state.settings.video.output_resolution);
+    let bitrate = if state.settings.stream.quality_preset == crate::gstreamer::QualityPreset::Custom {
+        state.settings.stream.bitrate_kbps
+    } else {
+        state.settings.stream.quality_preset.bitrate_kbps()
+    };
     EncoderConfig {
         width,
         height,
         fps: state.settings.stream.fps,
-        bitrate_kbps: state.settings.stream.bitrate_kbps,
+        bitrate_kbps: bitrate,
+        encoder_type: state.settings.stream.encoder,
+    }
+}
+
+/// Build an [`EncoderConfig`] for recording from the current app settings.
+fn record_encoder_config(state: &AppState) -> EncoderConfig {
+    let (width, height) = parse_resolution(&state.settings.video.output_resolution);
+    let bitrate = if state.settings.record.quality_preset == crate::gstreamer::QualityPreset::Custom {
+        state.settings.record.bitrate_kbps
+    } else {
+        state.settings.record.quality_preset.bitrate_kbps()
+    };
+    EncoderConfig {
+        width,
+        height,
+        fps: state.settings.record.fps,
+        bitrate_kbps: bitrate,
+        encoder_type: state.settings.record.encoder,
     }
 }

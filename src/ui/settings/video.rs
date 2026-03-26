@@ -34,20 +34,20 @@ fn build_resolution_options(
         .collect();
 
     // Insert detected resolution in sorted position if not already a preset
-    if let Some((w, h)) = detected {
-        if !presets.contains(&(w, h)) {
-            let value = format!("{w}x{h}");
-            let label = format!("{value} (Display)");
-            let pixels = w as u64 * h as u64;
-            let pos = options
-                .iter()
-                .position(|o| {
-                    let (ow, oh) = crate::renderer::compositor::parse_resolution(&o.value);
-                    (ow as u64 * oh as u64) > pixels
-                })
-                .unwrap_or(options.len());
-            options.insert(pos, ResolutionOption { value, label });
-        }
+    if let Some((w, h)) = detected
+        && !presets.contains(&(w, h))
+    {
+        let value = format!("{w}x{h}");
+        let label = format!("{value} (Display)");
+        let pixels = w as u64 * h as u64;
+        let pos = options
+            .iter()
+            .position(|o| {
+                let (ow, oh) = crate::renderer::compositor::parse_resolution(&o.value);
+                (ow as u64 * oh as u64) > pixels
+            })
+            .unwrap_or(options.len());
+        options.insert(pos, ResolutionOption { value, label });
     }
 
     options

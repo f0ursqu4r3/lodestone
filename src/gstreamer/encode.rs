@@ -3,7 +3,7 @@ use gstreamer::prelude::*;
 use gstreamer_app::AppSrc;
 use std::path::Path;
 
-use super::commands::{AudioEncoderConfig, EncoderConfig, RecordingFormat};
+use super::commands::{AudioEncoderConfig, EncoderConfig, EncoderType, RecordingFormat};
 
 /// Handles for the streaming pipeline (mixed audio via audiomixer).
 pub struct StreamPipelineHandles {
@@ -40,6 +40,43 @@ fn make_audio_appsrc_caps(config: &AudioEncoderConfig) -> gstreamer::Caps {
         .build()
 }
 
+/// Create a GStreamer H.264 encoder element for the given encoder type.
+fn make_encoder(encoder_type: EncoderType, bitrate_kbps: u32) -> Result<gstreamer::Element> {
+    match encoder_type {
+        EncoderType::H264VideoToolbox => gstreamer::ElementFactory::make("vtenc_h264")
+            .name("encoder")
+            .property("bitrate", bitrate_kbps)
+            .property("realtime", true)
+            .property("allow-frame-reordering", false)
+            .build()
+            .context("Failed to create vtenc_h264"),
+        EncoderType::H264x264 => {
+            let el = gstreamer::ElementFactory::make("x264enc")
+                .name("encoder")
+                .property("bitrate", bitrate_kbps)
+                .build()
+                .context("Failed to create x264enc")?;
+            el.set_property_from_str("tune", "zerolatency");
+            Ok(el)
+        }
+        EncoderType::H264Nvenc => gstreamer::ElementFactory::make("nvh264enc")
+            .name("encoder")
+            .property("bitrate", bitrate_kbps)
+            .build()
+            .context("Failed to create nvh264enc"),
+        EncoderType::H264Amf => gstreamer::ElementFactory::make("amfh264enc")
+            .name("encoder")
+            .property("bitrate", bitrate_kbps)
+            .build()
+            .context("Failed to create amfh264enc"),
+        EncoderType::H264Qsv => gstreamer::ElementFactory::make("qsvh264enc")
+            .name("encoder")
+            .property("bitrate", bitrate_kbps)
+            .build()
+            .context("Failed to create qsvh264enc"),
+    }
+}
+
 /// Build the common encode chain: appsrc → videoconvert → vtenc_h264 → h264parse.
 /// Returns (pipeline, appsrc, last_element_name) so callers can link the output.
 fn build_encode_chain(
@@ -61,21 +98,7 @@ fn build_encode_chain(
         .build()
         .context("Failed to create videoconvert")?;
 
-    // Use VideoToolbox hardware encoder on macOS, fall back to x264enc
-    let encoder = gstreamer::ElementFactory::make("vtenc_h264")
-        .name("encoder")
-        .property("bitrate", config.bitrate_kbps)
-        .property("realtime", true)
-        .property("allow-frame-reordering", false)
-        .build()
-        .or_else(|_| {
-            gstreamer::ElementFactory::make("x264enc")
-                .name("encoder")
-                .property("bitrate", config.bitrate_kbps)
-                .property("tune", 0x04u32) // zerolatency
-                .build()
-                .context("Failed to create encoder (tried vtenc_h264 and x264enc)")
-        })?;
+    let encoder = make_encoder(config.encoder_type, config.bitrate_kbps)?;
 
     let parser = gstreamer::ElementFactory::make("h264parse")
         .name("parser")
@@ -410,6 +433,16 @@ pub fn build_record_pipeline_with_audio(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn make_encoder_creates_element_for_available_type() {
+        gstreamer::init().unwrap();
+        let encoder = super::make_encoder(
+            crate::gstreamer::EncoderType::H264x264,
+            4500,
+        );
+        assert!(encoder.is_ok(), "x264enc should be available");
+    }
 
     #[test]
     fn build_stream_with_audio_creates_valid_pipeline() {

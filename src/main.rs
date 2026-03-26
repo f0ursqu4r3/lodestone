@@ -1391,6 +1391,13 @@ impl ApplicationHandler for AppManager {
                 let mut app_state = self.state.lock().expect("lock AppState");
                 app_state.available_audio_devices = devices;
             }
+
+            // Poll encoder list (populated once at startup)
+            if channels.encoders_rx.has_changed().unwrap_or(false) {
+                let encoders = channels.encoders_rx.borrow().clone();
+                let mut app_state = self.state.lock().expect("lock AppState");
+                app_state.available_encoders = encoders;
+            }
         }
 
         // Process native menu events

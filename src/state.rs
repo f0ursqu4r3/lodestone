@@ -149,6 +149,12 @@ pub struct AppState {
     pub capture_active: bool,
     pub active_errors: Vec<GstError>,
     pub recording_status: RecordingStatus,
+    /// Encoders detected as available at startup by the GStreamer thread.
+    pub available_encoders: Vec<crate::gstreamer::AvailableEncoder>,
+    /// Timestamp when the current recording started, for elapsed-time display.
+    pub recording_started_at: Option<std::time::Instant>,
+    /// Monotonically incrementing counter used to generate unique recording filenames.
+    pub recording_counter: u32,
     pub virtual_camera_active: bool,
     pub command_tx: Option<tokio::sync::mpsc::Sender<GstCommand>>,
     /// Resolved accent color from settings, cached to avoid parsing hex every frame.
@@ -201,6 +207,9 @@ impl Default for AppState {
             capture_active: true,
             active_errors: Vec::new(),
             recording_status: RecordingStatus::Idle,
+            available_encoders: Vec::new(),
+            recording_started_at: None,
+            recording_counter: 0,
             virtual_camera_active: false,
             command_tx: None,
             accent_color: crate::ui::theme::DEFAULT_ACCENT,

@@ -8,8 +8,8 @@ use std::thread::JoinHandle;
 
 use super::capture::{build_audio_capture_pipeline, build_capture_pipeline};
 use super::commands::{
-    AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, EncoderConfig, GstCommand,
-    GstThreadChannels, RecordingFormat, StreamConfig,
+    AudioEncoderConfig, AudioSourceKind, AvailableEncoder, CaptureSourceConfig, EncoderConfig,
+    EncoderType, GstCommand, GstThreadChannels, RecordingFormat, StreamDestination,
 };
 use super::encode::{
     RecordPipelineHandles, StreamPipelineHandles, build_record_pipeline_with_audio,
@@ -64,9 +64,6 @@ struct GstThread {
     system_appsink: Option<AppSink>,
     system_volume_name: Option<String>,
     has_system_audio: bool,
-    // Config
-    encoder_config: EncoderConfig,
-    audio_encoder_config: AudioEncoderConfig,
 }
 
 impl GstThread {
@@ -86,8 +83,6 @@ impl GstThread {
             system_appsink: None,
             system_volume_name: None,
             has_system_audio: false,
-            encoder_config: EncoderConfig::default(),
-            audio_encoder_config: AudioEncoderConfig::default(),
         }
     }
 
@@ -129,12 +124,7 @@ impl GstThread {
             return;
         }
 
-        match build_capture_pipeline(
-            config,
-            self.encoder_config.width,
-            self.encoder_config.height,
-            self.encoder_config.fps,
-        ) {
+        match build_capture_pipeline(config, 1920, 1080, 30) {
             Ok((pipeline, appsink)) => {
                 if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
                     log::error!("Failed to start capture for source {source_id:?}: {e}");
@@ -177,7 +167,7 @@ impl GstThread {
             }
         };
 
-        let fps = self.encoder_config.fps;
+        let fps = 30u32;
 
         let (pipeline, appsink, appsrc) =
             match build_window_capture_pipeline(initial_width, initial_height, fps) {
@@ -262,9 +252,9 @@ impl GstThread {
         use super::capture::build_display_capture_pipeline;
         use super::screencapturekit;
 
-        let width = self.encoder_config.width;
-        let height = self.encoder_config.height;
-        let fps = self.encoder_config.fps;
+        let width = 1920u32;
+        let height = 1080u32;
+        let fps = 30u32;
 
         // 1. Start SCK capture
         let (sck_handle, frame_rx) = match screencapturekit::start_display_capture(
@@ -476,7 +466,7 @@ impl GstThread {
     fn start_audio_capture(&mut self, kind: AudioSourceKind, device_uid: &str) {
         self.stop_audio_capture(kind);
 
-        match build_audio_capture_pipeline(kind, device_uid, self.audio_encoder_config.sample_rate)
+        match build_audio_capture_pipeline(kind, device_uid, AudioEncoderConfig::default().sample_rate)
         {
             Ok((pipeline, appsink, volume_name)) => {
                 log::info!("Starting {kind:?} audio pipeline for device '{device_uid}'");
@@ -558,13 +548,18 @@ impl GstThread {
 
     fn handle_command(&mut self, cmd: GstCommand) -> bool {
         match cmd {
-            GstCommand::StartStream(config) => self.handle_start_stream(config),
+            GstCommand::StartStream {
+                destination,
+                stream_key,
+                encoder_config,
+            } => self.handle_start_stream(destination, stream_key, encoder_config),
             GstCommand::StopStream => self.handle_stop_stream(),
             GstCommand::StopRecording => self.handle_stop_recording(),
-            GstCommand::StartRecording { path, format } => {
-                self.handle_start_recording(path, format)
-            }
-            GstCommand::UpdateEncoder(config) => self.handle_update_encoder(config),
+            GstCommand::StartRecording {
+                path,
+                format,
+                encoder_config,
+            } => self.handle_start_recording(path, format, encoder_config),
             GstCommand::SetAudioDevice { source, device_uid } => {
                 self.handle_set_audio_device(source, device_uid)
             }
@@ -604,12 +599,22 @@ impl GstThread {
         false
     }
 
-    fn handle_start_stream(&mut self, config: StreamConfig) {
-        let url = format!("{}/{}", config.destination.rtmp_url(), config.stream_key);
+    fn handle_start_stream(
+        &mut self,
+        destination: StreamDestination,
+        stream_key: String,
+        encoder_config: EncoderConfig,
+    ) {
+        let rtmp_url = match &destination {
+            StreamDestination::CustomRtmp { url } => url.clone(),
+            other => format!("{}/{}", other.rtmp_url(), stream_key),
+        };
+
+        let audio_config = AudioEncoderConfig::default();
         match build_stream_pipeline_with_audio(
-            &self.encoder_config,
-            &self.audio_encoder_config,
-            &url,
+            &encoder_config,
+            &audio_config,
+            &rtmp_url,
             self.has_system_audio,
         ) {
             Ok(handles) => {
@@ -619,7 +624,7 @@ impl GstThread {
                     });
                     return;
                 }
-                log::info!("Stream pipeline started");
+                log::info!("Stream pipeline started to {}", destination.rtmp_url());
                 self.stream_handles = Some(handles);
             }
             Err(e) => {
@@ -638,10 +643,16 @@ impl GstThread {
         self.stop_pipeline(PipelineKind::Record);
     }
 
-    fn handle_start_recording(&mut self, path: std::path::PathBuf, format: RecordingFormat) {
+    fn handle_start_recording(
+        &mut self,
+        path: std::path::PathBuf,
+        format: RecordingFormat,
+        encoder_config: EncoderConfig,
+    ) {
+        let audio_config = AudioEncoderConfig::default();
         match build_record_pipeline_with_audio(
-            &self.encoder_config,
-            &self.audio_encoder_config,
+            &encoder_config,
+            &audio_config,
             &path,
             format,
             self.has_system_audio,
@@ -662,10 +673,6 @@ impl GstThread {
                 });
             }
         }
-    }
-
-    fn handle_update_encoder(&mut self, config: EncoderConfig) {
-        self.encoder_config = config;
     }
 
     fn handle_set_audio_device(&mut self, source: AudioSourceKind, device_uid: String) {
@@ -742,9 +749,9 @@ impl GstThread {
     #[cfg(target_os = "macos")]
     fn handle_start_virtual_camera(&mut self) {
         use super::virtual_camera;
-        let width = self.encoder_config.width;
-        let height = self.encoder_config.height;
-        let fps = self.encoder_config.fps;
+        let width = 1920u32;
+        let height = 1080u32;
+        let fps = 30u32;
         match virtual_camera::start_virtual_camera(width, height, fps) {
             Ok(handle) => {
                 self.virtual_camera_handle = Some(handle);
@@ -905,8 +912,49 @@ impl GstThread {
         }
     }
 
+    /// Probe GStreamer for available H.264 encoders.
+    fn enumerate_encoders() -> Vec<AvailableEncoder> {
+        let mut encoders = Vec::new();
+        let mut found_recommended = false;
+
+        for &encoder_type in EncoderType::all() {
+            if gstreamer::ElementFactory::make(encoder_type.element_name())
+                .build()
+                .is_ok()
+            {
+                let is_hw = encoder_type.is_hardware();
+                let is_recommended = !found_recommended
+                    && (is_hw || encoder_type == EncoderType::H264x264);
+                if is_recommended {
+                    found_recommended = true;
+                }
+                encoders.push(AvailableEncoder {
+                    encoder_type,
+                    is_recommended,
+                });
+            }
+        }
+
+        if !found_recommended
+            && let Some(enc) = encoders.iter_mut().find(|e| e.encoder_type == EncoderType::H264x264)
+        {
+            enc.is_recommended = true;
+        }
+
+        encoders
+    }
+
     /// Main run loop for the GStreamer thread.
     fn run(mut self) {
+        // Detect available encoders
+        let encoders = Self::enumerate_encoders();
+        log::info!(
+            "Detected {} encoder(s): {:?}",
+            encoders.len(),
+            encoders.iter().map(|e| e.encoder_type.display_name()).collect::<Vec<_>>()
+        );
+        let _ = self.channels.encoders_tx.send(encoders);
+
         // Enumerate audio devices and start default audio capture.
         match super::devices::enumerate_audio_input_devices() {
             Ok(devices) => {
@@ -967,7 +1015,7 @@ impl GstThread {
                         .caps()
                         .and_then(|caps| gstreamer_video::VideoInfo::from_caps(caps).ok())
                         .map(|info| (info.width(), info.height()))
-                        .unwrap_or((self.encoder_config.width, self.encoder_config.height));
+                        .unwrap_or((1920, 1080));
 
                     if let Some(buffer) = sample.buffer()
                         && let Ok(map) = buffer.map_readable()
@@ -1057,6 +1105,18 @@ mod tests {
     use crate::gstreamer::commands::create_channels;
 
     #[test]
+    fn enumerate_encoders_returns_at_least_one() {
+        gstreamer::init().unwrap();
+        let encoders = GstThread::enumerate_encoders();
+        assert!(!encoders.is_empty(), "should detect at least x264");
+        assert_eq!(
+            encoders.iter().filter(|e| e.is_recommended).count(),
+            1,
+            "exactly one encoder should be recommended"
+        );
+    }
+
+    #[test]
     fn pipeline_kind_debug() {
         assert_eq!(format!("{:?}", PipelineKind::Stream), "Stream");
         assert_eq!(format!("{:?}", PipelineKind::Record), "Record");
@@ -1075,9 +1135,6 @@ mod tests {
         assert!(thread.mic_appsink.is_none());
         assert!(thread.system_appsink.is_none());
         assert!(!thread.has_system_audio);
-        assert_eq!(thread.encoder_config.width, 1920);
-        assert_eq!(thread.encoder_config.height, 1080);
-        assert_eq!(thread.encoder_config.fps, 30);
     }
 
     #[test]
@@ -1085,24 +1142,6 @@ mod tests {
         let (_main_ch, thread_ch) = create_channels();
         let mut thread = GstThread::new(thread_ch);
         assert!(thread.handle_command(GstCommand::Shutdown));
-    }
-
-    #[test]
-    fn handle_update_encoder_stores_config() {
-        use crate::gstreamer::commands::EncoderConfig;
-        let (_main_ch, thread_ch) = create_channels();
-        let mut thread = GstThread::new(thread_ch);
-        let new_config = EncoderConfig {
-            width: 1280,
-            height: 720,
-            fps: 60,
-            bitrate_kbps: 6000,
-        };
-        assert!(!thread.handle_command(GstCommand::UpdateEncoder(new_config.clone())));
-        assert_eq!(thread.encoder_config.width, 1280);
-        assert_eq!(thread.encoder_config.height, 720);
-        assert_eq!(thread.encoder_config.fps, 60);
-        assert_eq!(thread.encoder_config.bitrate_kbps, 6000);
     }
 
     #[test]

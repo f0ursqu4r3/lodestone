@@ -173,7 +173,7 @@ fn max_resolution_from_device(device: &gstreamer::Device) -> Option<(u32, u32)> 
             Err(_) => continue,
         };
         let pixels = w as u64 * h as u64;
-        if best.map_or(true, |(bw, bh)| pixels > bw as u64 * bh as u64) {
+        if best.is_none_or(|(bw, bh)| pixels > bw as u64 * bh as u64) {
             best = Some((w, h));
         }
     }

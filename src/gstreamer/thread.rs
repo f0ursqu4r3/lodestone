@@ -1097,6 +1097,7 @@ mod tests {
             height: 720,
             fps: 60,
             bitrate_kbps: 6000,
+            encoder_type: crate::gstreamer::commands::EncoderType::H264VideoToolbox,
         };
         assert!(!thread.handle_command(GstCommand::UpdateEncoder(new_config.clone())));
         assert_eq!(thread.encoder_config.width, 1280);

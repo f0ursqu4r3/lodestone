@@ -119,6 +119,77 @@ pub enum RecordingFormat {
     Mp4,
 }
 
+/// Available H.264 encoder backends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EncoderType {
+    H264VideoToolbox,
+    H264x264,
+    H264Nvenc,
+    H264Amf,
+    H264Qsv,
+}
+
+impl EncoderType {
+    pub fn element_name(&self) -> &'static str {
+        match self {
+            Self::H264VideoToolbox => "vtenc_h264",
+            Self::H264x264 => "x264enc",
+            Self::H264Nvenc => "nvh264enc",
+            Self::H264Amf => "amfh264enc",
+            Self::H264Qsv => "qsvh264enc",
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::H264VideoToolbox => "VideoToolbox (Hardware)",
+            Self::H264x264 => "x264 (Software)",
+            Self::H264Nvenc => "NVENC (Hardware)",
+            Self::H264Amf => "AMF (Hardware)",
+            Self::H264Qsv => "QuickSync (Hardware)",
+        }
+    }
+
+    pub fn is_hardware(&self) -> bool {
+        !matches!(self, Self::H264x264)
+    }
+
+    pub fn all() -> &'static [EncoderType] {
+        &[Self::H264VideoToolbox, Self::H264Nvenc, Self::H264Amf, Self::H264Qsv, Self::H264x264]
+    }
+}
+
+/// Named quality presets mapping to bitrate values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QualityPreset {
+    Low,
+    Medium,
+    High,
+    Custom,
+}
+
+impl QualityPreset {
+    pub fn bitrate_kbps(&self) -> u32 {
+        match self {
+            Self::Low => 2500,
+            Self::Medium => 4500,
+            Self::High => 8000,
+            Self::Custom => 0,
+        }
+    }
+
+    pub fn all() -> &'static [QualityPreset] {
+        &[Self::Low, Self::Medium, Self::High, Self::Custom]
+    }
+}
+
+/// An encoder detected as available at startup.
+#[derive(Debug, Clone)]
+pub struct AvailableEncoder {
+    pub encoder_type: EncoderType,
+    pub is_recommended: bool,
+}
+
 /// RTMP streaming destination.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum StreamDestination {
@@ -151,6 +222,7 @@ pub struct EncoderConfig {
     pub height: u32,
     pub fps: u32,
     pub bitrate_kbps: u32,
+    pub encoder_type: EncoderType,
 }
 
 impl Default for EncoderConfig {
@@ -160,6 +232,7 @@ impl Default for EncoderConfig {
             height: 1080,
             fps: 30,
             bitrate_kbps: 4500,
+            encoder_type: EncoderType::H264VideoToolbox,
         }
     }
 }
@@ -306,6 +379,40 @@ mod tests {
         assert_eq!(config.height, 1080);
         assert_eq!(config.fps, 30);
         assert_eq!(config.bitrate_kbps, 4500);
+    }
+
+    #[test]
+    fn encoder_type_gstreamer_element_name() {
+        assert_eq!(EncoderType::H264VideoToolbox.element_name(), "vtenc_h264");
+        assert_eq!(EncoderType::H264x264.element_name(), "x264enc");
+        assert_eq!(EncoderType::H264Nvenc.element_name(), "nvh264enc");
+        assert_eq!(EncoderType::H264Amf.element_name(), "amfh264enc");
+        assert_eq!(EncoderType::H264Qsv.element_name(), "qsvh264enc");
+    }
+
+    #[test]
+    fn encoder_type_display_name() {
+        assert_eq!(EncoderType::H264VideoToolbox.display_name(), "VideoToolbox (Hardware)");
+        assert_eq!(EncoderType::H264x264.display_name(), "x264 (Software)");
+    }
+
+    #[test]
+    fn encoder_type_is_hardware() {
+        assert!(EncoderType::H264VideoToolbox.is_hardware());
+        assert!(!EncoderType::H264x264.is_hardware());
+        assert!(EncoderType::H264Nvenc.is_hardware());
+    }
+
+    #[test]
+    fn quality_preset_to_bitrate() {
+        assert_eq!(QualityPreset::Low.bitrate_kbps(), 2500);
+        assert_eq!(QualityPreset::Medium.bitrate_kbps(), 4500);
+        assert_eq!(QualityPreset::High.bitrate_kbps(), 8000);
+    }
+
+    #[test]
+    fn quality_preset_custom_returns_none() {
+        assert_eq!(QualityPreset::Custom.bitrate_kbps(), 0);
     }
 
     #[test]

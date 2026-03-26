@@ -213,7 +213,7 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
             let _ = tx.try_send(crate::gstreamer::GstCommand::UpdateEncoder(
                 encoder_config_from_settings(state),
             ));
-            let config = crate::gstreamer::StreamConfig {
+            let config = crate::gstreamer::commands::StreamConfig {
                 destination: crate::gstreamer::StreamDestination::Twitch,
                 stream_key: state.settings.stream.stream_key.clone(),
             };
@@ -320,5 +320,6 @@ fn encoder_config_from_settings(state: &AppState) -> EncoderConfig {
         height,
         fps: state.settings.stream.fps,
         bitrate_kbps: state.settings.stream.bitrate_kbps,
+        encoder_type: crate::gstreamer::EncoderType::H264VideoToolbox,
     }
 }

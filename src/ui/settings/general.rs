@@ -44,23 +44,62 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
         });
     }
 
-    section_header(ui, "EDITOR");
+    section_header(ui, "GRID & GUIDES");
 
+    changed |= draw_toggle(ui, "Show grid overlay", &mut settings.show_grid);
     changed |= draw_toggle(ui, "Snap to grid", &mut settings.snap_to_grid);
 
+    // Grid preset combo
     ui.horizontal(|ui| {
-        labeled_row(ui, "Grid size (px)");
+        labeled_row(ui, "Grid preset");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let drag = ui.add(
-                egui::DragValue::new(&mut settings.snap_grid_size)
-                    .range(1.0..=100.0)
-                    .speed(1.0),
-            );
-            if drag.changed() {
-                changed = true;
+            const PRESETS: &[&str] = &["8", "16", "32", "64", "thirds", "quarters", "custom"];
+            let display = if settings.grid_preset.is_empty() {
+                "custom"
+            } else {
+                settings.grid_preset.as_str()
+            };
+            let combo = egui::ComboBox::from_id_salt("grid_preset_combo")
+                .selected_text(display)
+                .show_ui(ui, |ui| {
+                    let mut c = false;
+                    for &preset in PRESETS {
+                        c |= ui
+                            .selectable_value(
+                                &mut settings.grid_preset,
+                                preset.to_string(),
+                                preset,
+                            )
+                            .changed();
+                    }
+                    c
+                });
+            if let Some(inner) = combo.inner {
+                changed |= inner;
             }
         });
     });
+
+    // Grid size slider — only shown when preset is "custom" or empty
+    let show_grid_size = settings.grid_preset.is_empty() || settings.grid_preset == "custom";
+    if show_grid_size {
+        ui.horizontal(|ui| {
+            labeled_row(ui, "Grid size (px)");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let slider = ui.add(
+                    egui::Slider::new(&mut settings.snap_grid_size, 1.0..=200.0)
+                        .clamping(egui::SliderClamping::Always),
+                );
+                if slider.changed() {
+                    changed = true;
+                }
+            });
+        });
+    }
+
+    changed |= draw_toggle(ui, "Rule of thirds", &mut settings.show_thirds);
+    changed |= draw_toggle(ui, "Safe zones", &mut settings.show_safe_zones);
+    changed |= draw_toggle(ui, "Show custom guides", &mut settings.show_guides);
 
     section_header(ui, "LANGUAGE");
 

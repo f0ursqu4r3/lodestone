@@ -8,6 +8,8 @@ use super::types::AudioDevice;
 pub struct CameraDevice {
     pub device_index: u32,
     pub name: String,
+    /// Native resolution (width, height) from device caps. Falls back to (1920, 1080).
+    pub resolution: (u32, u32),
 }
 
 /// A window available for capture, discovered via CoreGraphics.
@@ -155,6 +157,29 @@ const SCREEN_CAPTURE_HINTS: &[&str] = &["Screen", "Capture screen", "Display"];
 /// Known virtual audio device names used for system audio loopback.
 const LOOPBACK_DEVICE_NAMES: &[&str] = &["BlackHole", "Soundflower", "Loopback"];
 
+/// Extract the highest resolution (by pixel count) from a GStreamer device's caps.
+///
+/// Handles fixed values. Returns `None` if no usable video caps found.
+fn max_resolution_from_device(device: &gstreamer::Device) -> Option<(u32, u32)> {
+    let caps = device.caps()?;
+    let mut best: Option<(u32, u32)> = None;
+    for s in caps.iter() {
+        let w = match s.get::<i32>("width") {
+            Ok(v) => v as u32,
+            Err(_) => continue,
+        };
+        let h = match s.get::<i32>("height") {
+            Ok(v) => v as u32,
+            Err(_) => continue,
+        };
+        let pixels = w as u64 * h as u64;
+        if best.map_or(true, |(bw, bh)| pixels > bw as u64 * bh as u64) {
+            best = Some((w, h));
+        }
+    }
+    best
+}
+
 /// Enumerate available camera devices using GStreamer's DeviceMonitor.
 ///
 /// Filters out screen-capture sources by name heuristics. If no real cameras
@@ -172,9 +197,13 @@ pub fn enumerate_cameras() -> Result<Vec<CameraDevice>> {
     let all: Vec<CameraDevice> = devices
         .iter()
         .enumerate()
-        .map(|(i, device)| CameraDevice {
-            device_index: i as u32,
-            name: device.display_name().to_string(),
+        .map(|(i, device)| {
+            let resolution = max_resolution_from_device(device).unwrap_or((1920, 1080));
+            CameraDevice {
+                device_index: i as u32,
+                name: device.display_name().to_string(),
+                resolution,
+            }
         })
         .collect();
 

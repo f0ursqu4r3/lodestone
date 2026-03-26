@@ -272,6 +272,8 @@ fn compute_snap(
     grid_size: f32,
     other_sources: &[&Transform],
     attract: f32,
+    extra_x: &[f32],
+    extra_y: &[f32],
 ) -> SnapResult {
     let mut x_targets = Vec::new();
     let mut y_targets = Vec::new();
@@ -293,6 +295,10 @@ fn compute_snap(
             gy += grid_size;
         }
     }
+
+    // Extra targets from guides, thirds, safe zones.
+    x_targets.extend_from_slice(extra_x);
+    y_targets.extend_from_slice(extra_y);
 
     // Other source edges and centers.
     for other in other_sources {
@@ -962,9 +968,45 @@ pub fn draw_transform_handles(
                         .unwrap_or_default();
                     let other_refs: Vec<&Transform> = other_transforms.iter().collect();
 
+                    // Build extra snap targets from guides, thirds, and safe zones.
+                    let mut extra_x: Vec<f32> = Vec::new();
+                    let mut extra_y: Vec<f32> = Vec::new();
+
+                    // Custom guides
+                    if state.settings.general.show_guides {
+                        if let Some(scene) = state.active_scene() {
+                            for guide in &scene.guides {
+                                match guide.axis {
+                                    crate::scene::GuideAxis::Vertical => extra_x.push(guide.position),
+                                    crate::scene::GuideAxis::Horizontal => extra_y.push(guide.position),
+                                }
+                            }
+                        }
+                    }
+
+                    // Thirds lines
+                    if state.settings.general.show_thirds {
+                        let cw = canvas_size.x;
+                        let ch = canvas_size.y;
+                        extra_x.extend_from_slice(&[cw / 3.0, 2.0 * cw / 3.0]);
+                        extra_y.extend_from_slice(&[ch / 3.0, 2.0 * ch / 3.0]);
+                    }
+
+                    // Safe zone boundaries
+                    if state.settings.general.show_safe_zones {
+                        let cw = canvas_size.x;
+                        let ch = canvas_size.y;
+                        // Action-safe: 5%, 95%
+                        extra_x.extend_from_slice(&[cw * 0.05, cw * 0.95]);
+                        extra_y.extend_from_slice(&[ch * 0.05, ch * 0.95]);
+                        // Title-safe: 10%, 90%
+                        extra_x.extend_from_slice(&[cw * 0.10, cw * 0.90]);
+                        extra_y.extend_from_slice(&[ch * 0.10, ch * 0.90]);
+                    }
+
                     // Build a raw transform for snap computation.
                     let raw_transform = Transform::new(new_raw_x, new_raw_y, width, height);
-                    let snap = compute_snap(&raw_transform, canvas_size, grid, &other_refs, attract);
+                    let snap = compute_snap(&raw_transform, canvas_size, grid, &other_refs, attract, &extra_x, &extra_y);
 
                     // X axis: magnetic two-zone logic.
                     if let Some((line, edge)) = snapped_x {

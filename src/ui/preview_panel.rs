@@ -3,6 +3,7 @@ use std::sync::Arc;
 use egui_wgpu::wgpu;
 use egui_wgpu::{Callback, CallbackResources, CallbackTrait};
 
+use crate::scene::GuideAxis;
 use crate::state::{AppState, StreamStatus};
 use crate::ui::layout::PanelId;
 use crate::ui::theme::{RADIUS_SM, RED_GLOW, RED_LIVE, TEXT_MUTED};
@@ -168,6 +169,602 @@ fn clamp_pan(pan: egui::Vec2, panel: egui::Rect, canvas_w: u32, canvas_h: u32, z
         pan.x.clamp(-max_offset_x, max_offset_x),
         pan.y.clamp(-max_offset_y, max_offset_y),
     )
+}
+
+// ── Canvas-to-screen mapping (mirrors transform_handles) ────────────────────
+
+fn canvas_to_screen(
+    canvas_pos: egui::Pos2,
+    viewport: egui::Rect,
+    canvas_size: egui::Vec2,
+) -> egui::Pos2 {
+    egui::Pos2::new(
+        viewport.min.x + canvas_pos.x * viewport.width() / canvas_size.x,
+        viewport.min.y + canvas_pos.y * viewport.height() / canvas_size.y,
+    )
+}
+
+// ── Grid / Guides / Thirds / Safe-zones ─────────────────────────────────────
+
+const RULER_WIDTH: f32 = 12.0;
+
+/// Draw a pixel-based or preset grid overlay.
+fn draw_grid(
+    painter: &egui::Painter,
+    viewport: egui::Rect,
+    canvas_size: egui::Vec2,
+    grid_preset: &str,
+    snap_grid_size: f32,
+    grid_color: [u8; 3],
+    grid_opacity: f32,
+) {
+    let cw = canvas_size.x;
+    let ch = canvas_size.y;
+
+    // Compute grid line positions in canvas space.
+    let (x_lines, y_lines): (Vec<f32>, Vec<f32>) = match grid_preset {
+        "thirds" => (
+            vec![cw / 3.0, 2.0 * cw / 3.0],
+            vec![ch / 3.0, 2.0 * ch / 3.0],
+        ),
+        "quarters" => (
+            vec![cw / 4.0, cw / 2.0, 3.0 * cw / 4.0],
+            vec![ch / 4.0, ch / 2.0, 3.0 * ch / 4.0],
+        ),
+        preset => {
+            let step = match preset {
+                "8" => 8.0_f32,
+                "16" => 16.0,
+                "32" => 32.0,
+                "64" => 64.0,
+                _ => snap_grid_size.max(1.0), // "custom" or empty
+            };
+
+            // Auto-hide when lines are too dense (< 4 screen pixels apart).
+            let screen_step = step * viewport.width() / cw;
+            if screen_step < 4.0 {
+                return;
+            }
+
+            let mut xs = Vec::new();
+            let mut x = step;
+            while x < cw {
+                xs.push(x);
+                x += step;
+            }
+            let mut ys = Vec::new();
+            let mut y = step;
+            while y < ch {
+                ys.push(y);
+                y += step;
+            }
+            (xs, ys)
+        }
+    };
+
+    let is_numeric = matches!(grid_preset, "8" | "16" | "32" | "64" | "custom" | "");
+
+    for (i, &gx) in x_lines.iter().enumerate() {
+        let screen_x = canvas_to_screen(egui::pos2(gx, 0.0), viewport, canvas_size).x;
+        // Major lines every 4th division (only for numeric/custom grids).
+        let is_major = is_numeric && ((i + 1) % 4 == 0);
+        let alpha = if is_major {
+            (grid_opacity * 1.5).min(1.0)
+        } else {
+            grid_opacity
+        };
+        let color = egui::Color32::from_rgba_unmultiplied(
+            grid_color[0],
+            grid_color[1],
+            grid_color[2],
+            (255.0 * alpha) as u8,
+        );
+        let width = if is_major { 1.0 } else { 0.5 };
+        painter.line_segment(
+            [
+                egui::pos2(screen_x, viewport.top()),
+                egui::pos2(screen_x, viewport.bottom()),
+            ],
+            egui::Stroke::new(width, color),
+        );
+    }
+
+    for (i, &gy) in y_lines.iter().enumerate() {
+        let screen_y = canvas_to_screen(egui::pos2(0.0, gy), viewport, canvas_size).y;
+        let is_major = is_numeric && ((i + 1) % 4 == 0);
+        let alpha = if is_major {
+            (grid_opacity * 1.5).min(1.0)
+        } else {
+            grid_opacity
+        };
+        let color = egui::Color32::from_rgba_unmultiplied(
+            grid_color[0],
+            grid_color[1],
+            grid_color[2],
+            (255.0 * alpha) as u8,
+        );
+        let width = if is_major { 1.0 } else { 0.5 };
+        painter.line_segment(
+            [
+                egui::pos2(viewport.left(), screen_y),
+                egui::pos2(viewport.right(), screen_y),
+            ],
+            egui::Stroke::new(width, color),
+        );
+    }
+}
+
+/// Draw rule-of-thirds overlay (2 horizontal + 2 vertical lines).
+fn draw_thirds(
+    painter: &egui::Painter,
+    viewport: egui::Rect,
+    canvas_size: egui::Vec2,
+    guide_color: [u8; 3],
+    guide_opacity: f32,
+) {
+    let alpha = (guide_opacity * 0.6).min(1.0);
+    let color = egui::Color32::from_rgba_unmultiplied(
+        guide_color[0],
+        guide_color[1],
+        guide_color[2],
+        (255.0 * alpha) as u8,
+    );
+    let stroke = egui::Stroke::new(1.0, color);
+
+    for i in 1..=2 {
+        let frac = i as f32 / 3.0;
+        let sx = canvas_to_screen(
+            egui::pos2(canvas_size.x * frac, 0.0),
+            viewport,
+            canvas_size,
+        )
+        .x;
+        painter.line_segment(
+            [
+                egui::pos2(sx, viewport.top()),
+                egui::pos2(sx, viewport.bottom()),
+            ],
+            stroke,
+        );
+
+        let sy = canvas_to_screen(
+            egui::pos2(0.0, canvas_size.y * frac),
+            viewport,
+            canvas_size,
+        )
+        .y;
+        painter.line_segment(
+            [
+                egui::pos2(viewport.left(), sy),
+                egui::pos2(viewport.right(), sy),
+            ],
+            stroke,
+        );
+    }
+}
+
+/// Draw action-safe (90%) and title-safe (80%) zone outlines.
+fn draw_safe_zones(
+    painter: &egui::Painter,
+    viewport: egui::Rect,
+    canvas_size: egui::Vec2,
+    guide_color: [u8; 3],
+) {
+    // Action-safe: 90% of canvas (5% margin each side)
+    let action_min = canvas_to_screen(
+        egui::pos2(canvas_size.x * 0.05, canvas_size.y * 0.05),
+        viewport,
+        canvas_size,
+    );
+    let action_max = canvas_to_screen(
+        egui::pos2(canvas_size.x * 0.95, canvas_size.y * 0.95),
+        viewport,
+        canvas_size,
+    );
+    let action_rect = egui::Rect::from_min_max(action_min, action_max);
+    let action_color = egui::Color32::from_rgba_unmultiplied(
+        guide_color[0],
+        guide_color[1],
+        guide_color[2],
+        (255.0 * 0.4) as u8,
+    );
+    painter.rect_stroke(
+        action_rect,
+        0.0,
+        egui::Stroke::new(1.0, action_color),
+        egui::StrokeKind::Inside,
+    );
+
+    // Title-safe: 80% of canvas (10% margin each side)
+    let title_min = canvas_to_screen(
+        egui::pos2(canvas_size.x * 0.10, canvas_size.y * 0.10),
+        viewport,
+        canvas_size,
+    );
+    let title_max = canvas_to_screen(
+        egui::pos2(canvas_size.x * 0.90, canvas_size.y * 0.90),
+        viewport,
+        canvas_size,
+    );
+    let title_rect = egui::Rect::from_min_max(title_min, title_max);
+    let title_color = egui::Color32::from_rgba_unmultiplied(
+        guide_color[0],
+        guide_color[1],
+        guide_color[2],
+        (255.0 * 0.3) as u8,
+    );
+    painter.rect_stroke(
+        title_rect,
+        0.0,
+        egui::Stroke::new(1.0, title_color),
+        egui::StrokeKind::Inside,
+    );
+}
+
+/// Draw custom per-scene guide lines as dashed colored lines.
+fn draw_custom_guides(
+    painter: &egui::Painter,
+    viewport: egui::Rect,
+    canvas_size: egui::Vec2,
+    guides: &[crate::scene::Guide],
+    guide_color: [u8; 3],
+    guide_opacity: f32,
+) {
+    let color = egui::Color32::from_rgba_unmultiplied(
+        guide_color[0],
+        guide_color[1],
+        guide_color[2],
+        (255.0 * guide_opacity) as u8,
+    );
+    let stroke = egui::Stroke::new(1.0, color);
+    let dash_len = 6.0;
+    let gap_len = 4.0;
+
+    for guide in guides {
+        match guide.axis {
+            GuideAxis::Horizontal => {
+                let sy = canvas_to_screen(
+                    egui::pos2(0.0, guide.position),
+                    viewport,
+                    canvas_size,
+                )
+                .y;
+                draw_dashed_horizontal(painter, sy, viewport.left(), viewport.right(), dash_len, gap_len, stroke);
+            }
+            GuideAxis::Vertical => {
+                let sx = canvas_to_screen(
+                    egui::pos2(guide.position, 0.0),
+                    viewport,
+                    canvas_size,
+                )
+                .x;
+                draw_dashed_vertical(painter, sx, viewport.top(), viewport.bottom(), dash_len, gap_len, stroke);
+            }
+        }
+    }
+}
+
+/// Draw a dashed horizontal line.
+fn draw_dashed_horizontal(
+    painter: &egui::Painter,
+    y: f32,
+    x_start: f32,
+    x_end: f32,
+    dash: f32,
+    gap: f32,
+    stroke: egui::Stroke,
+) {
+    let mut x = x_start;
+    while x < x_end {
+        let end = (x + dash).min(x_end);
+        painter.line_segment([egui::pos2(x, y), egui::pos2(end, y)], stroke);
+        x = end + gap;
+    }
+}
+
+/// Draw a dashed vertical line.
+fn draw_dashed_vertical(
+    painter: &egui::Painter,
+    x: f32,
+    y_start: f32,
+    y_end: f32,
+    dash: f32,
+    gap: f32,
+    stroke: egui::Stroke,
+) {
+    let mut y = y_start;
+    while y < y_end {
+        let end = (y + dash).min(y_end);
+        painter.line_segment([egui::pos2(x, y), egui::pos2(x, end)], stroke);
+        y = end + gap;
+    }
+}
+
+/// Ruler drag state stored in egui temp memory.
+#[derive(Clone, Default)]
+struct RulerDragState {
+    /// Whether we are currently dragging a guide from a ruler.
+    dragging: bool,
+    /// The axis of the guide being created.
+    axis: Option<GuideAxis>,
+    /// Current canvas-space position of the dragged guide.
+    position: f32,
+}
+
+/// Draw rulers along the top and left edges and handle guide creation by
+/// dragging from rulers. Also handle right-click deletion of existing guides.
+fn draw_rulers_and_guide_interaction(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    viewport: egui::Rect,
+    panel_rect: egui::Rect,
+    canvas_size: egui::Vec2,
+) {
+    let ruler_id = egui::Id::new("ruler_drag_state");
+    let mut ruler_state: RulerDragState = ui
+        .ctx()
+        .data(|d| d.get_temp::<RulerDragState>(ruler_id))
+        .unwrap_or_default();
+
+    // Ruler areas
+    let top_ruler = egui::Rect::from_min_max(
+        egui::pos2(panel_rect.left() + RULER_WIDTH, panel_rect.top()),
+        egui::pos2(panel_rect.right(), panel_rect.top() + RULER_WIDTH),
+    );
+    let left_ruler = egui::Rect::from_min_max(
+        egui::pos2(panel_rect.left(), panel_rect.top() + RULER_WIDTH),
+        egui::pos2(panel_rect.left() + RULER_WIDTH, panel_rect.bottom()),
+    );
+
+    let painter = ui.painter_at(panel_rect);
+
+    // Draw ruler backgrounds
+    let ruler_bg = egui::Color32::from_rgba_unmultiplied(0, 0, 0, 60);
+    painter.rect_filled(top_ruler, 0.0, ruler_bg);
+    painter.rect_filled(left_ruler, 0.0, ruler_bg);
+    // Corner square
+    let corner = egui::Rect::from_min_max(
+        panel_rect.left_top(),
+        egui::pos2(panel_rect.left() + RULER_WIDTH, panel_rect.top() + RULER_WIDTH),
+    );
+    painter.rect_filled(corner, 0.0, ruler_bg);
+
+    // Handle pointer interaction
+    let pointer = ui.input(|i| i.pointer.hover_pos());
+    let primary_down = ui.input(|i| i.pointer.primary_down());
+    let primary_clicked = ui.input(|i| i.pointer.primary_clicked());
+    let primary_released = ui.input(|i| i.pointer.primary_released());
+    let secondary_clicked = ui.input(|i| i.pointer.secondary_clicked());
+
+    if let Some(mouse_pos) = pointer {
+        // Start drag from ruler
+        if primary_clicked && !ruler_state.dragging {
+            if top_ruler.contains(mouse_pos) {
+                ruler_state.dragging = true;
+                ruler_state.axis = Some(GuideAxis::Vertical);
+                let canvas_x =
+                    (mouse_pos.x - viewport.min.x) * canvas_size.x / viewport.width();
+                ruler_state.position = canvas_x;
+            } else if left_ruler.contains(mouse_pos) {
+                ruler_state.dragging = true;
+                ruler_state.axis = Some(GuideAxis::Horizontal);
+                let canvas_y =
+                    (mouse_pos.y - viewport.min.y) * canvas_size.y / viewport.height();
+                ruler_state.position = canvas_y;
+            }
+        }
+
+        // Update position during drag
+        if ruler_state.dragging && primary_down {
+            if let Some(axis) = ruler_state.axis {
+                match axis {
+                    GuideAxis::Vertical => {
+                        ruler_state.position =
+                            (mouse_pos.x - viewport.min.x) * canvas_size.x / viewport.width();
+                    }
+                    GuideAxis::Horizontal => {
+                        ruler_state.position =
+                            (mouse_pos.y - viewport.min.y) * canvas_size.y / viewport.height();
+                    }
+                }
+
+                // Draw preview of the guide being created
+                let guide_color = state.settings.general.guide_color;
+                let guide_opacity = state.settings.general.guide_opacity;
+                let color = egui::Color32::from_rgba_unmultiplied(
+                    guide_color[0],
+                    guide_color[1],
+                    guide_color[2],
+                    (255.0 * guide_opacity) as u8,
+                );
+                let stroke = egui::Stroke::new(1.0, color);
+                match axis {
+                    GuideAxis::Vertical => {
+                        let sx = canvas_to_screen(
+                            egui::pos2(ruler_state.position, 0.0),
+                            viewport,
+                            canvas_size,
+                        )
+                        .x;
+                        painter.line_segment(
+                            [
+                                egui::pos2(sx, viewport.top()),
+                                egui::pos2(sx, viewport.bottom()),
+                            ],
+                            stroke,
+                        );
+                    }
+                    GuideAxis::Horizontal => {
+                        let sy = canvas_to_screen(
+                            egui::pos2(0.0, ruler_state.position),
+                            viewport,
+                            canvas_size,
+                        )
+                        .y;
+                        painter.line_segment(
+                            [
+                                egui::pos2(viewport.left(), sy),
+                                egui::pos2(viewport.right(), sy),
+                            ],
+                            stroke,
+                        );
+                    }
+                }
+                ui.ctx().request_repaint();
+            }
+        }
+
+        // Release: create the guide
+        if ruler_state.dragging && primary_released {
+            if let Some(axis) = ruler_state.axis {
+                let pos = ruler_state.position;
+                // Only create if within canvas bounds
+                let in_bounds = match axis {
+                    GuideAxis::Vertical => pos >= 0.0 && pos <= canvas_size.x,
+                    GuideAxis::Horizontal => pos >= 0.0 && pos <= canvas_size.y,
+                };
+                if in_bounds {
+                    if let Some(scene) = state.active_scene_mut() {
+                        scene.guides.push(crate::scene::Guide {
+                            axis,
+                            position: pos,
+                        });
+                    }
+                    state.mark_dirty();
+                }
+            }
+            ruler_state.dragging = false;
+            ruler_state.axis = None;
+        }
+
+        // Right-click near a guide: context menu for deletion
+        if secondary_clicked && state.settings.general.show_guides {
+            let guides: Vec<crate::scene::Guide> = state
+                .active_scene()
+                .map(|s| s.guides.clone())
+                .unwrap_or_default();
+            let hit_threshold_px = 4.0;
+
+            let mut hit_guide_idx: Option<usize> = None;
+            for (i, guide) in guides.iter().enumerate() {
+                match guide.axis {
+                    GuideAxis::Horizontal => {
+                        let sy = canvas_to_screen(
+                            egui::pos2(0.0, guide.position),
+                            viewport,
+                            canvas_size,
+                        )
+                        .y;
+                        if (mouse_pos.y - sy).abs() <= hit_threshold_px {
+                            hit_guide_idx = Some(i);
+                            break;
+                        }
+                    }
+                    GuideAxis::Vertical => {
+                        let sx = canvas_to_screen(
+                            egui::pos2(guide.position, 0.0),
+                            viewport,
+                            canvas_size,
+                        )
+                        .x;
+                        if (mouse_pos.x - sx).abs() <= hit_threshold_px {
+                            hit_guide_idx = Some(i);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if hit_guide_idx.is_some() || !guides.is_empty() {
+                // Store which guide was hit for the context menu
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(
+                        egui::Id::new("guide_ctx_hit"),
+                        hit_guide_idx.map(|i| i as i64).unwrap_or(-1),
+                    );
+                    d.insert_temp(egui::Id::new("guide_ctx_pos"), mouse_pos);
+                    d.insert_temp(egui::Id::new("guide_ctx_open"), true);
+                    d.insert_temp(
+                        egui::Id::new("guide_ctx_frame"),
+                        ui.ctx().cumulative_frame_nr(),
+                    );
+                });
+            }
+        }
+    }
+
+    // Draw guide context menu if open
+    let ctx_open: bool = ui
+        .ctx()
+        .data(|d| d.get_temp(egui::Id::new("guide_ctx_open")).unwrap_or(false));
+    if ctx_open {
+        let ctx_pos: egui::Pos2 = ui
+            .ctx()
+            .data(|d| {
+                d.get_temp(egui::Id::new("guide_ctx_pos"))
+                    .unwrap_or(egui::Pos2::ZERO)
+            });
+        let hit_idx: i64 = ui
+            .ctx()
+            .data(|d| d.get_temp(egui::Id::new("guide_ctx_hit")).unwrap_or(-1));
+        let open_frame: u64 = ui
+            .ctx()
+            .data(|d| d.get_temp(egui::Id::new("guide_ctx_frame")).unwrap_or(0));
+
+        let mut close = false;
+        let area_resp = egui::Area::new(egui::Id::new("guide_ctx_area"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(ctx_pos)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    use crate::ui::theme::{menu_item, styled_menu};
+                    styled_menu(ui, |ui| {
+                        if hit_idx >= 0 {
+                            if menu_item(ui, "Delete Guide") {
+                                if let Some(scene) = state.active_scene_mut() {
+                                    let idx = hit_idx as usize;
+                                    if idx < scene.guides.len() {
+                                        scene.guides.remove(idx);
+                                    }
+                                }
+                                state.mark_dirty();
+                                close = true;
+                            }
+                        }
+                        if menu_item(ui, "Clear All Guides") {
+                            if let Some(scene) = state.active_scene_mut() {
+                                scene.guides.clear();
+                            }
+                            state.mark_dirty();
+                            close = true;
+                        }
+                    });
+                });
+            });
+
+        // Close if clicked outside
+        let frame_nr = ui.ctx().cumulative_frame_nr();
+        if frame_nr > open_frame && !close {
+            let any_click =
+                ui.input(|i| i.pointer.primary_clicked() || i.pointer.secondary_clicked());
+            let in_menu = area_resp
+                .response
+                .rect
+                .contains(pointer.unwrap_or(egui::Pos2::ZERO));
+            if any_click && !in_menu {
+                close = true;
+            }
+        }
+
+        if close {
+            ui.ctx().data_mut(|d| {
+                d.insert_temp(egui::Id::new("guide_ctx_open"), false);
+            });
+        }
+    }
+
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(ruler_id, ruler_state));
 }
 
 // ── Public draw entry point ──────────────────────────────────────────────────
@@ -399,6 +996,66 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     ui.painter_at(panel_rect)
         .add(Callback::new_paint_callback(preview_rect, PreviewCallback));
 
+    // ── Grid / Guides / Thirds / Safe Zones ──
+    // Rendered after the preview texture but before transform handles and overlays.
+    let canvas_size = egui::Vec2::new(preview_width as f32, preview_height as f32);
+    {
+        let overlay_painter = ui.painter_at(panel_rect);
+
+        // Grid overlay
+        if state.settings.general.show_grid {
+            draw_grid(
+                &overlay_painter,
+                preview_rect,
+                canvas_size,
+                &state.settings.general.grid_preset,
+                state.settings.general.snap_grid_size,
+                state.settings.general.grid_color,
+                state.settings.general.grid_opacity,
+            );
+        }
+
+        // Rule-of-thirds overlay
+        if state.settings.general.show_thirds {
+            draw_thirds(
+                &overlay_painter,
+                preview_rect,
+                canvas_size,
+                state.settings.general.guide_color,
+                state.settings.general.guide_opacity,
+            );
+        }
+
+        // Safe zones
+        if state.settings.general.show_safe_zones {
+            draw_safe_zones(
+                &overlay_painter,
+                preview_rect,
+                canvas_size,
+                state.settings.general.guide_color,
+            );
+        }
+
+        // Custom per-scene guides
+        if state.settings.general.show_guides {
+            let guides: Vec<crate::scene::Guide> = state
+                .active_scene()
+                .map(|s| s.guides.clone())
+                .unwrap_or_default();
+            draw_custom_guides(
+                &overlay_painter,
+                preview_rect,
+                canvas_size,
+                &guides,
+                state.settings.general.guide_color,
+                state.settings.general.guide_opacity,
+            );
+        }
+    }
+
+    // ── Rulers and guide interaction ──
+    draw_rulers_and_guide_interaction(ui, state, preview_rect, panel_rect, canvas_size);
+
     // ── Overlays ──
     // Overlays are anchored to the panel_rect (not the zoomed viewport) so
     // they stay visible regardless of zoom/pan.
@@ -462,7 +1119,6 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     // Transform handles for selected source — uses zoomed viewport
-    let canvas_size = egui::Vec2::new(preview_width as f32, preview_height as f32);
     crate::ui::transform_handles::draw_transform_handles(
         ui,
         state,

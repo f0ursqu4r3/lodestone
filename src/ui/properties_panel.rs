@@ -205,6 +205,25 @@ fn draw_transform_section(
             enforce_aspect_ratio(&mut transform.width, &mut transform.height, prev_w, prev_h);
         }
 
+        ui.add_space(2.0);
+
+        // Rotation row
+        ui.horizontal(|ui| {
+            let mut rotation = transform.rotation;
+            let response = ui.add(
+                egui::DragValue::new(&mut rotation)
+                    .speed(1.0)
+                    .suffix("°")
+                    .range(0.0..=360.0)
+                    .update_while_editing(false),
+            );
+            ui.label(egui::RichText::new("Rotation").color(text_color).size(10.0));
+            if response.changed() {
+                transform.rotation = rotation.rem_euclid(360.0);
+                transform_changed = true;
+            }
+        });
+
         if transform_changed
             && let Some(scene) = state.active_scene_mut()
             && let Some(ss) = scene.find_source_mut(selected_id)
@@ -263,6 +282,28 @@ fn draw_transform_section(
 
         if lock_toggled {
             state.library[lib_idx].aspect_ratio_locked = !aspect_locked;
+        }
+
+        ui.add_space(2.0);
+
+        // Rotation row
+        {
+            let source = &mut state.library[lib_idx];
+            ui.horizontal(|ui| {
+                let mut rotation = source.transform.rotation;
+                let response = ui.add(
+                    egui::DragValue::new(&mut rotation)
+                        .speed(1.0)
+                        .suffix("°")
+                        .range(0.0..=360.0)
+                        .update_while_editing(false),
+                );
+                ui.label(egui::RichText::new("Rotation").color(TEXT_MUTED).size(10.0));
+                if response.changed() {
+                    source.transform.rotation = rotation.rem_euclid(360.0);
+                    changed = true;
+                }
+            });
         }
 
         // Enforce aspect ratio after drag.

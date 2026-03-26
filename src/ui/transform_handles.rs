@@ -184,31 +184,46 @@ fn edge_positions(r: Rect) -> [Pos2; 4] {
     ]
 }
 
-fn draw_handles(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32) {
+/// Draw transform handles with the given opacity (1.0 = normal, 0.3 = dimmed for locked sources).
+fn draw_handles(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32, opacity: f32) {
+    use egui::Color32;
+    let fg = Color32::from_rgba_unmultiplied(
+        TEXT_PRIMARY.r(),
+        TEXT_PRIMARY.g(),
+        TEXT_PRIMARY.b(),
+        (TEXT_PRIMARY.a() as f32 * opacity) as u8,
+    );
+    let bg = Color32::from_rgba_unmultiplied(
+        BG_BASE.r(),
+        BG_BASE.g(),
+        BG_BASE.b(),
+        (BG_BASE.a() as f32 * opacity) as u8,
+    );
+
     if rotation_deg == 0.0 {
         // Fast path: axis-aligned (no rotation).
         painter.rect_stroke(
             screen_rect,
             0.0,
-            egui::Stroke::new(1.0, TEXT_PRIMARY),
+            egui::Stroke::new(1.0, fg),
             StrokeKind::Outside,
         );
 
         for pos in corner_positions(screen_rect) {
             let r = Rect::from_center_size(pos, Vec2::splat(CORNER_SIZE));
-            painter.rect_filled(r, 1.0, TEXT_PRIMARY);
-            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
+            painter.rect_filled(r, 1.0, fg);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg), StrokeKind::Outside);
         }
 
         for pos in edge_positions(screen_rect) {
             let r = Rect::from_center_size(pos, Vec2::splat(EDGE_SIZE));
-            painter.rect_filled(r, 1.0, TEXT_PRIMARY);
-            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
+            painter.rect_filled(r, 1.0, fg);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg), StrokeKind::Outside);
         }
     } else {
         // Rotated path: draw outline as 4 line segments between rotated corners.
         let corners = rotated_corners(screen_rect, rotation_deg);
-        let outline_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+        let outline_stroke = egui::Stroke::new(1.0, fg);
         for i in 0..4 {
             painter.line_segment([corners[i], corners[(i + 1) % 4]], outline_stroke);
         }
@@ -216,8 +231,8 @@ fn draw_handles(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32) {
         // Corner handles at rotated positions.
         for &pos in &corners {
             let r = Rect::from_center_size(pos, Vec2::splat(CORNER_SIZE));
-            painter.rect_filled(r, 1.0, TEXT_PRIMARY);
-            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
+            painter.rect_filled(r, 1.0, fg);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg), StrokeKind::Outside);
         }
 
         // Edge handles at rotated midpoints.
@@ -226,59 +241,8 @@ fn draw_handles(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32) {
         for pos in edge_unrotated {
             let rotated_pos = rotate_point(pos, center, rotation_deg);
             let r = Rect::from_center_size(rotated_pos, Vec2::splat(EDGE_SIZE));
-            painter.rect_filled(r, 1.0, TEXT_PRIMARY);
-            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
-        }
-    }
-}
-
-/// Like `draw_handles` but renders at reduced opacity to indicate a locked source.
-fn draw_handles_dimmed(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32) {
-    use egui::Color32;
-    // 30% opacity version of TEXT_PRIMARY for dimmed locked handles.
-    let dim_color = Color32::from_rgba_unmultiplied(
-        TEXT_PRIMARY.r(),
-        TEXT_PRIMARY.g(),
-        TEXT_PRIMARY.b(),
-        (TEXT_PRIMARY.a() as f32 * 0.3) as u8,
-    );
-    let bg_dim = Color32::from_rgba_unmultiplied(BG_BASE.r(), BG_BASE.g(), BG_BASE.b(), 76);
-
-    if rotation_deg == 0.0 {
-        painter.rect_stroke(
-            screen_rect,
-            0.0,
-            egui::Stroke::new(1.0, dim_color),
-            StrokeKind::Outside,
-        );
-        for pos in corner_positions(screen_rect) {
-            let r = Rect::from_center_size(pos, Vec2::splat(CORNER_SIZE));
-            painter.rect_filled(r, 1.0, dim_color);
-            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg_dim), StrokeKind::Outside);
-        }
-        for pos in edge_positions(screen_rect) {
-            let r = Rect::from_center_size(pos, Vec2::splat(EDGE_SIZE));
-            painter.rect_filled(r, 1.0, dim_color);
-            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg_dim), StrokeKind::Outside);
-        }
-    } else {
-        let corners = rotated_corners(screen_rect, rotation_deg);
-        let outline_stroke = egui::Stroke::new(1.0, dim_color);
-        for i in 0..4 {
-            painter.line_segment([corners[i], corners[(i + 1) % 4]], outline_stroke);
-        }
-        for &pos in &corners {
-            let r = Rect::from_center_size(pos, Vec2::splat(CORNER_SIZE));
-            painter.rect_filled(r, 1.0, dim_color);
-            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg_dim), StrokeKind::Outside);
-        }
-        let center = screen_rect.center();
-        let edge_unrotated = edge_positions(screen_rect);
-        for pos in edge_unrotated {
-            let rotated_pos = rotate_point(pos, center, rotation_deg);
-            let r = Rect::from_center_size(rotated_pos, Vec2::splat(EDGE_SIZE));
-            painter.rect_filled(r, 1.0, dim_color);
-            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg_dim), StrokeKind::Outside);
+            painter.rect_filled(r, 1.0, fg);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg), StrokeKind::Outside);
         }
     }
 }
@@ -647,6 +611,7 @@ pub fn draw_transform_handles(
     viewport_rect: Rect,
     panel_rect: Rect,
     canvas_size: Vec2,
+    zoom: f32,
 ) {
     use crate::scene::SourceId;
 
@@ -877,9 +842,9 @@ pub fn draw_transform_handles(
                 .map(|ss| ss.resolve_locked())
                 .unwrap_or(false);
             if sel_locked {
-                draw_handles_dimmed(ui.painter(), r, t.rotation);
+                draw_handles(ui.painter(), r, t.rotation, 0.3);
             } else {
-                draw_handles(ui.painter(), r, t.rotation);
+                draw_handles(ui.painter(), r, t.rotation, 1.0);
             }
         } else {
             // Non-primary selected: just the outline.
@@ -1142,7 +1107,7 @@ pub fn draw_transform_handles(
                 let snap_enabled = state.settings.general.snap_to_grid && !alt_held;
                 if snap_enabled {
                     let grid = state.settings.general.snap_grid_size;
-                    let scale = 1.0; // Will be replaced with 1.0 / zoom in Task 5
+                    let scale = 1.0 / zoom;
                     let attract = SNAP_ATTRACT * scale;
                     let dead = SNAP_DEAD * scale;
 

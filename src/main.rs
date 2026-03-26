@@ -693,7 +693,12 @@ impl ApplicationHandler for AppManager {
                         }
                         app_state.last_nudge_time = Some(now);
 
-                        // Apply delta to all selected sources
+                        // Apply delta to all selected sources.
+                        // Snap is intentionally skipped here: the snap computation
+                        // requires canvas_size, grid_size, and other-source transforms
+                        // that are only available at preview-panel render time. Nudge
+                        // moves 1px or 10px, making snap during pixel-perfect
+                        // adjustments more annoying than helpful.
                         let ids = app_state.selected_source_ids.clone();
                         for id in ids {
                             let lib_transform =

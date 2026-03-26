@@ -1136,6 +1136,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
         preview_rect,
         panel_rect,
         canvas_size,
+        view.zoom,
     );
 
     // Allocate the space so egui knows it's used

@@ -54,7 +54,12 @@ pub struct PreviewResources {
 }
 
 /// Lightweight struct emitted per preview panel per frame.
-struct PreviewCallback;
+/// Carries the zoomed viewport rect so we can set the wgpu viewport manually
+/// instead of relying on egui's viewport (which gets clamped on off-screen rects).
+struct PreviewCallback {
+    /// The zoomed preview rect in logical points (may extend beyond the window).
+    zoomed_rect: egui::Rect,
+}
 
 impl CallbackTrait for PreviewCallback {
     fn paint(
@@ -67,10 +72,7 @@ impl CallbackTrait for PreviewCallback {
             return;
         };
 
-        // The viewport is set by egui to the (possibly zoomed) preview rect.
-        // The fullscreen quad shader fills this viewport exactly.
-        // The scissor/clip rect clips to the panel bounds so the quad doesn't
-        // draw outside the panel when zoomed in.
+        // Set scissor to the clip rect (panel bounds) so nothing draws outside.
         let clip = info.clip_rect_in_pixels();
         if clip.width_px > 0 && clip.height_px > 0 {
             render_pass.set_scissor_rect(
@@ -80,6 +82,17 @@ impl CallbackTrait for PreviewCallback {
                 clip.height_px as u32,
             );
         }
+
+        // Override the viewport to the zoomed rect, converting from logical
+        // points to physical pixels ourselves.  This avoids egui's viewport
+        // clamping which distorts the fullscreen quad when the rect extends
+        // beyond the window.
+        let ppp = info.pixels_per_point;
+        let vp_x = self.zoomed_rect.min.x * ppp;
+        let vp_y = self.zoomed_rect.min.y * ppp;
+        let vp_w = self.zoomed_rect.width() * ppp;
+        let vp_h = self.zoomed_rect.height() * ppp;
+        render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
 
         render_pass.set_pipeline(&resources.pipeline);
         render_pass.set_bind_group(0, &*resources.bind_group, &[]);
@@ -1017,14 +1030,15 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     ui.ctx().data_mut(|d| d.insert_temp(view_id, view.clone()));
 
     // ── GPU paint callback ──
-    // Render the preview texture at the base letterboxed rect (not zoomed).
-    // wgpu viewports can't have negative coordinates on Metal, so passing the
-    // zoomed rect (which can extend beyond the window) would cause distortion.
-    // The zoom/pan is applied to all UI overlays (handles, grid, guides) via
-    // preview_rect, giving the user precise placement at any zoom level.
-    let base_preview = letterboxed_rect(panel_rect, preview_width, preview_height);
-    ui.painter_at(panel_rect)
-        .add(Callback::new_paint_callback(base_preview, PreviewCallback));
+    // Pass panel_rect as the callback rect (so egui doesn't clamp the viewport
+    // when the zoomed rect extends beyond the window). The actual viewport is
+    // set manually inside PreviewCallback::paint() using the zoomed_rect.
+    ui.painter_at(panel_rect).add(Callback::new_paint_callback(
+        panel_rect,
+        PreviewCallback {
+            zoomed_rect: preview_rect,
+        },
+    ));
 
     // ── Grid / Guides / Thirds / Safe Zones ──
     // Rendered after the preview texture but before transform handles and overlays.

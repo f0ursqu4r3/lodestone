@@ -392,14 +392,36 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
         }
     };
 
+    // Determine native size from detected resolution for display/camera,
+    // or use default 1920x1080 for other source types.
+    let (native_w, native_h) = match &properties {
+        SourceProperties::Display { screen_index } => {
+            state
+                .available_displays
+                .iter()
+                .find(|d| d.index == *screen_index as usize)
+                .map(|d| (d.width as f32, d.height as f32))
+                .unwrap_or((1920.0, 1080.0))
+        }
+        SourceProperties::Camera { device_index, .. } => {
+            state
+                .available_cameras
+                .iter()
+                .find(|c| c.device_index == *device_index)
+                .map(|c| (c.resolution.0 as f32, c.resolution.1 as f32))
+                .unwrap_or((1920.0, 1080.0))
+        }
+        _ => (1920.0, 1080.0),
+    };
+
     let lib_source = LibrarySource {
         id: new_id,
         name,
         source_type,
         properties,
         folder: None,
-        transform: Transform::new(0.0, 0.0, 1920.0, 1080.0),
-        native_size: (1920.0, 1080.0),
+        transform: Transform::new(0.0, 0.0, native_w, native_h),
+        native_size: (native_w, native_h),
         aspect_ratio_locked: false,
         opacity: 1.0,
         visible: true,

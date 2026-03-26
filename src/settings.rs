@@ -376,4 +376,38 @@ controls_panel_open = true
         assert_eq!(loaded.general.language, settings.general.language);
         assert_eq!(loaded.stream.bitrate_kbps, settings.stream.bitrate_kbps);
     }
+
+    #[test]
+    fn load_or_detect_first_launch_uses_detected_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        // File does not exist — should use detected resolution
+        let settings = AppSettings::load_or_detect(&path, Some((3360, 1890)));
+        assert_eq!(settings.video.base_resolution, "3360x1890");
+        assert_eq!(settings.video.output_resolution, "3360x1890");
+        assert_eq!(settings.stream.width, 3360);
+        assert_eq!(settings.stream.height, 1890);
+    }
+
+    #[test]
+    fn load_or_detect_existing_file_ignores_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        // Write a settings file with custom resolution
+        let mut settings = AppSettings::default();
+        settings.video.base_resolution = "2560x1440".to_string();
+        settings.save_to(&path).unwrap();
+        // Should load from file, not use detected
+        let loaded = AppSettings::load_or_detect(&path, Some((3360, 1890)));
+        assert_eq!(loaded.video.base_resolution, "2560x1440");
+    }
+
+    #[test]
+    fn load_or_detect_no_detection_uses_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        // No file, no detection — should fall back to defaults
+        let settings = AppSettings::load_or_detect(&path, None);
+        assert_eq!(settings.video.base_resolution, "1920x1080");
+    }
 }

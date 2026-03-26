@@ -9,21 +9,19 @@ use crate::scene::SceneId;
 use crate::gstreamer::EncoderConfig;
 use crate::renderer::compositor::parse_resolution;
 use crate::state::{AppState, RecordingStatus, StreamStatus};
-use crate::ui::theme::{
-    BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, BTN_PADDING, BTN_PILL_PADDING, GREEN_ONLINE,
-    RADIUS_LG, RADIUS_SM, RED_LIVE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, TOOLBAR_HEIGHT,
-};
+use crate::ui::theme::{active_theme, BTN_PADDING, BTN_PILL_PADDING};
 
 /// Draw the toolbar. Returns `true` if the settings button was clicked.
 pub fn draw(ctx: &egui::Context, state: &mut AppState) -> bool {
+    let theme = active_theme(ctx);
     let mut settings_clicked = false;
 
     egui::TopBottomPanel::top("toolbar")
-        .exact_height(TOOLBAR_HEIGHT)
+        .exact_height(theme.toolbar_height)
         .frame(
             egui::Frame::new()
-                .fill(BG_SURFACE)
-                .stroke(egui::Stroke::new(1.0, BORDER))
+                .fill(theme.bg_surface)
+                .stroke(egui::Stroke::new(1.0, theme.border))
                 .inner_margin(egui::Margin::symmetric(12, 0)),
         )
         .show(ctx, |ui| {
@@ -36,7 +34,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) -> bool {
                     RichText::new("Lodestone")
                         .size(13.0)
                         .strong()
-                        .color(TEXT_PRIMARY),
+                        .color(theme.text_primary),
                 );
 
                 divider(ui);
@@ -55,7 +53,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) -> bool {
                         egui::Button::new(
                             RichText::new(egui_phosphor::regular::GEAR)
                                 .size(16.0)
-                                .color(TEXT_SECONDARY),
+                                .color(theme.text_secondary),
                         )
                         .frame(false),
                     );
@@ -88,14 +86,16 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState) -> bool {
 
 /// Draw a vertical divider line.
 fn divider(ui: &mut egui::Ui) {
+    let theme = active_theme(ui.ctx());
     let height = 20.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, height), Sense::hover());
     ui.painter()
-        .line_segment([rect.center_top(), rect.center_bottom()], (1.0, BORDER));
+        .line_segment([rect.center_top(), rect.center_bottom()], (1.0, theme.border));
 }
 
 /// Scene quick-switcher: shows only pinned scenes as pill-style buttons.
 fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
+    let theme = active_theme(ui.ctx());
     ui.spacing_mut().button_padding = BTN_PILL_PADDING;
     let active_id = state.active_scene_id;
 
@@ -111,7 +111,7 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
         ui.label(
             RichText::new("Pin scenes to show here")
                 .size(10.0)
-                .color(TEXT_MUTED),
+                .color(theme.text_muted),
         );
         return;
     }
@@ -120,16 +120,16 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
 
     for (id, name) in &pinned_scenes {
         let is_active = active_id == Some(*id);
-        let fill = if is_active { BG_ELEVATED } else { BG_BASE };
+        let fill = if is_active { theme.bg_elevated } else { theme.bg_base };
         let text_color = if is_active {
-            TEXT_PRIMARY
+            theme.text_primary
         } else {
-            TEXT_SECONDARY
+            theme.text_secondary
         };
 
         let btn = egui::Button::new(RichText::new(name).size(11.0).color(text_color))
             .fill(fill)
-            .corner_radius(RADIUS_LG)
+            .corner_radius(theme.radius_lg)
             .min_size(Vec2::new(0.0, 24.0));
 
         if ui.add(btn).clicked() {
@@ -146,6 +146,7 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
 
 /// Stream stats: green dot, uptime, bitrate, dropped frames.
 fn draw_stream_stats(ui: &mut egui::Ui, state: &AppState) {
+    let theme = active_theme(ui.ctx());
     if let StreamStatus::Live {
         uptime_secs,
         bitrate_kbps,
@@ -160,47 +161,48 @@ fn draw_stream_stats(ui: &mut egui::Ui, state: &AppState) {
         ui.label(
             RichText::new(format!("Dropped: {dropped_frames}"))
                 .size(11.0)
-                .color(TEXT_SECONDARY),
+                .color(theme.text_secondary),
         );
         ui.label(
             RichText::new(format!("{bitrate_kbps:.0} kbps"))
                 .size(11.0)
-                .color(TEXT_SECONDARY),
+                .color(theme.text_secondary),
         );
         ui.label(
             RichText::new(format!("{hours:02}:{minutes:02}:{seconds:02}"))
                 .size(11.0)
-                .color(TEXT_PRIMARY),
+                .color(theme.text_primary),
         );
 
         // Green dot
         let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
         ui.painter()
-            .circle_filled(dot_rect.center(), 4.0, GREEN_ONLINE);
+            .circle_filled(dot_rect.center(), 4.0, theme.success);
     }
 }
 
 /// Go Live / Stop Stream button.
 fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
+    let theme = active_theme(ui.ctx());
     let is_live = state.stream_status.is_live();
 
     let (label, fill, text_color) = if is_live {
         // Pulsing red fill when live.
         let t = ui.input(|i| i.time);
         let pulse = (t * 2.0).sin() * 0.15 + 0.85;
-        let r = (RED_LIVE.r() as f64 * pulse) as u8;
-        let g = (RED_LIVE.g() as f64 * pulse) as u8;
-        let b = (RED_LIVE.b() as f64 * pulse) as u8;
+        let r = (theme.danger.r() as f64 * pulse) as u8;
+        let g = (theme.danger.g() as f64 * pulse) as u8;
+        let b = (theme.danger.b() as f64 * pulse) as u8;
         let pulsed = Color32::from_rgb(r, g, b);
         ("LIVE", pulsed, Color32::WHITE)
     } else {
-        ("Go Live", Color32::TRANSPARENT, RED_LIVE)
+        ("Go Live", Color32::TRANSPARENT, theme.danger)
     };
 
     let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
         .fill(fill)
-        .stroke(egui::Stroke::new(1.0, RED_LIVE))
-        .corner_radius(RADIUS_SM)
+        .stroke(egui::Stroke::new(1.0, theme.danger))
+        .corner_radius(theme.radius_sm)
         .min_size(Vec2::new(64.0, 26.0));
 
     if ui.add(btn).clicked()
@@ -235,21 +237,20 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
 
 /// Virtual Camera toggle button.
 fn draw_virtual_camera_button(ui: &mut egui::Ui, state: &mut AppState) {
+    let theme = active_theme(ui.ctx());
     let is_active = state.virtual_camera_active;
-
-    let vcam_color = Color32::from_rgb(0x22, 0xAA, 0x55);
 
     let icon = egui_phosphor::regular::WEBCAM;
     let (label, fill, text_color) = if is_active {
-        (format!("{icon} V-Cam"), vcam_color, Color32::WHITE)
+        (format!("{icon} V-Cam"), theme.success, Color32::WHITE)
     } else {
-        (format!("{icon} V-Cam"), Color32::TRANSPARENT, vcam_color)
+        (format!("{icon} V-Cam"), Color32::TRANSPARENT, theme.success)
     };
 
     let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
         .fill(fill)
-        .stroke(egui::Stroke::new(1.0, vcam_color))
-        .corner_radius(RADIUS_SM)
+        .stroke(egui::Stroke::new(1.0, theme.success))
+        .corner_radius(theme.radius_sm)
         .min_size(Vec2::new(64.0, 26.0));
 
     if ui.add(btn).clicked()
@@ -267,9 +268,8 @@ fn draw_virtual_camera_button(ui: &mut egui::Ui, state: &mut AppState) {
 
 /// Record / Stop Recording button.
 fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
+    let theme = active_theme(ui.ctx());
     let is_recording = matches!(state.recording_status, RecordingStatus::Recording { .. });
-
-    let rec_color = Color32::from_rgb(0xCC, 0x33, 0x33);
 
     let label = if is_recording {
         if let Some(started) = state.recording_started_at {
@@ -286,15 +286,15 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
     };
 
     let (fill, text_color) = if is_recording {
-        (rec_color, Color32::WHITE)
+        (theme.danger, Color32::WHITE)
     } else {
-        (Color32::TRANSPARENT, rec_color)
+        (Color32::TRANSPARENT, theme.danger)
     };
 
     let btn = egui::Button::new(RichText::new(&label).size(11.0).strong().color(text_color))
         .fill(fill)
-        .stroke(egui::Stroke::new(1.0, rec_color))
-        .corner_radius(RADIUS_SM)
+        .stroke(egui::Stroke::new(1.0, theme.danger))
+        .corner_radius(theme.radius_sm)
         .min_size(Vec2::new(64.0, 26.0));
 
     if ui.add(btn).clicked()

@@ -30,6 +30,8 @@ pub struct WindowState {
     pub reattach_pending: bool,
     /// Font families that were successfully loaded and registered with egui.
     pub loaded_fonts: Vec<String>,
+    /// Base font definitions (with all loaded fonts, before any family reordering).
+    base_font_defs: egui::FontDefinitions,
 }
 
 impl WindowState {
@@ -91,7 +93,8 @@ impl WindowState {
             }
         }
 
-        egui_ctx.set_fonts(fonts.clone());
+        let base_font_defs = fonts.clone();
+        egui_ctx.set_fonts(fonts);
         let max_tex = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),
@@ -113,6 +116,7 @@ impl WindowState {
             is_main,
             reattach_pending: false,
             loaded_fonts,
+            base_font_defs,
         })
     }
 
@@ -161,24 +165,35 @@ impl WindowState {
         self.egui_ctx
             .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
 
-        // Apply font family — set every frame to handle live switching.
-        // Only apply if the font was actually loaded (prevents panics from stale settings).
+        // Apply font family by rebuilding font definitions with the selected font first
+        // in the Proportional family list. This preserves Phosphor icon fallback.
         let family = &state.settings.appearance.font_family;
-        let target_family = if family == "Default" || !self.loaded_fonts.contains(family) {
-            egui::FontFamily::Proportional
-        } else {
-            egui::FontFamily::Name(family.clone().into())
-        };
-        let mut style = (*self.egui_ctx.style()).clone();
-        let mut needs_update = false;
-        for (_, font_id) in style.text_styles.iter_mut() {
-            if font_id.family != egui::FontFamily::Monospace && font_id.family != target_family {
-                font_id.family = target_family.clone();
-                needs_update = true;
+        if family != "Default" && self.loaded_fonts.contains(family) {
+            let mut font_defs = self.base_font_defs.clone();
+            if let Some(list) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
+                // Insert selected font at front (before default + phosphor)
+                if !list.first().is_some_and(|f| f == family) {
+                    list.retain(|n| n != family);
+                    list.insert(0, family.clone());
+                    self.egui_ctx.set_fonts(font_defs);
+                }
             }
-        }
-        if needs_update {
-            self.egui_ctx.set_style(style);
+        } else {
+            // Reset to base (default font first)
+            let current_first = self.egui_ctx.fonts(|f| {
+                f.definitions()
+                    .families
+                    .get(&egui::FontFamily::Proportional)
+                    .and_then(|l| l.first().cloned())
+            });
+            let base_first = self
+                .base_font_defs
+                .families
+                .get(&egui::FontFamily::Proportional)
+                .and_then(|l| l.first().cloned());
+            if current_first != base_first {
+                self.egui_ctx.set_fonts(self.base_font_defs.clone());
+            }
         }
 
         // Sync loaded fonts to AppState so the appearance settings dropdown shows valid options.
@@ -353,24 +368,35 @@ impl WindowState {
         self.egui_ctx
             .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
 
-        // Apply font family — set every frame to handle live switching.
-        // Only apply if the font was actually loaded (prevents panics from stale settings).
+        // Apply font family by rebuilding font definitions with the selected font first
+        // in the Proportional family list. This preserves Phosphor icon fallback.
         let family = &state.settings.appearance.font_family;
-        let target_family = if family == "Default" || !self.loaded_fonts.contains(family) {
-            egui::FontFamily::Proportional
-        } else {
-            egui::FontFamily::Name(family.clone().into())
-        };
-        let mut style = (*self.egui_ctx.style()).clone();
-        let mut needs_update = false;
-        for (_, font_id) in style.text_styles.iter_mut() {
-            if font_id.family != egui::FontFamily::Monospace && font_id.family != target_family {
-                font_id.family = target_family.clone();
-                needs_update = true;
+        if family != "Default" && self.loaded_fonts.contains(family) {
+            let mut font_defs = self.base_font_defs.clone();
+            if let Some(list) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
+                // Insert selected font at front (before default + phosphor)
+                if !list.first().is_some_and(|f| f == family) {
+                    list.retain(|n| n != family);
+                    list.insert(0, family.clone());
+                    self.egui_ctx.set_fonts(font_defs);
+                }
             }
-        }
-        if needs_update {
-            self.egui_ctx.set_style(style);
+        } else {
+            // Reset to base (default font first)
+            let current_first = self.egui_ctx.fonts(|f| {
+                f.definitions()
+                    .families
+                    .get(&egui::FontFamily::Proportional)
+                    .and_then(|l| l.first().cloned())
+            });
+            let base_first = self
+                .base_font_defs
+                .families
+                .get(&egui::FontFamily::Proportional)
+                .and_then(|l| l.first().cloned());
+            if current_first != base_first {
+                self.egui_ctx.set_fonts(self.base_font_defs.clone());
+            }
         }
 
         // Sync loaded fonts to AppState so the appearance settings dropdown shows valid options.

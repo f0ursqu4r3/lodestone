@@ -1,6 +1,6 @@
 use egui::{Align, Layout, Ui};
 
-use crate::gstreamer::StreamDestination;
+use crate::gstreamer::{EncoderType, QualityPreset, StreamDestination};
 use crate::settings::StreamSettings;
 
 use super::{labeled_row, labeled_row_unimplemented, section_header};
@@ -92,12 +92,40 @@ pub(super) fn draw(ui: &mut Ui, settings: &mut StreamSettings) -> bool {
         labeled_row_unimplemented(ui, "Encoder");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("encoder_combo")
-                .selected_text(&settings.encoder)
+                .selected_text(settings.encoder.display_name())
                 .show_ui(ui, |ui| {
                     let mut c = false;
-                    for enc in &["x264", "nvenc", "amf", "qsv"] {
+                    for enc in EncoderType::all() {
                         c |= ui
-                            .selectable_value(&mut settings.encoder, enc.to_string(), *enc)
+                            .selectable_value(
+                                &mut settings.encoder,
+                                *enc,
+                                enc.display_name(),
+                            )
+                            .changed();
+                    }
+                    c
+                });
+            if let Some(inner) = combo.inner {
+                changed |= inner;
+            }
+        });
+    });
+
+    ui.horizontal(|ui| {
+        labeled_row_unimplemented(ui, "Quality");
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let combo = egui::ComboBox::from_id_salt("quality_preset_combo")
+                .selected_text(format!("{:?}", settings.quality_preset))
+                .show_ui(ui, |ui| {
+                    let mut c = false;
+                    for preset in QualityPreset::all() {
+                        c |= ui
+                            .selectable_value(
+                                &mut settings.quality_preset,
+                                *preset,
+                                format!("{preset:?}"),
+                            )
                             .changed();
                     }
                     c
@@ -113,26 +141,6 @@ pub(super) fn draw(ui: &mut Ui, settings: &mut StreamSettings) -> bool {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             changed |= ui
                 .add(egui::DragValue::new(&mut settings.bitrate_kbps).range(500..=50000))
-                .changed();
-        });
-    });
-
-    section_header(ui, "RESOLUTION");
-
-    ui.horizontal(|ui| {
-        labeled_row_unimplemented(ui, "Width");
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            changed |= ui
-                .add(egui::DragValue::new(&mut settings.width).range(320..=7680))
-                .changed();
-        });
-    });
-
-    ui.horizontal(|ui| {
-        labeled_row_unimplemented(ui, "Height");
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            changed |= ui
-                .add(egui::DragValue::new(&mut settings.height).range(240..=4320))
                 .changed();
         });
     });

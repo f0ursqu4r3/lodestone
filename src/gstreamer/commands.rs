@@ -116,10 +116,9 @@ pub enum CaptureSourceConfig {
 }
 
 /// Recording container format.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RecordingFormat {
     Mkv,
-    #[allow(dead_code)]
     Mp4,
 }
 

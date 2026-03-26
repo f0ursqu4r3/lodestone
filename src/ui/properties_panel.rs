@@ -61,7 +61,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             .unwrap_or_default();
         ui.label(
             egui::RichText::new(format!("SCENE OVERRIDE — {}", scene_name.to_uppercase()))
-                .color(state.accent_color)
+                .color(theme.accent)
                 .size(9.0),
         );
     } else {

@@ -557,27 +557,29 @@ fn draw_source_row(
     // Eye and lock icons (right-aligned, lock then eye from right).
     let right_x = paint_rect.right() - 4.0;
 
-    // Eye icon.
-    let eye_text = if row.visible {
-        egui_phosphor::regular::EYE
-    } else {
-        egui_phosphor::regular::EYE_SLASH
-    };
+    // Eye icon — only shown when source is hidden (or hovered for toggle).
     let eye_rect =
         Rect::from_center_size(egui::pos2(right_x - 8.0, center_y), vec2(16.0, row_height));
     let eye_hovered = ui.rect_contains_pointer(eye_rect);
-    let eye_color = if eye_hovered {
-        with_opacity(theme.text_primary, effective_opacity)
-    } else {
-        with_opacity(theme.text_muted, 0.5 * effective_opacity)
-    };
-    painter.text(
-        eye_rect.center(),
-        egui::Align2::CENTER_CENTER,
-        eye_text,
-        egui::FontId::proportional(11.0),
-        eye_color,
-    );
+    if !row.visible || eye_hovered {
+        let eye_text = if row.visible {
+            egui_phosphor::regular::EYE
+        } else {
+            egui_phosphor::regular::EYE_SLASH
+        };
+        let eye_color = if eye_hovered {
+            with_opacity(theme.text_primary, effective_opacity)
+        } else {
+            with_opacity(theme.text_muted, 0.5 * effective_opacity)
+        };
+        painter.text(
+            eye_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            eye_text,
+            egui::FontId::proportional(11.0),
+            eye_color,
+        );
+    }
 
     // Lock icon (to the left of the eye icon).
     let lock_text = if row.locked {

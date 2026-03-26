@@ -42,14 +42,13 @@ pub(super) fn draw(
     let folder_str = settings.output_folder.display().to_string();
     ui.horizontal(|ui| {
         ui.label(&folder_str);
-        if ui.button("Browse").clicked() {
-            if let Some(path) = rfd::FileDialog::new()
+        if ui.button("Browse").clicked()
+            && let Some(path) = rfd::FileDialog::new()
                 .set_directory(&settings.output_folder)
                 .pick_folder()
-            {
-                settings.output_folder = path;
-                changed = true;
-            }
+        {
+            settings.output_folder = path;
+            changed = true;
         }
     });
 

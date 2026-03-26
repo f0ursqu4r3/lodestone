@@ -935,10 +935,10 @@ impl GstThread {
             }
         }
 
-        if !found_recommended {
-            if let Some(enc) = encoders.iter_mut().find(|e| e.encoder_type == EncoderType::H264x264) {
-                enc.is_recommended = true;
-            }
+        if !found_recommended
+            && let Some(enc) = encoders.iter_mut().find(|e| e.encoder_type == EncoderType::H264x264)
+        {
+            enc.is_recommended = true;
         }
 
         encoders

@@ -144,7 +144,7 @@ mod tests {
         let fill = ColorFill::LinearGradient { angle: 0.0, stops };
         let frame = render_color_source(&fill, 10, 1);
         assert!(frame.data[0] < 50);
-        assert!(frame.data[(9 * 4)] > 200);
+        assert!(frame.data[9 * 4] > 200);
     }
 
     #[test]

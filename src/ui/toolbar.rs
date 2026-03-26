@@ -209,23 +209,21 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
         if is_live {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopStream);
             state.stream_status = StreamStatus::Offline;
+        } else if let Some(error_msg) = validate_stream_settings(state) {
+            state.active_errors.push(crate::gstreamer::GstError::EncodeFailure {
+                message: error_msg,
+            });
         } else {
-            if let Some(error_msg) = validate_stream_settings(state) {
-                state.active_errors.push(crate::gstreamer::GstError::EncodeFailure {
-                    message: error_msg,
-                });
-            } else {
-                let _ = tx.try_send(crate::gstreamer::GstCommand::StartStream {
-                    destination: state.settings.stream.destination.clone(),
-                    stream_key: state.settings.stream.stream_key.clone(),
-                    encoder_config: stream_encoder_config(state),
-                });
-                state.stream_status = StreamStatus::Live {
-                    uptime_secs: 0.0,
-                    bitrate_kbps: 0.0,
-                    dropped_frames: 0,
-                };
-            }
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StartStream {
+                destination: state.settings.stream.destination.clone(),
+                stream_key: state.settings.stream.stream_key.clone(),
+                encoder_config: stream_encoder_config(state),
+            });
+            state.stream_status = StreamStatus::Live {
+                uptime_secs: 0.0,
+                bitrate_kbps: 0.0,
+                dropped_frames: 0,
+            };
         }
     }
 

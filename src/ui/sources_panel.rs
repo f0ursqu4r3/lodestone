@@ -25,6 +25,7 @@ struct SourceRow {
     name: String,
     source_type: SourceType,
     visible: bool,
+    locked: bool,
 }
 
 /// Draw the sources panel for the currently active scene.
@@ -100,7 +101,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     // ── Source list ──
     // Iterate the active scene's SceneSource entries and look up LibrarySource for each.
-    let scene_sources: Vec<(SourceId, bool)> = state
+    let scene_sources: Vec<(SourceId, bool, bool)> = state
         .scenes
         .iter()
         .find(|s| s.id == active_id)
@@ -111,7 +112,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 .map(|ss| {
                     let lib = state.library.iter().find(|l| l.id == ss.source_id);
                     let visible = lib.map(|l| ss.resolve_visible(l)).unwrap_or(true);
-                    (ss.source_id, visible)
+                    let locked = ss.resolve_locked();
+                    (ss.source_id, visible, locked)
                 })
                 .collect()
         })
@@ -131,13 +133,14 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     let rows: Vec<SourceRow> = scene_sources
         .iter()
         .rev()
-        .filter_map(|(src_id, resolved_visible)| {
+        .filter_map(|(src_id, resolved_visible, resolved_locked)| {
             let lib = state.library.iter().find(|l| l.id == *src_id)?;
             Some(SourceRow {
                 id: *src_id,
                 name: lib.name.clone(),
                 source_type: lib.source_type.clone(),
                 visible: *resolved_visible,
+                locked: *resolved_locked,
             })
         })
         .collect();
@@ -548,8 +551,10 @@ fn draw_source_row(
         );
     }
 
-    // Eye icon.
+    // Eye and lock icons (right-aligned, lock then eye from right).
     let right_x = paint_rect.right() - 4.0;
+
+    // Eye icon.
     let eye_text = if row.visible {
         egui_phosphor::regular::EYE
     } else {
@@ -571,6 +576,40 @@ fn draw_source_row(
         eye_color,
     );
 
+    // Lock icon (to the left of the eye icon).
+    let lock_text = if row.locked {
+        egui_phosphor::regular::LOCK_SIMPLE
+    } else {
+        egui_phosphor::regular::LOCK_SIMPLE_OPEN
+    };
+    let lock_rect = Rect::from_center_size(
+        egui::pos2(right_x - 8.0 - 18.0, center_y),
+        vec2(16.0, row_height),
+    );
+    let lock_hovered = ui.rect_contains_pointer(lock_rect);
+    let lock_color = if row.locked {
+        // Locked: brighter to draw attention
+        if lock_hovered {
+            with_opacity(TEXT_PRIMARY, effective_opacity)
+        } else {
+            with_opacity(TEXT_PRIMARY, 0.7 * effective_opacity)
+        }
+    } else {
+        // Unlocked: dimmer (only visible on hover)
+        if lock_hovered {
+            with_opacity(TEXT_MUTED, 0.8 * effective_opacity)
+        } else {
+            with_opacity(TEXT_MUTED, 0.2 * effective_opacity)
+        }
+    };
+    painter.text(
+        lock_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        lock_text,
+        egui::FontId::proportional(11.0),
+        lock_color,
+    );
+
     // Eye click.
     if eye_hovered && row_response.clicked() {
         let current_visible = row.visible;
@@ -578,6 +617,17 @@ fn draw_source_row(
             && let Some(scene_src) = scene.sources.iter_mut().find(|ss| ss.source_id == row.id)
         {
             scene_src.overrides.visible = Some(!current_visible);
+        }
+        state.mark_dirty();
+    }
+
+    // Lock click.
+    if lock_hovered && row_response.clicked() {
+        let current_locked = row.locked;
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id)
+            && let Some(scene_src) = scene.sources.iter_mut().find(|ss| ss.source_id == row.id)
+        {
+            scene_src.overrides.locked = Some(!current_locked);
         }
         state.mark_dirty();
     }

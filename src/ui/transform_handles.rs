@@ -232,6 +232,57 @@ fn draw_handles(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32) {
     }
 }
 
+/// Like `draw_handles` but renders at reduced opacity to indicate a locked source.
+fn draw_handles_dimmed(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32) {
+    use egui::Color32;
+    // 30% opacity version of TEXT_PRIMARY for dimmed locked handles.
+    let dim_color = Color32::from_rgba_unmultiplied(
+        TEXT_PRIMARY.r(),
+        TEXT_PRIMARY.g(),
+        TEXT_PRIMARY.b(),
+        (TEXT_PRIMARY.a() as f32 * 0.3) as u8,
+    );
+    let bg_dim = Color32::from_rgba_unmultiplied(BG_BASE.r(), BG_BASE.g(), BG_BASE.b(), 76);
+
+    if rotation_deg == 0.0 {
+        painter.rect_stroke(
+            screen_rect,
+            0.0,
+            egui::Stroke::new(1.0, dim_color),
+            StrokeKind::Outside,
+        );
+        for pos in corner_positions(screen_rect) {
+            let r = Rect::from_center_size(pos, Vec2::splat(CORNER_SIZE));
+            painter.rect_filled(r, 1.0, dim_color);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg_dim), StrokeKind::Outside);
+        }
+        for pos in edge_positions(screen_rect) {
+            let r = Rect::from_center_size(pos, Vec2::splat(EDGE_SIZE));
+            painter.rect_filled(r, 1.0, dim_color);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg_dim), StrokeKind::Outside);
+        }
+    } else {
+        let corners = rotated_corners(screen_rect, rotation_deg);
+        let outline_stroke = egui::Stroke::new(1.0, dim_color);
+        for i in 0..4 {
+            painter.line_segment([corners[i], corners[(i + 1) % 4]], outline_stroke);
+        }
+        for &pos in &corners {
+            let r = Rect::from_center_size(pos, Vec2::splat(CORNER_SIZE));
+            painter.rect_filled(r, 1.0, dim_color);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg_dim), StrokeKind::Outside);
+        }
+        let center = screen_rect.center();
+        let edge_unrotated = edge_positions(screen_rect);
+        for pos in edge_unrotated {
+            let rotated_pos = rotate_point(pos, center, rotation_deg);
+            let r = Rect::from_center_size(rotated_pos, Vec2::splat(EDGE_SIZE));
+            painter.rect_filled(r, 1.0, dim_color);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, bg_dim), StrokeKind::Outside);
+        }
+    }
+}
+
 // ── Hit Testing ─────────────────────────────────────────────────────────────
 
 fn hit_test_handles(pos: Pos2, screen_rect: Rect, rotation_deg: f32) -> Option<HandlePosition> {
@@ -823,7 +874,17 @@ pub fn draw_transform_handles(
 
         if primary_id == Some(sel_id) {
             // Primary selected: draw full handles (outline + corners + edges).
-            draw_handles(ui.painter(), r, t.rotation);
+            // If the source is locked, draw in a dimmed style.
+            let sel_locked = state
+                .active_scene()
+                .and_then(|s| s.find_source(sel_id))
+                .map(|ss| ss.resolve_locked())
+                .unwrap_or(false);
+            if sel_locked {
+                draw_handles_dimmed(ui.painter(), r, t.rotation);
+            } else {
+                draw_handles(ui.painter(), r, t.rotation);
+            }
         } else {
             // Non-primary selected: just the outline.
             if t.rotation == 0.0 {
@@ -925,6 +986,13 @@ pub fn draw_transform_handles(
         .unwrap_or(source.transform);
     let screen_rect = transform_to_screen_rect(&transform, viewport_rect, canvas_size);
 
+    // Check if the primary selected source is locked.
+    let is_locked = state
+        .active_scene()
+        .and_then(|s| s.find_source(selected_id))
+        .map(|ss| ss.resolve_locked())
+        .unwrap_or(false);
+
     // Drag state from egui memory
     let drag_id = egui::Id::new("transform_drag_main");
     let mut drag_mode: DragMode = ui.memory(|m| m.data.get_temp(drag_id).unwrap_or_default());
@@ -932,7 +1000,7 @@ pub fn draw_transform_handles(
     if let Some(mouse_pos) = pointer {
         match &mut drag_mode {
             DragMode::None => {
-                if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open {
+                if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open && !is_locked {
                     if let Some(handle) = hit_test_handles(mouse_pos, screen_rect, transform.rotation) {
                         let is_corner = matches!(
                             handle,

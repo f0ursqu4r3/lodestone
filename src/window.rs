@@ -159,16 +159,22 @@ impl WindowState {
         self.egui_ctx
             .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
 
-        // Apply font family if not "Default"
+        // Apply font family — set every frame to handle live switching.
         let family = &state.settings.appearance.font_family;
-        if family != "Default" {
-            let mut style = (*self.egui_ctx.style()).clone();
-            let prop_family = egui::FontFamily::Name(family.clone().into());
-            for (_, font_id) in style.text_styles.iter_mut() {
-                if font_id.family == egui::FontFamily::Proportional {
-                    font_id.family = prop_family.clone();
-                }
+        let target_family = if family == "Default" {
+            egui::FontFamily::Proportional
+        } else {
+            egui::FontFamily::Name(family.clone().into())
+        };
+        let mut style = (*self.egui_ctx.style()).clone();
+        let mut needs_update = false;
+        for (_, font_id) in style.text_styles.iter_mut() {
+            if font_id.family != egui::FontFamily::Monospace && font_id.family != target_family {
+                font_id.family = target_family.clone();
+                needs_update = true;
             }
+        }
+        if needs_update {
             self.egui_ctx.set_style(style);
         }
 
@@ -339,16 +345,22 @@ impl WindowState {
         self.egui_ctx
             .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
 
-        // Apply font family if not "Default"
+        // Apply font family — set every frame to handle live switching.
         let family = &state.settings.appearance.font_family;
-        if family != "Default" {
-            let mut style = (*self.egui_ctx.style()).clone();
-            let prop_family = egui::FontFamily::Name(family.clone().into());
-            for (_, font_id) in style.text_styles.iter_mut() {
-                if font_id.family == egui::FontFamily::Proportional {
-                    font_id.family = prop_family.clone();
-                }
+        let target_family = if family == "Default" {
+            egui::FontFamily::Proportional
+        } else {
+            egui::FontFamily::Name(family.clone().into())
+        };
+        let mut style = (*self.egui_ctx.style()).clone();
+        let mut needs_update = false;
+        for (_, font_id) in style.text_styles.iter_mut() {
+            if font_id.family != egui::FontFamily::Monospace && font_id.family != target_family {
+                font_id.family = target_family.clone();
+                needs_update = true;
             }
+        }
+        if needs_update {
             self.egui_ctx.set_style(style);
         }
 

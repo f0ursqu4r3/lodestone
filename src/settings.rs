@@ -271,16 +271,6 @@ impl FontScale {
         }
     }
 
-    /// Base body font size for this scale (informational).
-    pub fn body_size(&self) -> f32 {
-        match self {
-            Self::XS => 11.0,
-            Self::S => 12.0,
-            Self::M => 13.0,
-            Self::L => 15.0,
-            Self::XL => 17.0,
-        }
-    }
 
     /// All scales in display order.
     pub fn all() -> &'static [FontScale] {

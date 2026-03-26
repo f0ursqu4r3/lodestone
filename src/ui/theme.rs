@@ -102,49 +102,209 @@ impl Theme {
     pub fn builtin(id: ThemeId) -> Theme {
         match id {
             ThemeId::DefaultDark => DEFAULT_DARK.clone(),
-            // Stubs — will be filled in Task 2
-            ThemeId::Light => {
-                let mut t = DEFAULT_DARK.clone();
-                t.id = ThemeId::Light;
-                t.name = "Light";
-                t
-            }
-            ThemeId::SolarizedDark => {
-                let mut t = DEFAULT_DARK.clone();
-                t.id = ThemeId::SolarizedDark;
-                t.name = "Solarized Dark";
-                t
-            }
-            ThemeId::SolarizedLight => {
-                let mut t = DEFAULT_DARK.clone();
-                t.id = ThemeId::SolarizedLight;
-                t.name = "Solarized Light";
-                t
-            }
-            ThemeId::RosePine => {
-                let mut t = DEFAULT_DARK.clone();
-                t.id = ThemeId::RosePine;
-                t.name = "Rosé Pine";
-                t
-            }
-            ThemeId::CatppuccinMocha => {
-                let mut t = DEFAULT_DARK.clone();
-                t.id = ThemeId::CatppuccinMocha;
-                t.name = "Catppuccin Mocha";
-                t
-            }
-            ThemeId::HighContrast => {
-                let mut t = DEFAULT_DARK.clone();
-                t.id = ThemeId::HighContrast;
-                t.name = "High Contrast";
-                t
-            }
-            ThemeId::Nord => {
-                let mut t = DEFAULT_DARK.clone();
-                t.id = ThemeId::Nord;
-                t.name = "Nord";
-                t
-            }
+            ThemeId::Light => Theme {
+                name: "Light",
+                id: ThemeId::Light,
+                bg_base: Color32::from_rgb(0xf5, 0xf5, 0xf7),
+                bg_surface: Color32::from_rgb(0xff, 0xff, 0xff),
+                bg_elevated: Color32::from_rgb(0xea, 0xea, 0xed),
+                bg_panel: Color32::from_rgb(0xf0, 0xf0, 0xf3),
+                text_primary: Color32::from_rgb(0x1a, 0x1a, 0x1e),
+                text_secondary: Color32::from_rgb(0x71, 0x71, 0x7a),
+                text_muted: Color32::from_rgb(0xa1, 0xa1, 0xaa),
+                border: Color32::from_rgb(0xd4, 0xd4, 0xd8),
+                border_subtle: Color32::from_rgb(0xe4, 0xe4, 0xe7),
+                accent: Color32::from_rgb(0x4f, 0x6a, 0xf0),
+                accent_hover: Color32::from_rgb(0x3d, 0x58, 0xd0),
+                accent_dim: accent_dim(Color32::from_rgb(0x4f, 0x6a, 0xf0)),
+                danger: Color32::from_rgb(0xdc, 0x26, 0x26),
+                success: Color32::from_rgb(0x16, 0xa3, 0x4a),
+                warning: Color32::from_rgb(0xca, 0x8a, 0x04),
+                toolbar_bg: Color32::from_rgb(0xff, 0xff, 0xff),
+                scrollbar: Color32::from_rgb(0xc4, 0xc4, 0xcc),
+                scrollbar_hover: Color32::from_rgb(0xa1, 0xa1, 0xaa),
+                panel_padding: 8.0,
+                item_spacing: 6.0,
+                radius_sm: 4.0,
+                radius_md: 6.0,
+                radius_lg: 12.0,
+                toolbar_height: 40.0,
+                tab_bar_height: 28.0,
+            },
+            ThemeId::SolarizedDark => Theme {
+                name: "Solarized Dark",
+                id: ThemeId::SolarizedDark,
+                bg_base: Color32::from_rgb(0x00, 0x2b, 0x36),
+                bg_surface: Color32::from_rgb(0x07, 0x36, 0x42),
+                bg_elevated: Color32::from_rgb(0x0a, 0x40, 0x50),
+                bg_panel: Color32::from_rgb(0x00, 0x38, 0x45),
+                text_primary: Color32::from_rgb(0x93, 0xa1, 0xa1),
+                text_secondary: Color32::from_rgb(0x65, 0x7b, 0x83),
+                text_muted: Color32::from_rgb(0x58, 0x6e, 0x75),
+                border: Color32::from_rgb(0x0d, 0x4f, 0x5a),
+                border_subtle: Color32::from_rgb(0x09, 0x46, 0x52),
+                accent: Color32::from_rgb(0x26, 0x8b, 0xd2),
+                accent_hover: Color32::from_rgb(0x2e, 0x9e, 0xe6),
+                accent_dim: accent_dim(Color32::from_rgb(0x26, 0x8b, 0xd2)),
+                danger: Color32::from_rgb(0xdc, 0x32, 0x2f),
+                success: Color32::from_rgb(0x85, 0x99, 0x00),
+                warning: Color32::from_rgb(0xb5, 0x89, 0x00),
+                toolbar_bg: Color32::from_rgb(0x07, 0x36, 0x42),
+                scrollbar: Color32::from_rgb(0x58, 0x6e, 0x75),
+                scrollbar_hover: Color32::from_rgb(0x65, 0x7b, 0x83),
+                panel_padding: 8.0,
+                item_spacing: 6.0,
+                radius_sm: 4.0,
+                radius_md: 6.0,
+                radius_lg: 12.0,
+                toolbar_height: 40.0,
+                tab_bar_height: 28.0,
+            },
+            ThemeId::SolarizedLight => Theme {
+                name: "Solarized Light",
+                id: ThemeId::SolarizedLight,
+                bg_base: Color32::from_rgb(0xfd, 0xf6, 0xe3),
+                bg_surface: Color32::from_rgb(0xee, 0xe8, 0xd5),
+                bg_elevated: Color32::from_rgb(0xe4, 0xdd, 0xca),
+                bg_panel: Color32::from_rgb(0xf5, 0xee, 0xd9),
+                text_primary: Color32::from_rgb(0x58, 0x6e, 0x75),
+                text_secondary: Color32::from_rgb(0x65, 0x7b, 0x83),
+                text_muted: Color32::from_rgb(0x93, 0xa1, 0xa1),
+                border: Color32::from_rgb(0xd6, 0xcd, 0xb5),
+                border_subtle: Color32::from_rgb(0xe0, 0xd8, 0xc2),
+                accent: Color32::from_rgb(0x26, 0x8b, 0xd2),
+                accent_hover: Color32::from_rgb(0x20, 0x76, 0xb5),
+                accent_dim: accent_dim(Color32::from_rgb(0x26, 0x8b, 0xd2)),
+                danger: Color32::from_rgb(0xdc, 0x32, 0x2f),
+                success: Color32::from_rgb(0x85, 0x99, 0x00),
+                warning: Color32::from_rgb(0xb5, 0x89, 0x00),
+                toolbar_bg: Color32::from_rgb(0xee, 0xe8, 0xd5),
+                scrollbar: Color32::from_rgb(0xc5, 0xbd, 0xa5),
+                scrollbar_hover: Color32::from_rgb(0x93, 0xa1, 0xa1),
+                panel_padding: 8.0,
+                item_spacing: 6.0,
+                radius_sm: 4.0,
+                radius_md: 6.0,
+                radius_lg: 12.0,
+                toolbar_height: 40.0,
+                tab_bar_height: 28.0,
+            },
+            ThemeId::RosePine => Theme {
+                name: "Rosé Pine",
+                id: ThemeId::RosePine,
+                bg_base: Color32::from_rgb(0x19, 0x17, 0x24),
+                bg_surface: Color32::from_rgb(0x1f, 0x1d, 0x2e),
+                bg_elevated: Color32::from_rgb(0x26, 0x23, 0x3a),
+                bg_panel: Color32::from_rgb(0x1c, 0x1a, 0x2a),
+                text_primary: Color32::from_rgb(0xe0, 0xde, 0xf4),
+                text_secondary: Color32::from_rgb(0x90, 0x8c, 0xaa),
+                text_muted: Color32::from_rgb(0x6e, 0x6a, 0x86),
+                border: Color32::from_rgb(0x2a, 0x27, 0x40),
+                border_subtle: Color32::from_rgb(0x23, 0x20, 0x38),
+                accent: Color32::from_rgb(0xc4, 0xa7, 0xe7),
+                accent_hover: Color32::from_rgb(0xd4, 0xbd, 0xf7),
+                accent_dim: accent_dim(Color32::from_rgb(0xc4, 0xa7, 0xe7)),
+                danger: Color32::from_rgb(0xeb, 0x6f, 0x92),
+                success: Color32::from_rgb(0x9c, 0xcf, 0xd8),
+                warning: Color32::from_rgb(0xf6, 0xc1, 0x77),
+                toolbar_bg: Color32::from_rgb(0x1f, 0x1d, 0x2e),
+                scrollbar: Color32::from_rgb(0x6e, 0x6a, 0x86),
+                scrollbar_hover: Color32::from_rgb(0x90, 0x8c, 0xaa),
+                panel_padding: 8.0,
+                item_spacing: 6.0,
+                radius_sm: 4.0,
+                radius_md: 6.0,
+                radius_lg: 12.0,
+                toolbar_height: 40.0,
+                tab_bar_height: 28.0,
+            },
+            ThemeId::CatppuccinMocha => Theme {
+                name: "Catppuccin Mocha",
+                id: ThemeId::CatppuccinMocha,
+                bg_base: Color32::from_rgb(0x1e, 0x1e, 0x2e),
+                bg_surface: Color32::from_rgb(0x24, 0x24, 0x3b),
+                bg_elevated: Color32::from_rgb(0x31, 0x32, 0x44),
+                bg_panel: Color32::from_rgb(0x21, 0x21, 0x3a),
+                text_primary: Color32::from_rgb(0xcd, 0xd6, 0xf4),
+                text_secondary: Color32::from_rgb(0xa6, 0xad, 0xc8),
+                text_muted: Color32::from_rgb(0x6c, 0x70, 0x86),
+                border: Color32::from_rgb(0x45, 0x47, 0x5a),
+                border_subtle: Color32::from_rgb(0x38, 0x3a, 0x4f),
+                accent: Color32::from_rgb(0x89, 0xb4, 0xfa),
+                accent_hover: Color32::from_rgb(0x9c, 0xc4, 0xff),
+                accent_dim: accent_dim(Color32::from_rgb(0x89, 0xb4, 0xfa)),
+                danger: Color32::from_rgb(0xf3, 0x8b, 0xa8),
+                success: Color32::from_rgb(0xa6, 0xe3, 0xa1),
+                warning: Color32::from_rgb(0xf9, 0xe2, 0xaf),
+                toolbar_bg: Color32::from_rgb(0x24, 0x24, 0x3b),
+                scrollbar: Color32::from_rgb(0x58, 0x5b, 0x70),
+                scrollbar_hover: Color32::from_rgb(0x6c, 0x70, 0x86),
+                panel_padding: 8.0,
+                item_spacing: 6.0,
+                radius_sm: 4.0,
+                radius_md: 6.0,
+                radius_lg: 12.0,
+                toolbar_height: 40.0,
+                tab_bar_height: 28.0,
+            },
+            ThemeId::HighContrast => Theme {
+                name: "High Contrast",
+                id: ThemeId::HighContrast,
+                bg_base: Color32::from_rgb(0x00, 0x00, 0x00),
+                bg_surface: Color32::from_rgb(0x0a, 0x0a, 0x0a),
+                bg_elevated: Color32::from_rgb(0x1a, 0x1a, 0x1a),
+                bg_panel: Color32::from_rgb(0x05, 0x05, 0x05),
+                text_primary: Color32::from_rgb(0xff, 0xff, 0xff),
+                text_secondary: Color32::from_rgb(0xcc, 0xcc, 0xcc),
+                text_muted: Color32::from_rgb(0x88, 0x88, 0x88),
+                border: Color32::from_rgb(0xff, 0xff, 0xff),
+                border_subtle: Color32::from_rgb(0x66, 0x66, 0x66),
+                accent: Color32::from_rgb(0xff, 0xff, 0x00),
+                accent_hover: Color32::from_rgb(0xff, 0xff, 0x55),
+                accent_dim: accent_dim(Color32::from_rgb(0xff, 0xff, 0x00)),
+                danger: Color32::from_rgb(0xff, 0x00, 0x00),
+                success: Color32::from_rgb(0x00, 0xff, 0x00),
+                warning: Color32::from_rgb(0xff, 0xff, 0x00),
+                toolbar_bg: Color32::from_rgb(0x0a, 0x0a, 0x0a),
+                scrollbar: Color32::from_rgb(0x88, 0x88, 0x88),
+                scrollbar_hover: Color32::from_rgb(0xcc, 0xcc, 0xcc),
+                panel_padding: 8.0,
+                item_spacing: 6.0,
+                radius_sm: 4.0,
+                radius_md: 6.0,
+                radius_lg: 12.0,
+                toolbar_height: 40.0,
+                tab_bar_height: 28.0,
+            },
+            ThemeId::Nord => Theme {
+                name: "Nord",
+                id: ThemeId::Nord,
+                bg_base: Color32::from_rgb(0x2e, 0x34, 0x40),
+                bg_surface: Color32::from_rgb(0x3b, 0x42, 0x52),
+                bg_elevated: Color32::from_rgb(0x43, 0x4c, 0x5e),
+                bg_panel: Color32::from_rgb(0x34, 0x3b, 0x49),
+                text_primary: Color32::from_rgb(0xd8, 0xde, 0xe9),
+                text_secondary: Color32::from_rgb(0x9d, 0xa5, 0xb4),
+                text_muted: Color32::from_rgb(0x61, 0x6e, 0x88),
+                border: Color32::from_rgb(0x4c, 0x56, 0x6a),
+                border_subtle: Color32::from_rgb(0x43, 0x4c, 0x5e),
+                accent: Color32::from_rgb(0x88, 0xc0, 0xd0),
+                accent_hover: Color32::from_rgb(0x8f, 0xbc, 0xbb),
+                accent_dim: accent_dim(Color32::from_rgb(0x88, 0xc0, 0xd0)),
+                danger: Color32::from_rgb(0xbf, 0x61, 0x6a),
+                success: Color32::from_rgb(0xa3, 0xbe, 0x8c),
+                warning: Color32::from_rgb(0xeb, 0xcb, 0x8b),
+                toolbar_bg: Color32::from_rgb(0x3b, 0x42, 0x52),
+                scrollbar: Color32::from_rgb(0x61, 0x6e, 0x88),
+                scrollbar_hover: Color32::from_rgb(0x9d, 0xa5, 0xb4),
+                panel_padding: 8.0,
+                item_spacing: 6.0,
+                radius_sm: 4.0,
+                radius_md: 6.0,
+                radius_lg: 12.0,
+                toolbar_height: 40.0,
+                tab_bar_height: 28.0,
+            },
         }
     }
 }
@@ -392,6 +552,18 @@ mod tests {
         assert_eq!(theme.success, Color32::from_rgb(0x2e, 0xcc, 0x71));
         assert_eq!(theme.radius_sm, 4.0);
         assert_eq!(theme.toolbar_height, 40.0);
+    }
+
+    #[test]
+    fn all_themes_have_sufficient_text_contrast() {
+        for &id in ThemeId::all() {
+            let t = Theme::builtin(id);
+            let dr = t.text_primary.r() as f64 - t.bg_base.r() as f64;
+            let dg = t.text_primary.g() as f64 - t.bg_base.g() as f64;
+            let db = t.text_primary.b() as f64 - t.bg_base.b() as f64;
+            let diff = (dr * dr + dg * dg + db * db).sqrt();
+            assert!(diff > 100.0, "{:?} has insufficient text contrast: {}", id, diff);
+        }
     }
 
     #[test]

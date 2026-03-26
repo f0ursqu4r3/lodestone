@@ -150,6 +150,10 @@ pub struct AppState {
     pub accent_color: egui::Color32,
     /// Undo/redo history stack.
     pub undo_stack: UndoStack,
+    /// Signal from keyboard shortcut: reset preview zoom to fit (Cmd+0).
+    pub reset_preview_zoom: bool,
+    /// Signal from keyboard shortcut: set preview zoom to 1:1 pixel mapping (Cmd+1).
+    pub set_preview_zoom_100: bool,
     /// Whether a continuous edit gesture is in progress (drag, slider).
     pub(crate) in_continuous_edit: bool,
     /// Pre-frame snapshot for undo. Captured at the start of each UI frame
@@ -192,6 +196,8 @@ impl Default for AppState {
             command_tx: None,
             accent_color: crate::ui::theme::DEFAULT_ACCENT,
             undo_stack: UndoStack::default(),
+            reset_preview_zoom: false,
+            set_preview_zoom_100: false,
             in_continuous_edit: false,
             frame_snapshot: None,
         }

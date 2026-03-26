@@ -3,6 +3,7 @@ mod appearance;
 mod audio;
 mod general;
 mod hotkeys;
+mod record;
 mod stream;
 mod video;
 
@@ -27,6 +28,7 @@ enum SettingsCategory {
     Appearance,
     Hotkeys,
     StreamOutput,
+    Recording,
     Audio,
     Video,
     Advanced,
@@ -39,6 +41,7 @@ impl SettingsCategory {
             Self::Appearance => "Appearance",
             Self::Hotkeys => "Hotkeys",
             Self::StreamOutput => "Stream / Output",
+            Self::Recording => "Recording",
             Self::Audio => "Audio",
             Self::Video => "Video",
             Self::Advanced => "Advanced",
@@ -66,6 +69,7 @@ const SIDEBAR_GROUPS: &[SidebarGroup] = &[
         title: "OUTPUT",
         items: &[
             SettingsCategory::StreamOutput,
+            SettingsCategory::Recording,
             SettingsCategory::Audio,
             SettingsCategory::Video,
         ],
@@ -220,6 +224,10 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
                 SettingsCategory::StreamOutput => {
                     let available_encoders = state.available_encoders.clone();
                     stream::draw(ui, &mut state.settings.stream, &available_encoders)
+                }
+                SettingsCategory::Recording => {
+                    let encoders = state.available_encoders.clone();
+                    record::draw(ui, &mut state.settings.record, &encoders)
                 }
                 SettingsCategory::Audio => audio::draw(ui, state),
                 SettingsCategory::Video => video::draw(ui, &mut state.settings.video, state.detected_resolution),

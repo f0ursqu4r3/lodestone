@@ -129,11 +129,11 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
             }
 
             // Reset button — only shown when an override is active
-            if state.settings.appearance.accent_color.is_some() {
-                if ui.small_button("Reset").clicked() {
-                    state.settings.appearance.accent_color = None;
-                    changed = true;
-                }
+            if state.settings.appearance.accent_color.is_some()
+                && ui.small_button("Reset").clicked()
+            {
+                state.settings.appearance.accent_color = None;
+                changed = true;
             }
         });
     });

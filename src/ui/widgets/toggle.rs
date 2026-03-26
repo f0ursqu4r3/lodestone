@@ -1,4 +1,5 @@
 //! Toggle widgets: pill-shaped toggle row and iOS-style toggle switch.
+#![allow(dead_code)]
 
 use egui::{Color32, CornerRadius, Sense, Stroke, StrokeKind, Ui, Vec2};
 

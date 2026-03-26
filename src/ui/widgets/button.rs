@@ -1,4 +1,5 @@
 //! Themed button widget with multiple visual variants.
+#![allow(dead_code)]
 
 use egui::{Color32, CornerRadius, Response, Sense, Stroke, StrokeKind, Ui, Vec2, Widget};
 

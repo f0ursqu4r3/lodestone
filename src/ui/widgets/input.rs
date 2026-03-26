@@ -1,4 +1,5 @@
 //! Themed input widgets: text, drag values, and color picker.
+#![allow(dead_code)]
 
 use egui::{Color32, RichText, Stroke, TextEdit, Ui};
 
@@ -90,7 +91,7 @@ pub fn color_picker(
 
     let effective_color = hex
         .as_deref()
-        .and_then(|h| parse_hex(h))
+        .and_then(parse_hex)
         .unwrap_or(default_color);
 
     ui.horizontal(|ui| {

@@ -1,4 +1,5 @@
 //! Layout helpers: section headers, labeled rows, and separators.
+#![allow(dead_code)]
 
 use egui::{FontId, RichText, Ui};
 

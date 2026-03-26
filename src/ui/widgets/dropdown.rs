@@ -1,4 +1,5 @@
 //! Themed ComboBox dropdown wrapper.
+#![allow(dead_code)]
 
 use egui::Ui;
 

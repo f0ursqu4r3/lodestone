@@ -55,6 +55,7 @@ impl ThemeId {
 
 /// A complete set of visual tokens for a UI theme.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Theme {
     pub name: &'static str,
     pub id: ThemeId,

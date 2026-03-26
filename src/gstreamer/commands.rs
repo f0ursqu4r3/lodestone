@@ -251,6 +251,7 @@ pub struct GstChannels {
     pub error_rx: mpsc::UnboundedReceiver<GstError>,
     pub audio_level_rx: watch::Receiver<AudioLevelUpdate>,
     pub devices_rx: watch::Receiver<Vec<AudioDevice>>,
+    pub encoders_rx: watch::Receiver<Vec<AvailableEncoder>>,
 }
 
 /// Internal channel handles held by the GStreamer thread.
@@ -266,6 +267,7 @@ pub(crate) struct GstThreadChannels {
     pub error_tx: mpsc::UnboundedSender<GstError>,
     pub audio_level_tx: watch::Sender<AudioLevelUpdate>,
     pub devices_tx: watch::Sender<Vec<AudioDevice>>,
+    pub encoders_tx: watch::Sender<Vec<AvailableEncoder>>,
 }
 
 /// Create all channels and return both ends.
@@ -277,6 +279,7 @@ pub fn create_channels() -> (GstChannels, GstThreadChannels) {
     let (error_tx, error_rx) = mpsc::unbounded_channel();
     let (audio_level_tx, audio_level_rx) = watch::channel(AudioLevelUpdate::default());
     let (devices_tx, devices_rx) = watch::channel(Vec::new());
+    let (encoders_tx, encoders_rx) = watch::channel(Vec::new());
 
     let main_channels = GstChannels {
         command_tx,
@@ -286,6 +289,7 @@ pub fn create_channels() -> (GstChannels, GstThreadChannels) {
         error_rx,
         audio_level_rx,
         devices_rx,
+        encoders_rx,
     };
 
     let thread_channels = GstThreadChannels {
@@ -296,6 +300,7 @@ pub fn create_channels() -> (GstChannels, GstThreadChannels) {
         error_tx,
         audio_level_tx,
         devices_tx,
+        encoders_tx,
     };
 
     (main_channels, thread_channels)

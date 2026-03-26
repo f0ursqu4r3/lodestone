@@ -8,8 +8,8 @@ use std::thread::JoinHandle;
 
 use super::capture::{build_audio_capture_pipeline, build_capture_pipeline};
 use super::commands::{
-    AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, EncoderConfig, GstCommand,
-    GstThreadChannels, RecordingFormat, StreamConfig,
+    AudioEncoderConfig, AudioSourceKind, AvailableEncoder, CaptureSourceConfig, EncoderConfig,
+    EncoderType, GstCommand, GstThreadChannels, RecordingFormat, StreamConfig,
 };
 use super::encode::{
     RecordPipelineHandles, StreamPipelineHandles, build_record_pipeline_with_audio,
@@ -905,8 +905,49 @@ impl GstThread {
         }
     }
 
+    /// Probe GStreamer for available H.264 encoders.
+    fn enumerate_encoders() -> Vec<AvailableEncoder> {
+        let mut encoders = Vec::new();
+        let mut found_recommended = false;
+
+        for &encoder_type in EncoderType::all() {
+            if gstreamer::ElementFactory::make(encoder_type.element_name())
+                .build()
+                .is_ok()
+            {
+                let is_hw = encoder_type.is_hardware();
+                let is_recommended = !found_recommended
+                    && (is_hw || encoder_type == EncoderType::H264x264);
+                if is_recommended {
+                    found_recommended = true;
+                }
+                encoders.push(AvailableEncoder {
+                    encoder_type,
+                    is_recommended,
+                });
+            }
+        }
+
+        if !found_recommended {
+            if let Some(enc) = encoders.iter_mut().find(|e| e.encoder_type == EncoderType::H264x264) {
+                enc.is_recommended = true;
+            }
+        }
+
+        encoders
+    }
+
     /// Main run loop for the GStreamer thread.
     fn run(mut self) {
+        // Detect available encoders
+        let encoders = Self::enumerate_encoders();
+        log::info!(
+            "Detected {} encoder(s): {:?}",
+            encoders.len(),
+            encoders.iter().map(|e| e.encoder_type.display_name()).collect::<Vec<_>>()
+        );
+        let _ = self.channels.encoders_tx.send(encoders);
+
         // Enumerate audio devices and start default audio capture.
         match super::devices::enumerate_audio_input_devices() {
             Ok(devices) => {
@@ -1055,6 +1096,18 @@ pub fn spawn_gstreamer_thread(channels: GstThreadChannels) -> JoinHandle<()> {
 mod tests {
     use super::*;
     use crate::gstreamer::commands::create_channels;
+
+    #[test]
+    fn enumerate_encoders_returns_at_least_one() {
+        gstreamer::init().unwrap();
+        let encoders = GstThread::enumerate_encoders();
+        assert!(!encoders.is_empty(), "should detect at least x264");
+        assert_eq!(
+            encoders.iter().filter(|e| e.is_recommended).count(),
+            1,
+            "exactly one encoder should be recommended"
+        );
+    }
 
     #[test]
     fn pipeline_kind_debug() {

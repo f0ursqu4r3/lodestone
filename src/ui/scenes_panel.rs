@@ -414,9 +414,30 @@ fn apply_scene_diff(
                         },
                     });
                 }
+                crate::scene::SourceProperties::Audio { input } => {
+                    let config = match input {
+                        crate::scene::AudioInput::Device { device_uid, .. } => {
+                            CaptureSourceConfig::AudioDevice {
+                                device_uid: device_uid.clone(),
+                            }
+                        }
+                        crate::scene::AudioInput::File { path, looping } => {
+                            CaptureSourceConfig::AudioFile {
+                                path: path.clone(),
+                                looping: *looping,
+                            }
+                        }
+                    };
+                    let _ = tx.try_send(GstCommand::AddCaptureSource {
+                        source_id: src_id,
+                        config,
+                    });
+                }
                 crate::scene::SourceProperties::Image { .. } => {
                     // Image sources don't use a capture pipeline.
                 }
+                // Text, Color, Browser: no capture pipeline
+                _ => {}
             }
         }
     }
@@ -513,9 +534,31 @@ pub(crate) fn send_capture_for_scene(
                     });
                     any_started = true;
                 }
+                crate::scene::SourceProperties::Audio { input } => {
+                    let config = match input {
+                        crate::scene::AudioInput::Device { device_uid, .. } => {
+                            CaptureSourceConfig::AudioDevice {
+                                device_uid: device_uid.clone(),
+                            }
+                        }
+                        crate::scene::AudioInput::File { path, looping } => {
+                            CaptureSourceConfig::AudioFile {
+                                path: path.clone(),
+                                looping: *looping,
+                            }
+                        }
+                    };
+                    let _ = tx.try_send(GstCommand::AddCaptureSource {
+                        source_id: src_id,
+                        config,
+                    });
+                    any_started = true;
+                }
                 crate::scene::SourceProperties::Image { .. } => {
                     // Image sources don't use a capture pipeline.
                 }
+                // Text, Color, Browser: no capture pipeline
+                _ => {}
             }
         }
     }

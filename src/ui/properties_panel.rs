@@ -4,8 +4,11 @@
 //! - **Library mode** — source is not in the active scene: edits library defaults directly
 //! - **Scene mode** — source is in the active scene: edits scene overrides, shows override dots
 
+use crate::gstreamer::types::RgbaFrame;
 use crate::gstreamer::{CaptureSourceConfig, GstCommand, GstError};
-use crate::scene::{SourceId, SourceProperties, SourceType};
+use crate::scene::{
+    AudioInput, ColorFill, GradientStop, SourceId, SourceProperties, SourceType, TextAlignment,
+};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::{TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, accent_color_ui};
@@ -180,11 +183,14 @@ fn draw_transform_section(
             transform_changed |= drag_field_colored(ui, "H", &mut transform.height, text_color);
             ui.add_space(4.0);
             if ui
-                .add(egui::Button::new(
-                    egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
-                        .size(12.0)
-                        .color(TEXT_SECONDARY),
-                ).frame(false))
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                            .size(12.0)
+                            .color(TEXT_SECONDARY),
+                    )
+                    .frame(false),
+                )
                 .on_hover_text("Reset to native size")
                 .clicked()
             {
@@ -237,11 +243,14 @@ fn draw_transform_section(
                 changed |= drag_field(ui, "H", &mut source.transform.height);
                 ui.add_space(4.0);
                 if ui
-                    .add(egui::Button::new(
-                        egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
-                            .size(12.0)
-                            .color(TEXT_SECONDARY),
-                    ).frame(false))
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                                .size(12.0)
+                                .color(TEXT_SECONDARY),
+                        )
+                        .frame(false),
+                    )
                     .on_hover_text("Reset to native size")
                     .clicked()
                 {
@@ -625,8 +634,663 @@ fn draw_source_properties(
                 changed = true;
             }
         }
-        _ => {
-            // Other source types don't have extra properties yet.
+        SourceType::Text => {
+            section_label(ui, "TEXT");
+            ui.add_space(4.0);
+
+            let cmd_tx = state.command_tx.clone();
+            let src_id = selected_id;
+            let source = &mut state.library[lib_idx];
+            if let SourceProperties::Text {
+                ref mut content,
+                ref mut font_family,
+                ref mut font_size,
+                ref mut font_color,
+                ref mut background_color,
+                ref mut bold,
+                ref mut italic,
+                ref mut alignment,
+                ref mut outline,
+                ref mut padding,
+                ref mut wrap_width,
+            } = source.properties
+            {
+                // Multiline text input.
+                let te = egui::TextEdit::multiline(content)
+                    .hint_text("Enter text...")
+                    .desired_rows(3)
+                    .desired_width(ui.available_width() - 8.0);
+                if ui.add(te).changed() {
+                    changed = true;
+                }
+                ui.add_space(4.0);
+
+                // Font family dropdown.
+                let families = [
+                    ("bundled:sans", "Sans"),
+                    ("bundled:serif", "Serif"),
+                    ("bundled:mono", "Mono"),
+                    ("bundled:display", "Display"),
+                ];
+                let current_label = families
+                    .iter()
+                    .find(|(k, _)| *k == font_family.as_str())
+                    .map(|(_, v)| *v)
+                    .unwrap_or("Sans");
+                egui::ComboBox::from_id_salt(
+                    egui::Id::new("props_font_family").with(selected_id.0),
+                )
+                .selected_text(current_label)
+                .width(ui.available_width() - 8.0)
+                .show_ui(ui, |ui| {
+                    for (key, label) in &families {
+                        if ui.selectable_label(*font_family == *key, *label).clicked() {
+                            *font_family = key.to_string();
+                            changed = true;
+                        }
+                    }
+                });
+                ui.add_space(4.0);
+
+                // Font size slider.
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Size").color(TEXT_SECONDARY).size(10.0));
+                    if ui
+                        .add(egui::Slider::new(font_size, 8.0..=200.0).suffix(" pt"))
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                });
+                ui.add_space(2.0);
+
+                // Bold / Italic toggles.
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(*bold, egui::RichText::new("B").strong())
+                        .clicked()
+                    {
+                        *bold = !*bold;
+                        changed = true;
+                    }
+                    if ui
+                        .selectable_label(*italic, egui::RichText::new("I").italics())
+                        .clicked()
+                    {
+                        *italic = !*italic;
+                        changed = true;
+                    }
+                });
+                ui.add_space(2.0);
+
+                // Text color.
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Text Color")
+                            .color(TEXT_SECONDARY)
+                            .size(10.0),
+                    );
+                    if ui.color_edit_button_rgba_unmultiplied(font_color).changed() {
+                        changed = true;
+                    }
+                });
+                ui.add_space(2.0);
+
+                // Background color.
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Background")
+                            .color(TEXT_SECONDARY)
+                            .size(10.0),
+                    );
+                    if ui
+                        .color_edit_button_rgba_unmultiplied(background_color)
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                });
+                ui.add_space(2.0);
+
+                // Alignment buttons.
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Align")
+                            .color(TEXT_SECONDARY)
+                            .size(10.0),
+                    );
+                    if ui
+                        .selectable_label(
+                            *alignment == TextAlignment::Left,
+                            egui_phosphor::regular::TEXT_ALIGN_LEFT,
+                        )
+                        .clicked()
+                    {
+                        *alignment = TextAlignment::Left;
+                        changed = true;
+                    }
+                    if ui
+                        .selectable_label(
+                            *alignment == TextAlignment::Center,
+                            egui_phosphor::regular::TEXT_ALIGN_CENTER,
+                        )
+                        .clicked()
+                    {
+                        *alignment = TextAlignment::Center;
+                        changed = true;
+                    }
+                    if ui
+                        .selectable_label(
+                            *alignment == TextAlignment::Right,
+                            egui_phosphor::regular::TEXT_ALIGN_RIGHT,
+                        )
+                        .clicked()
+                    {
+                        *alignment = TextAlignment::Right;
+                        changed = true;
+                    }
+                });
+                ui.add_space(2.0);
+
+                // Outline.
+                let mut has_outline = outline.is_some();
+                if ui.checkbox(&mut has_outline, "Outline").changed() {
+                    if has_outline {
+                        *outline = Some(crate::scene::TextOutline {
+                            color: [0.0, 0.0, 0.0, 1.0],
+                            width: 2.0,
+                        });
+                    } else {
+                        *outline = None;
+                    }
+                    changed = true;
+                }
+                if let Some(ol) = outline {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Outline Color")
+                                .color(TEXT_SECONDARY)
+                                .size(10.0),
+                        );
+                        if ui
+                            .color_edit_button_rgba_unmultiplied(&mut ol.color)
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Width")
+                                .color(TEXT_SECONDARY)
+                                .size(10.0),
+                        );
+                        if ui
+                            .add(egui::Slider::new(&mut ol.width, 0.5..=20.0).suffix(" px"))
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                    });
+                }
+                ui.add_space(2.0);
+
+                // Padding.
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Padding")
+                            .color(TEXT_SECONDARY)
+                            .size(10.0),
+                    );
+                    if ui
+                        .add(egui::Slider::new(padding, 0.0..=100.0).suffix(" px"))
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                });
+                ui.add_space(2.0);
+
+                // Word wrap.
+                let mut has_wrap = wrap_width.is_some();
+                if ui.checkbox(&mut has_wrap, "Word Wrap").changed() {
+                    if has_wrap {
+                        *wrap_width = Some(400.0);
+                    } else {
+                        *wrap_width = None;
+                    }
+                    changed = true;
+                }
+                if let Some(ww) = wrap_width {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Wrap Width")
+                                .color(TEXT_SECONDARY)
+                                .size(10.0),
+                        );
+                        if ui
+                            .add(egui::Slider::new(ww, 50.0..=3840.0).suffix(" px"))
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                    });
+                }
+
+                // Re-render on change.
+                if changed {
+                    let props = state.library[lib_idx].properties.clone();
+                    if let Some(frame) = crate::text_source::render_text_source(&props) {
+                        let source = &mut state.library[lib_idx];
+                        source.native_size = (frame.width as f32, frame.height as f32);
+                        source.transform.width = frame.width as f32;
+                        source.transform.height = frame.height as f32;
+                        if let Some(ref tx) = cmd_tx {
+                            let _ = tx.try_send(GstCommand::LoadImageFrame {
+                                source_id: src_id,
+                                frame,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        SourceType::Color => {
+            section_label(ui, "COLOR");
+            ui.add_space(4.0);
+
+            let cmd_tx = state.command_tx.clone();
+            let src_id = selected_id;
+            let source = &mut state.library[lib_idx];
+            if let SourceProperties::Color { ref mut fill } = source.properties {
+                // Fill type selector.
+                let fill_type = match fill {
+                    ColorFill::Solid { .. } => 0,
+                    ColorFill::LinearGradient { .. } => 1,
+                    ColorFill::RadialGradient { .. } => 2,
+                };
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(fill_type == 0, "Solid").clicked() && fill_type != 0 {
+                        *fill = ColorFill::Solid {
+                            color: [1.0, 1.0, 1.0, 1.0],
+                        };
+                        changed = true;
+                    }
+                    if ui.selectable_label(fill_type == 1, "Linear").clicked() && fill_type != 1 {
+                        *fill = ColorFill::LinearGradient {
+                            angle: 0.0,
+                            stops: vec![
+                                GradientStop {
+                                    position: 0.0,
+                                    color: [0.0, 0.0, 0.0, 1.0],
+                                },
+                                GradientStop {
+                                    position: 1.0,
+                                    color: [1.0, 1.0, 1.0, 1.0],
+                                },
+                            ],
+                        };
+                        changed = true;
+                    }
+                    if ui.selectable_label(fill_type == 2, "Radial").clicked() && fill_type != 2 {
+                        *fill = ColorFill::RadialGradient {
+                            center: (0.5, 0.5),
+                            radius: 0.5,
+                            stops: vec![
+                                GradientStop {
+                                    position: 0.0,
+                                    color: [1.0, 1.0, 1.0, 1.0],
+                                },
+                                GradientStop {
+                                    position: 1.0,
+                                    color: [0.0, 0.0, 0.0, 1.0],
+                                },
+                            ],
+                        };
+                        changed = true;
+                    }
+                });
+                ui.add_space(4.0);
+
+                match fill {
+                    ColorFill::Solid { color } => {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Color")
+                                    .color(TEXT_SECONDARY)
+                                    .size(10.0),
+                            );
+                            if ui.color_edit_button_rgba_unmultiplied(color).changed() {
+                                changed = true;
+                            }
+                        });
+                    }
+                    ColorFill::LinearGradient { angle, stops } => {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Angle")
+                                    .color(TEXT_SECONDARY)
+                                    .size(10.0),
+                            );
+                            if ui
+                                .add(egui::Slider::new(angle, 0.0..=360.0).suffix("°"))
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        });
+                        ui.add_space(2.0);
+                        changed |= draw_gradient_stops(ui, stops, selected_id);
+                    }
+                    ColorFill::RadialGradient {
+                        center,
+                        radius,
+                        stops,
+                    } => {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Center X")
+                                    .color(TEXT_SECONDARY)
+                                    .size(10.0),
+                            );
+                            if ui
+                                .add(egui::Slider::new(&mut center.0, 0.0..=1.0))
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Center Y")
+                                    .color(TEXT_SECONDARY)
+                                    .size(10.0),
+                            );
+                            if ui
+                                .add(egui::Slider::new(&mut center.1, 0.0..=1.0))
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Radius")
+                                    .color(TEXT_SECONDARY)
+                                    .size(10.0),
+                            );
+                            if ui.add(egui::Slider::new(radius, 0.01..=2.0)).changed() {
+                                changed = true;
+                            }
+                        });
+                        ui.add_space(2.0);
+                        changed |= draw_gradient_stops(ui, stops, selected_id);
+                    }
+                }
+
+                // Re-render on change.
+                if changed {
+                    let w = state.library[lib_idx].transform.width as u32;
+                    let h = state.library[lib_idx].transform.height as u32;
+                    let fill_clone = if let SourceProperties::Color { ref fill } =
+                        state.library[lib_idx].properties
+                    {
+                        fill.clone()
+                    } else {
+                        ColorFill::Solid {
+                            color: [1.0, 1.0, 1.0, 1.0],
+                        }
+                    };
+                    let frame = crate::color_source::render_color_source(&fill_clone, w, h);
+                    if let Some(ref tx) = cmd_tx {
+                        let _ = tx.try_send(GstCommand::LoadImageFrame {
+                            source_id: src_id,
+                            frame,
+                        });
+                    }
+                }
+            }
+        }
+        SourceType::Audio => {
+            section_label(ui, "AUDIO");
+            ui.add_space(4.0);
+
+            // Cache audio devices (same pattern as Window/Camera panels).
+            if state.available_audio_devices.is_empty() {
+                state.available_audio_devices =
+                    crate::gstreamer::devices::enumerate_audio_input_devices()
+                        .unwrap_or_default();
+            }
+            let audio_devices = state.available_audio_devices.clone();
+            let cmd_tx = state.command_tx.clone();
+            let src_id = selected_id;
+            let source = &mut state.library[lib_idx];
+            if let SourceProperties::Audio { ref mut input } = source.properties {
+                // Input type toggle.
+                let is_device = matches!(input, AudioInput::Device { .. });
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(is_device, "Device").clicked() && !is_device {
+                        *input = AudioInput::Device {
+                            device_uid: String::new(),
+                            device_name: String::new(),
+                        };
+                        changed = true;
+                    }
+                    if ui.selectable_label(!is_device, "File").clicked() && is_device {
+                        *input = AudioInput::File {
+                            path: String::new(),
+                            looping: false,
+                        };
+                        changed = true;
+                    }
+                });
+                ui.add_space(4.0);
+
+                match input {
+                    AudioInput::Device {
+                        device_uid,
+                        device_name,
+                    } => {
+                        let current_label = if device_name.is_empty() {
+                            "Select device...".to_string()
+                        } else {
+                            device_name.clone()
+                        };
+                        let prev_uid = device_uid.clone();
+
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt(
+                                egui::Id::new("props_audio_device").with(selected_id.0),
+                            )
+                            .selected_text(&current_label)
+                            .width(ui.available_width() - 40.0)
+                            .show_ui(ui, |ui| {
+                                for dev in &audio_devices {
+                                    if ui
+                                        .selectable_label(*device_uid == dev.uid, &dev.name)
+                                        .clicked()
+                                    {
+                                        *device_uid = dev.uid.clone();
+                                        *device_name = dev.name.clone();
+                                    }
+                                }
+                            });
+                            if ui
+                                .button(egui_phosphor::regular::ARROWS_CLOCKWISE)
+                                .on_hover_text("Refresh devices")
+                                .clicked()
+                            {
+                                state.available_audio_devices =
+                                    crate::gstreamer::devices::enumerate_audio_input_devices()
+                                        .unwrap_or_default();
+                            }
+                        });
+
+                        if *device_uid != prev_uid {
+                            // Restart capture with new device.
+                            if let Some(ref tx) = cmd_tx {
+                                let _ = tx.try_send(GstCommand::RemoveCaptureSource {
+                                    source_id: src_id,
+                                });
+                                if !device_uid.is_empty() {
+                                    let _ = tx.try_send(GstCommand::AddCaptureSource {
+                                        source_id: src_id,
+                                        config: CaptureSourceConfig::AudioDevice {
+                                            device_uid: device_uid.clone(),
+                                        },
+                                    });
+                                }
+                            }
+                            changed = true;
+                        }
+                    }
+                    AudioInput::File { path, looping } => {
+                        let prev_path = path.clone();
+                        ui.horizontal(|ui| {
+                            let te = egui::TextEdit::singleline(path)
+                                .hint_text("Select audio file...")
+                                .desired_width(ui.available_width() - 40.0);
+                            if ui.add(te).changed() {
+                                changed = true;
+                            }
+                            if ui
+                                .button(egui_phosphor::regular::FOLDER)
+                                .on_hover_text("Browse for audio file")
+                                .clicked()
+                                && let Some(picked) = rfd::FileDialog::new()
+                                    .add_filter(
+                                        "Audio",
+                                        &["mp3", "wav", "ogg", "flac", "aac", "m4a"],
+                                    )
+                                    .pick_file()
+                            {
+                                *path = picked.to_string_lossy().to_string();
+                                changed = true;
+                            }
+                        });
+                        if ui.checkbox(looping, "Loop").changed() {
+                            changed = true;
+                        }
+
+                        if changed && *path != prev_path && !path.is_empty() {
+                            // Restart capture with new file.
+                            if let Some(ref tx) = cmd_tx {
+                                let _ = tx.try_send(GstCommand::RemoveCaptureSource {
+                                    source_id: src_id,
+                                });
+                                let _ = tx.try_send(GstCommand::AddCaptureSource {
+                                    source_id: src_id,
+                                    config: CaptureSourceConfig::AudioFile {
+                                        path: path.clone(),
+                                        looping: *looping,
+                                    },
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            ui.add_space(8.0);
+
+            // Volume and mute controls (always shown, use library-level fields).
+            let source = &mut state.library[lib_idx];
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Volume")
+                        .color(TEXT_SECONDARY)
+                        .size(10.0),
+                );
+                let prev_vol = source.volume;
+                if ui
+                    .add(egui::Slider::new(&mut source.volume, 0.0..=2.0).suffix("x"))
+                    .changed()
+                    && (source.volume - prev_vol).abs() > f32::EPSILON
+                {
+                    if let Some(ref tx) = cmd_tx {
+                        let _ = tx.try_send(GstCommand::SetSourceVolume {
+                            source_id: src_id,
+                            volume: source.volume,
+                        });
+                    }
+                    changed = true;
+                }
+            });
+
+            let prev_muted = source.muted;
+            if ui.checkbox(&mut source.muted, "Mute").changed() && source.muted != prev_muted {
+                if let Some(ref tx) = cmd_tx {
+                    let _ = tx.try_send(GstCommand::SetSourceMuted {
+                        source_id: src_id,
+                        muted: source.muted,
+                    });
+                }
+                changed = true;
+            }
+        }
+        SourceType::Browser => {
+            section_label(ui, "BROWSER");
+            ui.add_space(4.0);
+
+            let cmd_tx = state.command_tx.clone();
+            let src_id = selected_id;
+            let source = &mut state.library[lib_idx];
+            if let SourceProperties::Browser {
+                ref mut url,
+                ref mut width,
+                ref mut height,
+            } = source.properties
+            {
+                // URL input.
+                let te = egui::TextEdit::singleline(url)
+                    .hint_text("https://example.com")
+                    .desired_width(ui.available_width() - 8.0);
+                if ui.add(te).changed() {
+                    changed = true;
+                }
+                ui.add_space(4.0);
+
+                // Width / Height.
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("W").color(TEXT_SECONDARY).size(10.0));
+                    if ui
+                        .add(egui::DragValue::new(width).range(100..=3840).speed(1.0))
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("H").color(TEXT_SECONDARY).size(10.0));
+                    if ui
+                        .add(egui::DragValue::new(height).range(100..=2160).speed(1.0))
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                });
+                ui.add_space(8.0);
+
+                ui.label(
+                    egui::RichText::new("Browser rendering engine not yet available.")
+                        .color(TEXT_MUTED)
+                        .size(10.0),
+                );
+
+                // Generate placeholder on change.
+                if changed {
+                    let frame = generate_browser_placeholder(*width, *height);
+                    let source = &mut state.library[lib_idx];
+                    source.native_size = (frame.width as f32, frame.height as f32);
+                    source.transform.width = frame.width as f32;
+                    source.transform.height = frame.height as f32;
+                    if let Some(ref tx) = cmd_tx {
+                        let _ = tx.try_send(GstCommand::LoadImageFrame {
+                            source_id: src_id,
+                            frame,
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -696,15 +1360,13 @@ fn aspect_lock_button(ui: &mut egui::Ui, locked: bool) -> bool {
         egui_phosphor::regular::LOCK_SIMPLE_OPEN
     };
     let color = if locked { TEXT_PRIMARY } else { TEXT_MUTED };
-    ui.add(
-        egui::Button::new(egui::RichText::new(icon).size(12.0).color(color)).frame(false),
-    )
-    .on_hover_text(if locked {
-        "Unlock aspect ratio"
-    } else {
-        "Lock aspect ratio"
-    })
-    .clicked()
+    ui.add(egui::Button::new(egui::RichText::new(icon).size(12.0).color(color)).frame(false))
+        .on_hover_text(if locked {
+            "Unlock aspect ratio"
+        } else {
+            "Lock aspect ratio"
+        })
+        .clicked()
 }
 
 /// Adjust width or height to preserve aspect ratio after one of them changed.
@@ -722,6 +1384,93 @@ fn enforce_aspect_ratio(w: &mut f32, h: &mut f32, prev_w: f32, prev_h: f32) {
         *h = *w / ratio;
     } else if h_changed {
         *w = *h * ratio;
+    }
+}
+
+/// Draw gradient stop editor UI. Returns `true` if any stop was modified.
+fn draw_gradient_stops(
+    ui: &mut egui::Ui,
+    stops: &mut Vec<GradientStop>,
+    _source_id: SourceId,
+) -> bool {
+    let mut changed = false;
+    let mut remove_idx: Option<usize> = None;
+
+    ui.label(
+        egui::RichText::new("Gradient Stops")
+            .color(TEXT_SECONDARY)
+            .size(10.0),
+    );
+    ui.add_space(2.0);
+
+    let stop_count = stops.len();
+    for (i, stop) in stops.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("#{}", i + 1))
+                    .color(TEXT_MUTED)
+                    .size(9.0),
+            );
+            if ui
+                .color_edit_button_rgba_unmultiplied(&mut stop.color)
+                .changed()
+            {
+                changed = true;
+            }
+            if ui
+                .add(egui::Slider::new(&mut stop.position, 0.0..=1.0))
+                .changed()
+            {
+                changed = true;
+            }
+            // Only allow removal if more than 2 stops.
+            if stop_count > 2
+                && ui
+                    .small_button(egui_phosphor::regular::X)
+                    .on_hover_text("Remove stop")
+                    .clicked()
+            {
+                remove_idx = Some(i);
+            }
+        });
+    }
+
+    if let Some(idx) = remove_idx {
+        stops.remove(idx);
+        changed = true;
+    }
+
+    if ui
+        .small_button(
+            egui::RichText::new(format!("{} Add Stop", egui_phosphor::regular::PLUS)).size(10.0),
+        )
+        .clicked()
+    {
+        stops.push(GradientStop {
+            position: 0.5,
+            color: [0.5, 0.5, 0.5, 1.0],
+        });
+        changed = true;
+    }
+
+    changed
+}
+
+/// Generate a placeholder frame for a browser source.
+///
+/// Fills with a dark background (#1a1a2e) at the given dimensions.
+pub fn generate_browser_placeholder(width: u32, height: u32) -> RgbaFrame {
+    let w = width.max(1) as usize;
+    let h = height.max(1) as usize;
+    let pixel: [u8; 4] = [0x1a, 0x1a, 0x2e, 0xff];
+    let mut data = vec![0u8; w * h * 4];
+    for chunk in data.chunks_exact_mut(4) {
+        chunk.copy_from_slice(&pixel);
+    }
+    RgbaFrame {
+        data,
+        width: w as u32,
+        height: h as u32,
     }
 }
 

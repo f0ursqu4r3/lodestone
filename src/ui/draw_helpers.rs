@@ -18,6 +18,8 @@ pub fn source_icon(source_type: &SourceType) -> &'static str {
         SourceType::Browser => egui_phosphor::regular::BROWSER,
         SourceType::Audio => egui_phosphor::regular::SPEAKER_HIGH,
         SourceType::Window => egui_phosphor::regular::APP_WINDOW,
+        SourceType::Text => egui_phosphor::regular::TEXT_AA,
+        SourceType::Color => egui_phosphor::regular::PALETTE,
     }
 }
 

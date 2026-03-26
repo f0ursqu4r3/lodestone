@@ -25,6 +25,14 @@ enum PipelineKind {
     Record,
 }
 
+/// Per-source audio pipeline (device or file), keyed by SourceId.
+struct AudioPipeline {
+    pipeline: gstreamer::Pipeline,
+    volume_element: gstreamer::Element,
+    /// Holds the bus watch guard alive — dropping it removes the watch.
+    _bus_watch: Option<gstreamer::bus::BusWatchGuard>,
+}
+
 /// Per-source capture pipeline and its appsink.
 struct CaptureHandle {
     pipeline: gstreamer::Pipeline,
@@ -46,6 +54,8 @@ struct GstThread {
     record_handles: Option<RecordPipelineHandles>,
     #[cfg(target_os = "macos")]
     virtual_camera_handle: Option<super::virtual_camera::VirtualCameraHandle>,
+    /// Per-source audio pipelines, keyed by SourceId.
+    audio_pipelines: HashMap<SourceId, AudioPipeline>,
     // Audio capture
     mic_pipeline: Option<gstreamer::Pipeline>,
     mic_appsink: Option<AppSink>,
@@ -64,6 +74,7 @@ impl GstThread {
         Self {
             channels,
             captures: HashMap::new(),
+            audio_pipelines: HashMap::new(),
             stream_handles: None,
             record_handles: None,
             #[cfg(target_os = "macos")]
@@ -99,6 +110,22 @@ impl GstThread {
         #[cfg(target_os = "macos")]
         if let CaptureSourceConfig::Window { window_id } = config {
             self.add_window_capture_source(source_id, *window_id);
+            return;
+        }
+
+        // Audio sources use dedicated audio pipelines (no video).
+        if let CaptureSourceConfig::AudioDevice { device_uid } = config {
+            match self.build_audio_device_pipeline(source_id, device_uid) {
+                Ok(()) => log::info!("Started audio device capture for {source_id:?}"),
+                Err(e) => log::error!("Failed to start audio device capture: {e}"),
+            }
+            return;
+        }
+        if let CaptureSourceConfig::AudioFile { path, looping } = config {
+            match self.build_audio_file_pipeline(source_id, path, *looping) {
+                Ok(()) => log::info!("Started audio file playback for {source_id:?}"),
+                Err(e) => log::error!("Failed to start audio file playback: {e}"),
+            }
             return;
         }
 
@@ -327,6 +354,102 @@ impl GstThread {
         );
     }
 
+    /// Build and start an audio device capture pipeline for a per-source audio input.
+    fn build_audio_device_pipeline(
+        &mut self,
+        source_id: SourceId,
+        device_uid: &str,
+    ) -> anyhow::Result<()> {
+        let pipeline = gstreamer::Pipeline::new();
+        let src = gstreamer::ElementFactory::make("osxaudiosrc")
+            .property("unique-id", device_uid)
+            .build()?;
+        let convert = gstreamer::ElementFactory::make("audioconvert").build()?;
+        let resample = gstreamer::ElementFactory::make("audioresample").build()?;
+        let volume = gstreamer::ElementFactory::make("volume").build()?;
+        let sink = gstreamer_app::AppSink::builder().build();
+
+        pipeline.add_many([&src, &convert, &resample, &volume, sink.upcast_ref()])?;
+        gstreamer::Element::link_many([&src, &convert, &resample, &volume, sink.upcast_ref()])?;
+        pipeline.set_state(gstreamer::State::Playing)?;
+
+        self.audio_pipelines.insert(
+            source_id,
+            AudioPipeline {
+                pipeline,
+                volume_element: volume,
+                _bus_watch: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Build and start an audio file playback pipeline for a per-source audio file.
+    fn build_audio_file_pipeline(
+        &mut self,
+        source_id: SourceId,
+        path: &str,
+        looping: bool,
+    ) -> anyhow::Result<()> {
+        let uri = if path.starts_with("file://") {
+            path.to_string()
+        } else {
+            format!("file://{path}")
+        };
+
+        let pipeline = gstreamer::Pipeline::new();
+        let src = gstreamer::ElementFactory::make("uridecodebin")
+            .property("uri", &uri)
+            .build()?;
+        let convert = gstreamer::ElementFactory::make("audioconvert").build()?;
+        let resample = gstreamer::ElementFactory::make("audioresample").build()?;
+        let volume = gstreamer::ElementFactory::make("volume").build()?;
+        let sink = gstreamer_app::AppSink::builder().build();
+
+        pipeline.add_many([&src, &convert, &resample, &volume, sink.upcast_ref()])?;
+        // uridecodebin pads are dynamic — link on pad-added
+        gstreamer::Element::link_many([&convert, &resample, &volume, sink.upcast_ref()])?;
+
+        let convert_weak = convert.downgrade();
+        src.connect_pad_added(move |_, pad| {
+            if let Some(convert) = convert_weak.upgrade() {
+                let sink_pad = convert.static_pad("sink").unwrap();
+                if !sink_pad.is_linked() {
+                    let _ = pad.link(&sink_pad);
+                }
+            }
+        });
+
+        let bus_watch = if looping {
+            let pipeline_weak = pipeline.downgrade();
+            let bus = pipeline.bus().unwrap();
+            let guard = bus.add_watch(move |_, msg| {
+                if let gstreamer::MessageView::Eos(..) = msg.view()
+                    && let Some(pipeline) = pipeline_weak.upgrade()
+                {
+                    let _ = pipeline
+                        .seek_simple(gstreamer::SeekFlags::FLUSH, gstreamer::ClockTime::ZERO);
+                }
+                gstreamer::glib::ControlFlow::Continue
+            })?;
+            Some(guard)
+        } else {
+            None
+        };
+
+        pipeline.set_state(gstreamer::State::Playing)?;
+
+        self.audio_pipelines.insert(
+            source_id,
+            AudioPipeline {
+                pipeline,
+                volume_element: volume,
+                _bus_watch: bus_watch,
+            },
+        );
+        Ok(())
+    }
+
     /// Stop and remove the capture pipeline for the given source_id.
     fn remove_capture_source(&mut self, source_id: SourceId) {
         if let Some(handle) = self.captures.remove(&source_id) {
@@ -341,6 +464,11 @@ impl GstThread {
             }
             let _ = handle.pipeline.set_state(gstreamer::State::Null);
             log::info!("Capture pipeline stopped for source {source_id:?}");
+        }
+        // Also remove audio pipeline if present
+        if let Some(audio) = self.audio_pipelines.remove(&source_id) {
+            let _ = audio.pipeline.set_state(gstreamer::State::Null);
+            log::info!("Audio pipeline stopped for source {source_id:?}");
         }
     }
 
@@ -461,6 +589,16 @@ impl GstThread {
             }
             GstCommand::StartVirtualCamera => self.handle_start_virtual_camera(),
             GstCommand::StopVirtualCamera => self.handle_stop_virtual_camera(),
+            GstCommand::SetSourceVolume { source_id, volume } => {
+                if let Some(audio) = self.audio_pipelines.get(&source_id) {
+                    audio.volume_element.set_property("volume", volume as f64);
+                }
+            }
+            GstCommand::SetSourceMuted { source_id, muted } => {
+                if let Some(audio) = self.audio_pipelines.get(&source_id) {
+                    audio.volume_element.set_property("mute", muted);
+                }
+            }
             GstCommand::Shutdown => return self.handle_shutdown(),
         }
         false
@@ -561,6 +699,10 @@ impl GstThread {
 
     fn handle_stop_capture(&mut self) {
         self.handle_stop_virtual_camera();
+        // Stop all per-source audio pipelines
+        for (_, audio) in self.audio_pipelines.drain() {
+            let _ = audio.pipeline.set_state(gstreamer::State::Null);
+        }
         for (_, handle) in self.captures.drain() {
             if let Some(ref running) = handle.capture_running {
                 running.store(false, Ordering::Relaxed);
@@ -645,6 +787,10 @@ impl GstThread {
         self.stop_pipeline(PipelineKind::Record);
         self.stop_audio_capture(AudioSourceKind::Mic);
         self.stop_audio_capture(AudioSourceKind::System);
+        // Stop all per-source audio pipelines
+        for (_, audio) in self.audio_pipelines.drain() {
+            let _ = audio.pipeline.set_state(gstreamer::State::Null);
+        }
         for (_, handle) in self.captures.drain() {
             if let Some(ref running) = handle.capture_running {
                 running.store(false, Ordering::Relaxed);
@@ -788,9 +934,7 @@ impl GstThread {
                         }
                     }
                     Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                        log::info!(
-                            "Command channel disconnected, shutting down GStreamer thread"
-                        );
+                        log::info!("Command channel disconnected, shutting down GStreamer thread");
                         self.stop_pipeline(PipelineKind::Stream);
                         self.stop_pipeline(PipelineKind::Record);
                         self.stop_audio_capture(AudioSourceKind::Mic);
@@ -923,6 +1067,7 @@ mod tests {
         let (_main_ch, thread_ch) = create_channels();
         let thread = GstThread::new(thread_ch);
         assert!(thread.captures.is_empty());
+        assert!(thread.audio_pipelines.is_empty());
         assert!(thread.stream_handles.is_none());
         assert!(thread.record_handles.is_none());
         assert!(thread.mic_pipeline.is_none());

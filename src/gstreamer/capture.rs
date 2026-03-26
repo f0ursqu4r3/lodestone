@@ -37,6 +37,10 @@ pub fn build_capture_pipeline(
                 .build()
                 .context("Failed to create avfvideosrc for camera capture")?
         }
+        // Audio-only sources are not routed through the video capture pipeline.
+        CaptureSourceConfig::AudioDevice { .. } | CaptureSourceConfig::AudioFile { .. } => {
+            anyhow::bail!("Audio sources are not handled by the video capture pipeline");
+        }
     };
 
     let convert = gstreamer::ElementFactory::make("videoconvert")

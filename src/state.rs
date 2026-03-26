@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn undo_restores_scene_after_source_removal() {
-        use crate::scene::{Scene, SceneId, SourceId, SceneSource, SourceOverrides};
+        use crate::scene::{Scene, SceneId, SceneSource, SourceId, SourceOverrides};
         let mut state = AppState::default();
         let scene_id = SceneId(1);
         let src_id = SourceId(10);

@@ -103,14 +103,14 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             match view {
-        LibraryView::ByType => {
-            draw_by_type_view(ui, state, &rows, display_mode, &mut delete_source);
-        }
-            LibraryView::Folders => {
-                draw_folders_view(ui, state, &rows, display_mode, &mut delete_source);
+                LibraryView::ByType => {
+                    draw_by_type_view(ui, state, &rows, display_mode, &mut delete_source);
+                }
+                LibraryView::Folders => {
+                    draw_folders_view(ui, state, &rows, display_mode, &mut delete_source);
+                }
             }
-        }
-    });
+        });
 
     // Apply deferred deletion.
     if let Some(src_id) = delete_source {
@@ -236,14 +236,27 @@ fn draw_add_button(ui: &mut egui::Ui, state: &mut AppState) {
         |ui: &mut egui::Ui| {
             use crate::ui::theme::{menu_item_icon, styled_menu};
             styled_menu(ui, |ui| {
-                let items: &[(&str, SourceType)] = &[
+                let capture_items: &[(&str, SourceType)] = &[
                     ("Display", SourceType::Display),
                     ("Window", SourceType::Window),
                     ("Camera", SourceType::Camera),
                     ("Image", SourceType::Image),
                 ];
+                let synthetic_items: &[(&str, SourceType)] = &[
+                    ("Text", SourceType::Text),
+                    ("Color", SourceType::Color),
+                    ("Audio", SourceType::Audio),
+                    ("Browser", SourceType::Browser),
+                ];
 
-                for (label, source_type) in items {
+                for (label, source_type) in capture_items {
+                    if menu_item_icon(ui, source_icon(source_type), label) {
+                        add_library_source(state, source_type.clone());
+                        ui.memory_mut(|m| m.close_popup(popup_id));
+                    }
+                }
+                ui.separator();
+                for (label, source_type) in synthetic_items {
                     if menu_item_icon(ui, source_icon(source_type), label) {
                         add_library_source(state, source_type.clone());
                         ui.memory_mut(|m| m.close_popup(popup_id));
@@ -313,7 +326,70 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
                 },
             )
         }
-        _ => ("Source".to_string(), SourceProperties::default()),
+        SourceType::Text => {
+            let count = state
+                .library
+                .iter()
+                .filter(|s| matches!(s.source_type, SourceType::Text))
+                .count();
+            (
+                format!("Text {}", count + 1),
+                SourceProperties::Text {
+                    content: crate::scene::default_text_content(),
+                    font_family: crate::scene::default_font_family(),
+                    font_size: crate::scene::default_font_size(),
+                    font_color: crate::scene::default_font_color(),
+                    background_color: crate::scene::default_transparent(),
+                    bold: false,
+                    italic: false,
+                    alignment: crate::scene::TextAlignment::Left,
+                    outline: None,
+                    padding: crate::scene::default_padding(),
+                    wrap_width: None,
+                },
+            )
+        }
+        SourceType::Color => {
+            let count = state
+                .library
+                .iter()
+                .filter(|s| matches!(s.source_type, SourceType::Color))
+                .count();
+            (
+                format!("Color {}", count + 1),
+                SourceProperties::Color {
+                    fill: crate::scene::default_color_fill(),
+                },
+            )
+        }
+        SourceType::Audio => {
+            let count = state
+                .library
+                .iter()
+                .filter(|s| matches!(s.source_type, SourceType::Audio))
+                .count();
+            (
+                format!("Audio {}", count + 1),
+                SourceProperties::Audio {
+                    input: crate::scene::default_audio_input(),
+                },
+            )
+        }
+        SourceType::Browser => {
+            let count = state
+                .library
+                .iter()
+                .filter(|s| matches!(s.source_type, SourceType::Browser))
+                .count();
+            (
+                format!("Browser {}", count + 1),
+                SourceProperties::Browser {
+                    url: String::new(),
+                    width: crate::scene::default_browser_width(),
+                    height: crate::scene::default_browser_height(),
+                },
+            )
+        }
     };
 
     let lib_source = LibrarySource {
@@ -334,6 +410,54 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
     state.library.push(lib_source);
     state.selected_library_source_id = Some(new_id);
     state.mark_dirty();
+
+    // Push initial frame for synthetic visual sources so they appear on canvas immediately.
+    match &state.library.last().unwrap().properties {
+        SourceProperties::Text { .. } => {
+            let props = state.library.last().unwrap().properties.clone();
+            if let Some(frame) = crate::text_source::render_text_source(&props) {
+                let source = state.library.last_mut().unwrap();
+                source.native_size = (frame.width as f32, frame.height as f32);
+                source.transform.width = frame.width as f32;
+                source.transform.height = frame.height as f32;
+                if let Some(ref tx) = state.command_tx {
+                    let _ = tx.try_send(GstCommand::LoadImageFrame {
+                        source_id: new_id,
+                        frame,
+                    });
+                }
+            }
+        }
+        SourceProperties::Color { fill } => {
+            let fill = fill.clone();
+            let transform = &state.library.last().unwrap().transform;
+            let frame = crate::color_source::render_color_source(
+                &fill,
+                transform.width as u32,
+                transform.height as u32,
+            );
+            if let Some(ref tx) = state.command_tx {
+                let _ = tx.try_send(GstCommand::LoadImageFrame {
+                    source_id: new_id,
+                    frame,
+                });
+            }
+        }
+        SourceProperties::Browser { width, height, .. } => {
+            let width = *width;
+            let height = *height;
+            let frame = crate::ui::properties_panel::generate_browser_placeholder(width, height);
+            let source = state.library.last_mut().unwrap();
+            source.native_size = (width as f32, height as f32);
+            if let Some(ref tx) = state.command_tx {
+                let _ = tx.try_send(GstCommand::LoadImageFrame {
+                    source_id: new_id,
+                    frame,
+                });
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Delete a source from the library and cascade-remove it from all scenes.
@@ -375,6 +499,8 @@ fn type_section_label(source_type: &SourceType) -> &'static str {
         SourceType::Image => "Images",
         SourceType::Audio => "Audio",
         SourceType::Browser => "Browsers",
+        SourceType::Text => "Text",
+        SourceType::Color => "Colors",
     }
 }
 
@@ -400,8 +526,10 @@ fn draw_by_type_view(
         SourceType::Audio,
         SourceType::Browser,
         SourceType::Camera,
+        SourceType::Color,
         SourceType::Display,
         SourceType::Image,
+        SourceType::Text,
         SourceType::Window,
     ];
 

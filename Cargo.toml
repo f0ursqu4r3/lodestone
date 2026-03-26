@@ -9,8 +9,8 @@ wgpu = "29.0.0"
 egui = "0.33"
 egui-wgpu = "0.33"
 egui-winit = "0.33"
-# glyphon = "0.10"    # TODO: re-enable when glyphon supports wgpu 27 (egui-wgpu compat)
-# cosmic-text = "0.18" # TODO: re-enable alongside glyphon
+# glyphon = "0.10"    # TODO: re-enable when glyphon supports wgpu 29 (egui-wgpu compat)
+cosmic-text = "0.18"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }

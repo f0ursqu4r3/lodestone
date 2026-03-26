@@ -79,6 +79,8 @@ pub enum SourceType {
     Audio,
     Image,
     Browser,
+    Text,
+    Color,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -87,6 +89,59 @@ pub struct Transform {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+}
+
+/// Text alignment for text sources.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum TextAlignment {
+    Left,
+    Center,
+    Right,
+}
+
+/// Text outline configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TextOutline {
+    pub color: [f32; 4],
+    pub width: f32,
+}
+
+/// Color fill for color sources.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ColorFill {
+    Solid {
+        color: [f32; 4],
+    },
+    LinearGradient {
+        angle: f32,
+        stops: Vec<GradientStop>,
+    },
+    RadialGradient {
+        center: (f32, f32),
+        radius: f32,
+        stops: Vec<GradientStop>,
+    },
+}
+
+/// A single color stop in a gradient.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct GradientStop {
+    pub position: f32,
+    pub color: [f32; 4],
+}
+
+/// Audio input configuration for audio sources.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AudioInput {
+    Device {
+        device_uid: String,
+        device_name: String,
+    },
+    File {
+        path: String,
+        #[serde(default)]
+        looping: bool,
+    },
 }
 
 /// Type-specific source configuration.
@@ -107,12 +162,91 @@ pub enum SourceProperties {
     Image {
         path: String,
     },
+    Text {
+        #[serde(default = "default_text_content")]
+        content: String,
+        #[serde(default = "default_font_family")]
+        font_family: String,
+        #[serde(default = "default_font_size")]
+        font_size: f32,
+        #[serde(default = "default_font_color")]
+        font_color: [f32; 4],
+        #[serde(default = "default_transparent")]
+        background_color: [f32; 4],
+        #[serde(default)]
+        bold: bool,
+        #[serde(default)]
+        italic: bool,
+        #[serde(default = "default_text_alignment")]
+        alignment: TextAlignment,
+        #[serde(default)]
+        outline: Option<TextOutline>,
+        #[serde(default = "default_padding")]
+        padding: f32,
+        #[serde(default)]
+        wrap_width: Option<f32>,
+    },
+    Color {
+        #[serde(default = "default_color_fill")]
+        fill: ColorFill,
+    },
+    Audio {
+        #[serde(default = "default_audio_input")]
+        input: AudioInput,
+    },
+    Browser {
+        #[serde(default)]
+        url: String,
+        #[serde(default = "default_browser_width")]
+        width: u32,
+        #[serde(default = "default_browser_height")]
+        height: u32,
+    },
 }
 
 impl Default for SourceProperties {
     fn default() -> Self {
         Self::Display { screen_index: 0 }
     }
+}
+
+pub(crate) fn default_text_content() -> String {
+    "Text".to_string()
+}
+pub(crate) fn default_font_family() -> String {
+    "bundled:sans".to_string()
+}
+pub(crate) fn default_font_size() -> f32 {
+    48.0
+}
+pub(crate) fn default_font_color() -> [f32; 4] {
+    [1.0, 1.0, 1.0, 1.0]
+}
+pub(crate) fn default_transparent() -> [f32; 4] {
+    [0.0, 0.0, 0.0, 0.0]
+}
+pub(crate) fn default_text_alignment() -> TextAlignment {
+    TextAlignment::Left
+}
+pub(crate) fn default_padding() -> f32 {
+    12.0
+}
+pub(crate) fn default_color_fill() -> ColorFill {
+    ColorFill::Solid {
+        color: [1.0, 1.0, 1.0, 1.0],
+    }
+}
+pub(crate) fn default_audio_input() -> AudioInput {
+    AudioInput::Device {
+        device_uid: String::new(),
+        device_name: String::new(),
+    }
+}
+pub(crate) fn default_browser_width() -> u32 {
+    1920
+}
+pub(crate) fn default_browser_height() -> u32 {
+    1080
 }
 
 impl SceneSource {
@@ -322,17 +456,74 @@ impl SceneCollection {
     /// `Vec<SourceId>` in scenes) and converts it to the new format.
     pub fn from_toml_str(s: &str) -> Result<Self, toml::de::Error> {
         // Try the new format first
-        match toml::from_str::<SceneCollection>(s) {
-            Ok(coll) => Ok(coll),
+        let mut coll = match toml::from_str::<SceneCollection>(s) {
+            Ok(coll) => coll,
             Err(new_err) => {
                 // Fall back to legacy format
                 match toml::from_str::<legacy::LegacySceneCollection>(s) {
                     Ok(legacy) => {
                         log::info!("Migrated legacy scenes.toml to new library format");
-                        Ok(legacy.into_new_format())
+                        legacy.into_new_format()
                     }
-                    Err(_) => Err(new_err),
+                    Err(_) => return Err(new_err),
                 }
+            }
+        };
+        coll.migrate_source_properties();
+        Ok(coll)
+    }
+
+    /// Ensure every library source has a `SourceProperties` variant matching its `SourceType`.
+    /// Sources that were serialized before a new variant existed get default properties.
+    fn migrate_source_properties(&mut self) {
+        for source in &mut self.library {
+            #[allow(clippy::match_like_matches_macro)]
+            let needs_migration = match (&source.source_type, &source.properties) {
+                (SourceType::Display, SourceProperties::Display { .. }) => false,
+                (SourceType::Window, SourceProperties::Window { .. }) => false,
+                (SourceType::Camera, SourceProperties::Camera { .. }) => false,
+                (SourceType::Image, SourceProperties::Image { .. }) => false,
+                (SourceType::Text, SourceProperties::Text { .. }) => false,
+                (SourceType::Color, SourceProperties::Color { .. }) => false,
+                (SourceType::Audio, SourceProperties::Audio { .. }) => false,
+                (SourceType::Browser, SourceProperties::Browser { .. }) => false,
+                _ => true,
+            };
+            if needs_migration {
+                source.properties = match source.source_type {
+                    SourceType::Text => SourceProperties::Text {
+                        content: default_text_content(),
+                        font_family: default_font_family(),
+                        font_size: default_font_size(),
+                        font_color: default_font_color(),
+                        background_color: default_transparent(),
+                        bold: false,
+                        italic: false,
+                        alignment: default_text_alignment(),
+                        outline: None,
+                        padding: default_padding(),
+                        wrap_width: None,
+                    },
+                    SourceType::Color => SourceProperties::Color {
+                        fill: default_color_fill(),
+                    },
+                    SourceType::Audio => SourceProperties::Audio {
+                        input: default_audio_input(),
+                    },
+                    SourceType::Browser => SourceProperties::Browser {
+                        url: String::new(),
+                        width: default_browser_width(),
+                        height: default_browser_height(),
+                    },
+                    _ => {
+                        log::warn!(
+                            "Source {:?} has mismatched properties {:?}; keeping as-is",
+                            source.source_type,
+                            source.properties
+                        );
+                        source.properties.clone()
+                    }
+                };
             }
         }
     }

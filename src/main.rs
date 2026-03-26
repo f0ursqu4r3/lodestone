@@ -1,9 +1,11 @@
+mod color_source;
 mod gstreamer;
 mod image_source;
 mod renderer;
 mod scene;
 mod settings;
 mod state;
+mod text_source;
 mod ui;
 mod window;
 mod window_actions;
@@ -70,8 +72,22 @@ impl NativeMenu {
         // (PredefinedMenuItem::undo/redo are handled by the macOS responder chain
         // and never reach our event handler).
         let edit_menu = Submenu::new("Edit", true);
-        let undo_item = MenuItem::new("Undo", true, Some(muda::accelerator::Accelerator::new(Some(muda::accelerator::Modifiers::SUPER), muda::accelerator::Code::KeyZ)));
-        let redo_item = MenuItem::new("Redo", true, Some(muda::accelerator::Accelerator::new(Some(muda::accelerator::Modifiers::SUPER | muda::accelerator::Modifiers::SHIFT), muda::accelerator::Code::KeyZ)));
+        let undo_item = MenuItem::new(
+            "Undo",
+            true,
+            Some(muda::accelerator::Accelerator::new(
+                Some(muda::accelerator::Modifiers::SUPER),
+                muda::accelerator::Code::KeyZ,
+            )),
+        );
+        let redo_item = MenuItem::new(
+            "Redo",
+            true,
+            Some(muda::accelerator::Accelerator::new(
+                Some(muda::accelerator::Modifiers::SUPER | muda::accelerator::Modifiers::SHIFT),
+                muda::accelerator::Code::KeyZ,
+            )),
+        );
         edit_menu.append(&undo_item).ok();
         edit_menu.append(&redo_item).ok();
         edit_menu.append(&PredefinedMenuItem::separator()).ok();
@@ -544,6 +560,9 @@ impl ApplicationHandler for AppManager {
                                 // Image sources don't use a capture pipeline;
                                 // frames are loaded via LoadImageFrame.
                             }
+                            _ => {
+                                // Text, Color, Audio, Browser sources don't use a capture pipeline yet.
+                            }
                         }
                     }
                 }
@@ -645,10 +664,7 @@ impl ApplicationHandler for AppManager {
                             }
                         } else if let Some(src_id) = app_state.selected_library_source_id {
                             // Library selection → cascade delete.
-                            crate::ui::library_panel::delete_source_cascade(
-                                &mut app_state,
-                                src_id,
-                            );
+                            crate::ui::library_panel::delete_source_cascade(&mut app_state, src_id);
                         }
                         return;
                     }
@@ -1156,6 +1172,7 @@ mod tests {
 fn main() -> Result<()> {
     env_logger::init();
     log::info!("Lodestone starting");
+    text_source::init_font_system();
     let event_loop = EventLoop::new()?;
     let mut app = AppManager::new();
     event_loop.run_app(&mut app)?;

@@ -29,6 +29,9 @@ struct SourceRow {
 
 /// Draw the sources panel for the currently active scene.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
+    // Capture the full panel rect before any content is drawn, so the drop zone
+    // covers the entire panel even when content is small.
+    let full_panel_rect = ui.max_rect();
     let cmd_tx = state.command_tx.clone();
 
     let Some(active_id) = state.active_scene_id else {
@@ -292,8 +295,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     }
 
     // ── Drop zone: accept SourceId dragged from library panel ──
-    // The entire panel is a drop target, not just the empty space at the bottom.
-    let panel_rect = ui.min_rect();
+    // Use the full panel rect captured at the start of draw (before content
+    // layout shrank it). Expand by PANEL_PADDING to recover the wrapper bounds.
+    let pad = crate::ui::theme::PANEL_PADDING;
+    let panel_rect = full_panel_rect.expand(pad);
     let has_drag_payload = egui::DragAndDrop::has_payload_of_type::<SourceId>(ui.ctx());
     let pointer_in_panel = ui
         .input(|i| i.pointer.hover_pos())
@@ -301,9 +306,16 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     let pointer_released = ui.input(|i| i.pointer.any_released());
 
     // Show visual hint when a library source is being dragged over the panel.
+    // Use a foreground layer painter so the highlight is not clipped by the
+    // padded UI region — the panel_rect extends beyond the current clip.
     if has_drag_payload && pointer_in_panel {
-        ui.painter().rect_stroke(
-            panel_rect,
+        let highlight_rect = panel_rect.shrink(2.0);
+        let painter = ui.ctx().layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            ui.id().with("drop_highlight"),
+        ));
+        painter.rect_stroke(
+            highlight_rect,
             CornerRadius::same(RADIUS_SM as u8),
             Stroke::new(1.0, state.accent_color),
             egui::StrokeKind::Inside,
@@ -516,13 +528,25 @@ fn draw_source_row(
     cursor_x += icon_size + 6.0;
 
     // Name.
-    painter.text(
+    let name_galley = painter.text(
         egui::pos2(cursor_x, center_y),
         egui::Align2::LEFT_CENTER,
         &row.name,
         egui::FontId::proportional(11.0),
         with_opacity(TEXT_PRIMARY, effective_opacity),
     );
+
+    // Audio indicator: small speaker icon after the name for audio sources.
+    if matches!(row.source_type, SourceType::Audio) {
+        let indicator_x = cursor_x + name_galley.width() + 4.0;
+        painter.text(
+            egui::pos2(indicator_x, center_y),
+            egui::Align2::LEFT_CENTER,
+            egui_phosphor::regular::SPEAKER_HIGH,
+            egui::FontId::proportional(9.0),
+            with_opacity(TEXT_MUTED, effective_opacity),
+        );
+    }
 
     // Eye icon.
     let right_x = paint_rect.right() - 4.0;
@@ -617,6 +641,23 @@ fn start_capture_from_properties(
             });
             state.capture_active = true;
         }
+        SourceProperties::Audio { input } => {
+            let config = match input {
+                crate::scene::AudioInput::Device { device_uid, .. } => {
+                    CaptureSourceConfig::AudioDevice {
+                        device_uid: device_uid.clone(),
+                    }
+                }
+                crate::scene::AudioInput::File { path, looping } => {
+                    CaptureSourceConfig::AudioFile {
+                        path: path.clone(),
+                        looping: *looping,
+                    }
+                }
+            };
+            let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config });
+        }
+        // Text, Color, Browser, Image: no capture pipeline
         _ => {}
     }
 }
@@ -629,7 +670,7 @@ fn stop_capture_for_source(
 ) {
     if matches!(
         source_type,
-        SourceType::Display | SourceType::Window | SourceType::Camera
+        SourceType::Display | SourceType::Window | SourceType::Camera | SourceType::Audio
     ) && let Some(tx) = cmd_tx
     {
         let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id });

@@ -76,6 +76,16 @@ pub enum GstCommand {
     },
     StartVirtualCamera,
     StopVirtualCamera,
+    /// Per-source volume control (distinct from global SetAudioVolume).
+    SetSourceVolume {
+        source_id: SourceId,
+        volume: f32,
+    },
+    /// Per-source mute (distinct from global SetAudioMuted).
+    SetSourceMuted {
+        source_id: SourceId,
+        muted: bool,
+    },
     #[allow(dead_code)]
     Shutdown,
 }
@@ -92,6 +102,13 @@ pub enum CaptureSourceConfig {
     },
     Camera {
         device_index: u32,
+    },
+    AudioDevice {
+        device_uid: String,
+    },
+    AudioFile {
+        path: String,
+        looping: bool,
     },
 }
 

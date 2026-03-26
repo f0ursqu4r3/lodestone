@@ -219,7 +219,7 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
                 SettingsCategory::General => general::draw(ui, state),
                 SettingsCategory::StreamOutput => stream::draw(ui, &mut state.settings.stream),
                 SettingsCategory::Audio => audio::draw(ui, state),
-                SettingsCategory::Video => video::draw(ui, &mut state.settings.video),
+                SettingsCategory::Video => video::draw(ui, &mut state.settings.video, state.detected_resolution),
                 SettingsCategory::Hotkeys => hotkeys::draw(ui, &mut state.settings.hotkeys),
                 SettingsCategory::Appearance => appearance::draw(ui, state),
                 SettingsCategory::Advanced => advanced::draw(ui, &mut state.settings.advanced),

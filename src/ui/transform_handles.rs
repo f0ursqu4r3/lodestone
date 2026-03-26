@@ -540,7 +540,8 @@ fn draw_snap_guides(
     viewport: Rect,
     other_sources: &[&Transform],
 ) {
-    use crate::ui::theme::TEXT_MUTED;
+    use crate::ui::theme::active_theme;
+    let text_muted = active_theme(painter.ctx()).text_muted;
 
     let mut x_targets = vec![0.0, canvas_size.x, canvas_size.x / 2.0];
     let mut y_targets = vec![0.0, canvas_size.y, canvas_size.y / 2.0];
@@ -564,7 +565,7 @@ fn draw_snap_guides(
         transform.y + transform.height / 2.0,
     ];
 
-    let guide_stroke = egui::Stroke::new(1.0, TEXT_MUTED);
+    let guide_stroke = egui::Stroke::new(1.0, text_muted);
 
     for &ex in &edges_x {
         for &tx in &x_targets {
@@ -1446,7 +1447,7 @@ pub fn show_source_context_menu_items(
     }
     let mut action: Option<Action> = None;
 
-    use crate::ui::theme::{menu_item, styled_menu};
+    use crate::ui::widgets::menu::{menu_item, styled_menu};
     styled_menu(ui, |ui| {
         if menu_item(ui, "Fit to Canvas") {
             action = Some(Action::Fit);

@@ -4,7 +4,7 @@ use super::render::LayoutAction;
 use super::render_tabs::{TabBarContext, render_content, render_tab_bar};
 use super::tree::DockLayout;
 
-use crate::ui::theme::{FLOATING_HEADER_HEIGHT, FLOATING_MIN_SIZE, TAB_BAR_HEIGHT, active_theme};
+use crate::ui::theme::{FLOATING_HEADER_HEIGHT, FLOATING_MIN_SIZE, active_theme};
 
 /// Render a floating panel container with custom chrome header, then delegate
 /// to the shared `render_tab_bar()` and `render_content()` for the panel group.
@@ -596,9 +596,10 @@ pub(crate) fn render_floating_chrome(
         }
 
         // --- Shared tab bar ---
+        let tab_bar_height = active_theme(ctx).tab_bar_height;
         let tab_bar_rect = egui::Rect::from_min_size(
             egui::pos2(fg.pos.x, fg.pos.y + FLOATING_HEADER_HEIGHT),
-            egui::vec2(fg.size.x, TAB_BAR_HEIGHT),
+            egui::vec2(fg.size.x, tab_bar_height),
         );
         render_tab_bar(
             ctx,
@@ -616,7 +617,7 @@ pub(crate) fn render_floating_chrome(
 
         // --- Shared content area ---
         let content_rect = egui::Rect::from_min_max(
-            egui::pos2(fg.pos.x, fg.pos.y + FLOATING_HEADER_HEIGHT + TAB_BAR_HEIGHT),
+            egui::pos2(fg.pos.x, fg.pos.y + FLOATING_HEADER_HEIGHT + tab_bar_height),
             egui::pos2(fg.pos.x + fg.size.x, fg.pos.y + total_height),
         );
         render_content(

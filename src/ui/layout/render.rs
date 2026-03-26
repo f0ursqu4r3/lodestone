@@ -14,7 +14,7 @@ use super::render_grid::render_dividers;
 use super::render_tabs::{TabBarContext, render_content, render_tab_bar};
 use super::tree::{DockLayout, DropZone, GroupId, NodeId, PanelType};
 
-use crate::ui::theme::{TAB_BAR_HEIGHT, active_theme};
+use crate::ui::theme::active_theme;
 
 /// Drop-zone highlight: accent at ~15% opacity.
 fn drop_zone_tint(ctx: &egui::Context) -> egui::Color32 {
@@ -136,13 +136,14 @@ pub fn render_layout(
     // --- Grid groups ---
     let group_rects = layout.collect_groups_with_rects(available_rect);
 
+    let tab_bar_height = active_theme(ctx).tab_bar_height;
     for &(group_id, rect) in &group_rects {
         if let Some(group) = layout.groups.get(&group_id) {
             {
                 let tab_bar_rect =
-                    egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), TAB_BAR_HEIGHT));
+                    egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), tab_bar_height));
                 let content_rect = egui::Rect::from_min_max(
-                    egui::pos2(rect.min.x, rect.min.y + TAB_BAR_HEIGHT),
+                    egui::pos2(rect.min.x, rect.min.y + tab_bar_height),
                     rect.max,
                 );
 

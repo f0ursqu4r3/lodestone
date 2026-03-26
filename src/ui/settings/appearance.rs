@@ -1,9 +1,7 @@
 use egui::{Align, Layout, StrokeKind, Ui};
 
 use crate::state::AppState;
-use crate::ui::theme::{
-    BORDER, RADIUS_SM, TEXT_PRIMARY, Theme, color_to_hex, parse_hex_color,
-};
+use crate::ui::theme::{Theme, active_theme, color_to_hex, parse_hex_color};
 
 use super::{labeled_row_unimplemented, section_header};
 
@@ -59,10 +57,11 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
     });
 
     // ── Accent Color ──
+    let theme = active_theme(ui.ctx());
     ui.add_space(16.0);
     ui.label(
         egui::RichText::new("Accent Color")
-            .color(TEXT_PRIMARY)
+            .color(theme.text_primary)
             .size(13.0),
     );
     ui.add_space(8.0);
@@ -81,11 +80,11 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
         let (swatch_rect, _) =
             ui.allocate_exact_size(egui::Vec2::new(24.0, 24.0), egui::Sense::hover());
         ui.painter()
-            .rect_filled(swatch_rect, RADIUS_SM, effective_accent);
+            .rect_filled(swatch_rect, theme.radius_sm, effective_accent);
         ui.painter().rect_stroke(
             swatch_rect,
-            RADIUS_SM,
-            egui::Stroke::new(1.0, BORDER),
+            theme.radius_sm,
+            egui::Stroke::new(1.0, theme.border),
             StrokeKind::Outside,
         );
 

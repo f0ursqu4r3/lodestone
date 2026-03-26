@@ -214,7 +214,7 @@ impl Default for AppState {
             recording_counter: 0,
             virtual_camera_active: false,
             command_tx: None,
-            accent_color: crate::ui::theme::DEFAULT_ACCENT,
+            accent_color: crate::ui::theme::DEFAULT_DARK.accent,
             undo_stack: UndoStack::default(),
             reset_preview_zoom: false,
             set_preview_zoom_100: false,

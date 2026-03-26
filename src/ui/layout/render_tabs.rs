@@ -3,7 +3,7 @@
 use super::render::{DOCKABLE_TYPES, LayoutAction, paint_grip_dots};
 use super::tree::{DockLayout, GroupId};
 
-use crate::ui::theme::{ADD_BUTTON_WIDTH, DOCK_GRIP_WIDTH, TAB_BAR_HEIGHT, active_theme};
+use crate::ui::theme::{ADD_BUTTON_WIDTH, DOCK_GRIP_WIDTH, active_theme};
 
 /// Context flags for tab bar rendering.
 pub(crate) struct TabBarContext {
@@ -47,7 +47,7 @@ pub(crate) fn render_tab_bar(
                 tab_bar_rect.min.x + i as f32 * tab_width,
                 tab_bar_rect.min.y,
             ),
-            egui::vec2(tab_width, TAB_BAR_HEIGHT),
+            egui::vec2(tab_width, theme.tab_bar_height),
         );
 
         // Use an Area for each tab to get click + drag interaction
@@ -236,7 +236,7 @@ pub(crate) fn render_tab_bar(
     let plus_x = tab_bar_rect.min.x + tab_count as f32 * tab_width;
     let plus_rect = egui::Rect::from_min_size(
         egui::pos2(plus_x, tab_bar_rect.min.y),
-        egui::vec2(ADD_BUTTON_WIDTH, TAB_BAR_HEIGHT),
+        egui::vec2(ADD_BUTTON_WIDTH, theme.tab_bar_height),
     );
     let gid = group_id;
 
@@ -322,7 +322,7 @@ pub(crate) fn render_tab_bar(
     let dock_x = tab_bar_rect.max.x - DOCK_GRIP_WIDTH;
     let dock_rect = egui::Rect::from_min_size(
         egui::pos2(dock_x, tab_bar_rect.min.y),
-        egui::vec2(DOCK_GRIP_WIDTH, TAB_BAR_HEIGHT),
+        egui::vec2(DOCK_GRIP_WIDTH, theme.tab_bar_height),
     );
     // Paint grip dots (2x3 grid)
     paint_grip_dots(&painter, dock_rect.center(), theme.text_secondary);

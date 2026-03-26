@@ -155,35 +155,22 @@ impl WindowState {
             self.egui_ctx.set_visuals(egui::Visuals::light());
         }
 
-        // Apply font scale from settings — scales all text styles proportionally.
-        let base = state.settings.appearance.font_scale.body_size();
-        let mut style = (*self.egui_ctx.style()).clone();
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Small) {
-            s.size = (base * 0.8).max(8.0);
-        }
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Body) {
-            s.size = base;
-        }
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Button) {
-            s.size = base;
-        }
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Monospace) {
-            s.size = base;
-        }
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Heading) {
-            s.size = base * 1.5;
-        }
+        // Apply UI scale — scales everything (text, spacing, widgets) uniformly.
+        self.egui_ctx
+            .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
+
         // Apply font family if not "Default"
         let family = &state.settings.appearance.font_family;
         if family != "Default" {
+            let mut style = (*self.egui_ctx.style()).clone();
             let prop_family = egui::FontFamily::Name(family.clone().into());
             for (_, font_id) in style.text_styles.iter_mut() {
                 if font_id.family == egui::FontFamily::Proportional {
                     font_id.family = prop_family.clone();
                 }
             }
+            self.egui_ctx.set_style(style);
         }
-        self.egui_ctx.set_style(style);
 
         // Capture pre-frame undo snapshot before any UI mutations.
         if self.is_main {
@@ -348,35 +335,22 @@ impl WindowState {
             self.egui_ctx.set_visuals(egui::Visuals::light());
         }
 
-        // Apply font scale from settings — scales all text styles proportionally.
-        let base = state.settings.appearance.font_scale.body_size();
-        let mut style = (*self.egui_ctx.style()).clone();
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Small) {
-            s.size = (base * 0.8).max(8.0);
-        }
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Body) {
-            s.size = base;
-        }
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Button) {
-            s.size = base;
-        }
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Monospace) {
-            s.size = base;
-        }
-        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Heading) {
-            s.size = base * 1.5;
-        }
+        // Apply UI scale — scales everything (text, spacing, widgets) uniformly.
+        self.egui_ctx
+            .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
+
         // Apply font family if not "Default"
         let family = &state.settings.appearance.font_family;
         if family != "Default" {
+            let mut style = (*self.egui_ctx.style()).clone();
             let prop_family = egui::FontFamily::Name(family.clone().into());
             for (_, font_id) in style.text_styles.iter_mut() {
                 if font_id.family == egui::FontFamily::Proportional {
                     font_id.family = prop_family.clone();
                 }
             }
+            self.egui_ctx.set_style(style);
         }
-        self.egui_ctx.set_style(style);
 
         let raw_input = self.egui_state.take_egui_input(self.window);
 

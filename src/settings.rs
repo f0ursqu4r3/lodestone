@@ -259,7 +259,19 @@ pub enum FontScale {
 }
 
 impl FontScale {
-    /// Base body font size for this scale.
+    /// Zoom factor for this scale. 1.0 = default (M). Applied via egui's zoom_factor
+    /// to scale all text, spacing, and widgets uniformly.
+    pub fn zoom_factor(&self) -> f32 {
+        match self {
+            Self::XS => 0.85,
+            Self::S => 0.92,
+            Self::M => 1.0,
+            Self::L => 1.10,
+            Self::XL => 1.20,
+        }
+    }
+
+    /// Base body font size for this scale (informational).
     pub fn body_size(&self) -> f32 {
         match self {
             Self::XS => 11.0,

@@ -21,7 +21,8 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
                     let t = Theme::builtin(id);
                     let is_selected = state.settings.appearance.theme == id;
 
-                    let desired_size = egui::vec2(ui.available_width().min(200.0), 52.0);
+                    let col_width = (ui.available_width() - 8.0) / 2.0;
+                    let desired_size = egui::vec2(col_width.max(140.0), 52.0);
                     let (rect, response) =
                         ui.allocate_exact_size(desired_size, egui::Sense::click());
 

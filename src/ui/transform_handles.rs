@@ -1,6 +1,6 @@
 //! Interactive transform handles for repositioning and resizing sources in the preview.
 
-use egui::{Pos2, Rect, Stroke, StrokeKind, Vec2};
+use egui::{pos2, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 use crate::scene::Transform;
 use crate::state::AppState;
@@ -69,6 +69,15 @@ enum DragMode {
         start_transform: Transform,
         aspect_ratio: f32,
     },
+    /// Rotation via Cmd+corner drag.
+    Rotate {
+        /// Source center in screen space.
+        center: Pos2,
+        /// Angle of initial click relative to center (radians).
+        start_angle: f32,
+        /// Source's rotation at drag start (degrees).
+        start_rotation: f32,
+    },
     /// Marquee (rubber-band) selection.
     Marquee {
         /// Screen-space start point.
@@ -102,6 +111,59 @@ fn transform_to_screen_rect(t: &Transform, viewport: Rect, canvas_size: Vec2) ->
     Rect::from_min_max(min, max)
 }
 
+// ── Rotation Helpers ────────────────────────────────────────────────────────
+
+/// Test if a point is inside a rotated rectangle by inverse-rotating the point
+/// around the rect center.
+fn point_in_rotated_rect(point: Pos2, rect: Rect, rotation_deg: f32) -> bool {
+    if rotation_deg == 0.0 {
+        return rect.contains(point);
+    }
+    let center = rect.center();
+    let angle = -rotation_deg.to_radians();
+    let cos = angle.cos();
+    let sin = angle.sin();
+    let p = point - center;
+    let rotated = pos2(
+        p.x * cos - p.y * sin + center.x,
+        p.x * sin + p.y * cos + center.y,
+    );
+    rect.contains(rotated)
+}
+
+/// Compute rotated corner positions for a rectangle.
+fn rotated_corners(rect: Rect, rotation_deg: f32) -> [Pos2; 4] {
+    let center = rect.center();
+    let angle = rotation_deg.to_radians();
+    let cos = angle.cos();
+    let sin = angle.sin();
+    let corners = [
+        rect.left_top(),
+        rect.right_top(),
+        rect.right_bottom(),
+        rect.left_bottom(),
+    ];
+    corners.map(|c| {
+        let p = c - center;
+        pos2(
+            p.x * cos - p.y * sin + center.x,
+            p.x * sin + p.y * cos + center.y,
+        )
+    })
+}
+
+/// Rotate a single point around a center.
+fn rotate_point(point: Pos2, center: Pos2, rotation_deg: f32) -> Pos2 {
+    let angle = rotation_deg.to_radians();
+    let cos = angle.cos();
+    let sin = angle.sin();
+    let p = point - center;
+    pos2(
+        p.x * cos - p.y * sin + center.x,
+        p.x * sin + p.y * cos + center.y,
+    )
+}
+
 // ── Handle Drawing ──────────────────────────────────────────────────────────
 
 fn corner_positions(r: Rect) -> [Pos2; 4] {
@@ -122,56 +184,112 @@ fn edge_positions(r: Rect) -> [Pos2; 4] {
     ]
 }
 
-fn draw_handles(painter: &egui::Painter, screen_rect: Rect) {
-    // Selection outline
-    painter.rect_stroke(
-        screen_rect,
-        0.0,
-        egui::Stroke::new(1.0, TEXT_PRIMARY),
-        StrokeKind::Outside,
-    );
+fn draw_handles(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32) {
+    if rotation_deg == 0.0 {
+        // Fast path: axis-aligned (no rotation).
+        painter.rect_stroke(
+            screen_rect,
+            0.0,
+            egui::Stroke::new(1.0, TEXT_PRIMARY),
+            StrokeKind::Outside,
+        );
 
-    // Corner handles (8x8, filled)
-    for pos in corner_positions(screen_rect) {
-        let r = Rect::from_center_size(pos, Vec2::splat(CORNER_SIZE));
-        painter.rect_filled(r, 1.0, TEXT_PRIMARY);
-        painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
-    }
+        for pos in corner_positions(screen_rect) {
+            let r = Rect::from_center_size(pos, Vec2::splat(CORNER_SIZE));
+            painter.rect_filled(r, 1.0, TEXT_PRIMARY);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
+        }
 
-    // Edge handles (6x6, filled)
-    for pos in edge_positions(screen_rect) {
-        let r = Rect::from_center_size(pos, Vec2::splat(EDGE_SIZE));
-        painter.rect_filled(r, 1.0, TEXT_PRIMARY);
-        painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
+        for pos in edge_positions(screen_rect) {
+            let r = Rect::from_center_size(pos, Vec2::splat(EDGE_SIZE));
+            painter.rect_filled(r, 1.0, TEXT_PRIMARY);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
+        }
+    } else {
+        // Rotated path: draw outline as 4 line segments between rotated corners.
+        let corners = rotated_corners(screen_rect, rotation_deg);
+        let outline_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+        for i in 0..4 {
+            painter.line_segment([corners[i], corners[(i + 1) % 4]], outline_stroke);
+        }
+
+        // Corner handles at rotated positions.
+        for &pos in &corners {
+            let r = Rect::from_center_size(pos, Vec2::splat(CORNER_SIZE));
+            painter.rect_filled(r, 1.0, TEXT_PRIMARY);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
+        }
+
+        // Edge handles at rotated midpoints.
+        let center = screen_rect.center();
+        let edge_unrotated = edge_positions(screen_rect);
+        for pos in edge_unrotated {
+            let rotated_pos = rotate_point(pos, center, rotation_deg);
+            let r = Rect::from_center_size(rotated_pos, Vec2::splat(EDGE_SIZE));
+            painter.rect_filled(r, 1.0, TEXT_PRIMARY);
+            painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0, BG_BASE), StrokeKind::Outside);
+        }
     }
 }
 
 // ── Hit Testing ─────────────────────────────────────────────────────────────
 
-fn hit_test_handles(pos: Pos2, screen_rect: Rect) -> Option<HandlePosition> {
-    let corners = corner_positions(screen_rect);
-    let corner_handles = [
-        HandlePosition::TopLeft,
-        HandlePosition::TopRight,
-        HandlePosition::BottomLeft,
-        HandlePosition::BottomRight,
-    ];
-    for (i, &corner) in corners.iter().enumerate() {
-        if Rect::from_center_size(corner, Vec2::splat(CORNER_HIT_SIZE)).contains(pos) {
-            return Some(corner_handles[i]);
+fn hit_test_handles(pos: Pos2, screen_rect: Rect, rotation_deg: f32) -> Option<HandlePosition> {
+    if rotation_deg == 0.0 {
+        // Fast path: axis-aligned.
+        let corners = corner_positions(screen_rect);
+        let corner_handles = [
+            HandlePosition::TopLeft,
+            HandlePosition::TopRight,
+            HandlePosition::BottomLeft,
+            HandlePosition::BottomRight,
+        ];
+        for (i, &corner) in corners.iter().enumerate() {
+            if Rect::from_center_size(corner, Vec2::splat(CORNER_HIT_SIZE)).contains(pos) {
+                return Some(corner_handles[i]);
+            }
         }
-    }
 
-    let edges = edge_positions(screen_rect);
-    let edge_handles = [
-        HandlePosition::Top,
-        HandlePosition::Bottom,
-        HandlePosition::Left,
-        HandlePosition::Right,
-    ];
-    for (i, &edge) in edges.iter().enumerate() {
-        if Rect::from_center_size(edge, Vec2::splat(EDGE_HIT_SIZE)).contains(pos) {
-            return Some(edge_handles[i]);
+        let edges = edge_positions(screen_rect);
+        let edge_handles = [
+            HandlePosition::Top,
+            HandlePosition::Bottom,
+            HandlePosition::Left,
+            HandlePosition::Right,
+        ];
+        for (i, &edge) in edges.iter().enumerate() {
+            if Rect::from_center_size(edge, Vec2::splat(EDGE_HIT_SIZE)).contains(pos) {
+                return Some(edge_handles[i]);
+            }
+        }
+    } else {
+        // Rotated path: test handles at rotated positions.
+        let rot_corners = rotated_corners(screen_rect, rotation_deg);
+        let corner_handles = [
+            HandlePosition::TopLeft,
+            HandlePosition::TopRight,
+            HandlePosition::BottomRight,
+            HandlePosition::BottomLeft,
+        ];
+        for (i, &corner) in rot_corners.iter().enumerate() {
+            if Rect::from_center_size(corner, Vec2::splat(CORNER_HIT_SIZE)).contains(pos) {
+                return Some(corner_handles[i]);
+            }
+        }
+
+        let center = screen_rect.center();
+        let edge_unrotated = edge_positions(screen_rect);
+        let edge_handles = [
+            HandlePosition::Top,
+            HandlePosition::Bottom,
+            HandlePosition::Left,
+            HandlePosition::Right,
+        ];
+        for (i, &edge) in edge_unrotated.iter().enumerate() {
+            let rotated_edge = rotate_point(edge, center, rotation_deg);
+            if Rect::from_center_size(rotated_edge, Vec2::splat(EDGE_HIT_SIZE)).contains(pos) {
+                return Some(edge_handles[i]);
+            }
         }
     }
 
@@ -506,7 +624,7 @@ pub fn draw_transform_handles(
     // ── Click-to-select / deselect ──
     // Collect visible source rects for hit testing (top-to-bottom draw order,
     // reversed so topmost source wins).
-    let active_scene_sources: Vec<(SourceId, Rect)> = state
+    let active_scene_sources: Vec<(SourceId, Rect, f32)> = state
         .active_scene()
         .map(|scene| {
             scene
@@ -527,6 +645,7 @@ pub fn draw_transform_handles(
                             Some((
                                 ss.source_id,
                                 transform_to_screen_rect(&transform, viewport_rect, canvas_size),
+                                transform.rotation,
                             ))
                         })
                 })
@@ -546,15 +665,15 @@ pub fn draw_transform_handles(
                     .map(|ss| ss.resolve_transform(lib))
                     .unwrap_or(lib.transform);
                 let r = transform_to_screen_rect(&transform, viewport_rect, canvas_size);
-                hit_test_handles(mouse_pos, r)
+                hit_test_handles(mouse_pos, r, transform.rotation)
             });
 
             if clicked_handle.is_none() {
                 // Find topmost source under the cursor.
                 let hit = active_scene_sources
                     .iter()
-                    .find(|(_, rect)| rect.contains(mouse_pos))
-                    .map(|(id, _)| *id);
+                    .find(|(_, rect, rot)| point_in_rotated_rect(mouse_pos, *rect, *rot))
+                    .map(|(id, _, _)| *id);
 
                 if let Some(hit_id) = hit {
                     if shift_held {
@@ -576,8 +695,8 @@ pub fn draw_transform_handles(
         if secondary_clicked && panel_rect.contains(mouse_pos) {
             let hit = active_scene_sources
                 .iter()
-                .find(|(_, rect)| rect.contains(mouse_pos))
-                .map(|(id, _)| *id);
+                .find(|(_, rect, rot)| point_in_rotated_rect(mouse_pos, *rect, *rot))
+                .map(|(id, _, _)| *id);
             if let Some(hit_id) = hit {
                 state.select_source(hit_id);
                 state.selected_library_source_id = None;
@@ -704,15 +823,24 @@ pub fn draw_transform_handles(
 
         if primary_id == Some(sel_id) {
             // Primary selected: draw full handles (outline + corners + edges).
-            draw_handles(ui.painter(), r);
+            draw_handles(ui.painter(), r, t.rotation);
         } else {
             // Non-primary selected: just the outline.
-            ui.painter().rect_stroke(
-                r,
-                0.0,
-                egui::Stroke::new(1.0, TEXT_PRIMARY),
-                StrokeKind::Outside,
-            );
+            if t.rotation == 0.0 {
+                ui.painter().rect_stroke(
+                    r,
+                    0.0,
+                    egui::Stroke::new(1.0, TEXT_PRIMARY),
+                    StrokeKind::Outside,
+                );
+            } else {
+                let corners = rotated_corners(r, t.rotation);
+                let outline_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+                for i in 0..4 {
+                    ui.painter()
+                        .line_segment([corners[i], corners[(i + 1) % 4]], outline_stroke);
+                }
+            }
         }
     }
 
@@ -730,8 +858,8 @@ pub fn draw_transform_handles(
                         // No source hit, no selection — start marquee.
                         let hit = active_scene_sources
                             .iter()
-                            .find(|(_, rect)| rect.contains(mouse_pos))
-                            .map(|(id, _)| *id);
+                            .find(|(_, rect, rot)| point_in_rotated_rect(mouse_pos, *rect, *rot))
+                            .map(|(id, _, _)| *id);
                         if hit.is_none() {
                             drag_mode = DragMode::Marquee { start: mouse_pos };
                         }
@@ -766,7 +894,7 @@ pub fn draw_transform_handles(
                     if !shift_held {
                         state.deselect_all();
                     }
-                    for (src_id, src_rect) in &active_scene_sources {
+                    for (src_id, src_rect, _) in &active_scene_sources {
                         if marquee_rect.intersects(*src_rect) {
                             // Skip locked sources.
                             let is_locked = state
@@ -805,14 +933,33 @@ pub fn draw_transform_handles(
         match &mut drag_mode {
             DragMode::None => {
                 if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open {
-                    if let Some(handle) = hit_test_handles(mouse_pos, screen_rect) {
-                        state.begin_continuous_edit();
-                        drag_mode = DragMode::Resize {
+                    if let Some(handle) = hit_test_handles(mouse_pos, screen_rect, transform.rotation) {
+                        let is_corner = matches!(
                             handle,
-                            start_mouse: mouse_pos,
-                            start_transform: transform,
-                            aspect_ratio: transform.width / transform.height.max(1.0),
-                        };
+                            HandlePosition::TopLeft
+                                | HandlePosition::TopRight
+                                | HandlePosition::BottomLeft
+                                | HandlePosition::BottomRight
+                        );
+                        let cmd_held = ui.input(|i| i.modifiers.command);
+                        if is_corner && cmd_held {
+                            let center = screen_rect.center();
+                            let angle = (mouse_pos - center).angle();
+                            state.begin_continuous_edit();
+                            drag_mode = DragMode::Rotate {
+                                center,
+                                start_angle: angle,
+                                start_rotation: transform.rotation,
+                            };
+                        } else {
+                            state.begin_continuous_edit();
+                            drag_mode = DragMode::Resize {
+                                handle,
+                                start_mouse: mouse_pos,
+                                start_transform: transform,
+                                aspect_ratio: transform.width / transform.height.max(1.0),
+                            };
+                        }
                     } else {
                         // Check if we clicked on any selected source (for group move).
                         let clicked_selected = selected_ids.iter().any(|&sid| {
@@ -1092,6 +1239,31 @@ pub fn draw_transform_handles(
                     ss.overrides.transform = Some(new_transform);
                 }
             }
+            DragMode::Rotate {
+                center,
+                start_angle,
+                start_rotation,
+                ..
+            } => {
+                let current_angle = (mouse_pos - *center).angle();
+                let delta_rad = current_angle - *start_angle;
+                let delta_deg = delta_rad.to_degrees();
+                let mut rotation = (*start_rotation + delta_deg).rem_euclid(360.0);
+                if shift_held {
+                    rotation = (rotation / 15.0).round() * 15.0;
+                }
+                if let Some(scene) = state.active_scene_mut()
+                    && let Some(ss) = scene.find_source_mut(selected_id)
+                {
+                    if let Some(ref mut t) = ss.overrides.transform {
+                        t.rotation = rotation;
+                    } else {
+                        let mut new_t = transform;
+                        new_t.rotation = rotation;
+                        ss.overrides.transform = Some(new_t);
+                    }
+                }
+            }
             DragMode::Marquee { start } => {
                 let marquee_rect = Rect::from_two_pos(*start, mouse_pos);
                 // Draw marquee rectangle.
@@ -1167,7 +1339,7 @@ pub fn draw_transform_handles(
                 if !shift_held {
                     state.deselect_all();
                 }
-                for (src_id, src_rect) in &active_scene_sources {
+                for (src_id, src_rect, _) in &active_scene_sources {
                     if marquee_rect.intersects(*src_rect) {
                         let is_locked = state
                             .active_scene()
@@ -1357,14 +1529,45 @@ mod tests {
     #[test]
     fn hit_test_corner() {
         let rect = Rect::from_min_max(Pos2::new(100.0, 100.0), Pos2::new(300.0, 200.0));
-        let result = hit_test_handles(Pos2::new(100.0, 100.0), rect);
+        let result = hit_test_handles(Pos2::new(100.0, 100.0), rect, 0.0);
         assert_eq!(result, Some(HandlePosition::TopLeft));
     }
 
     #[test]
     fn hit_test_miss() {
         let rect = Rect::from_min_max(Pos2::new(100.0, 100.0), Pos2::new(300.0, 200.0));
-        let result = hit_test_handles(Pos2::new(200.0, 150.0), rect);
+        let result = hit_test_handles(Pos2::new(200.0, 150.0), rect, 0.0);
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn point_in_rotated_rect_no_rotation() {
+        let rect = Rect::from_min_max(Pos2::new(100.0, 100.0), Pos2::new(200.0, 200.0));
+        assert!(point_in_rotated_rect(Pos2::new(150.0, 150.0), rect, 0.0));
+        assert!(!point_in_rotated_rect(Pos2::new(50.0, 50.0), rect, 0.0));
+    }
+
+    #[test]
+    fn point_in_rotated_rect_90_degrees() {
+        // A 100x50 rect centered at (150, 125), rotated 90 degrees becomes 50x100.
+        let rect = Rect::from_min_max(Pos2::new(100.0, 100.0), Pos2::new(200.0, 150.0));
+        let center = rect.center(); // (150, 125)
+        // Point at (150, 125) — center — should always be inside.
+        assert!(point_in_rotated_rect(center, rect, 90.0));
+        // Point that would be inside the rotated rect but outside the original.
+        // After 90-deg rotation, width and height swap.
+        assert!(point_in_rotated_rect(Pos2::new(150.0, 90.0), rect, 90.0));
+        // Point far outside.
+        assert!(!point_in_rotated_rect(Pos2::new(50.0, 50.0), rect, 90.0));
+    }
+
+    #[test]
+    fn rotated_corners_identity() {
+        let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 100.0));
+        let corners = rotated_corners(rect, 0.0);
+        assert!((corners[0].x - 0.0).abs() < 0.01);
+        assert!((corners[0].y - 0.0).abs() < 0.01);
+        assert!((corners[1].x - 100.0).abs() < 0.01);
+        assert!((corners[1].y - 0.0).abs() < 0.01);
     }
 }

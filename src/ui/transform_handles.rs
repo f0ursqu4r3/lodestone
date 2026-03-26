@@ -451,7 +451,7 @@ pub fn draw_transform_handles(
     if let Some(mouse_pos) = pointer {
         if primary_clicked && panel_rect.contains(mouse_pos) {
             // Check if we clicked a handle on the selected source first — don't re-select.
-            let clicked_handle = state.selected_source_id.and_then(|sel_id| {
+            let clicked_handle = state.selected_source_id().and_then(|sel_id| {
                 let lib = state.library.iter().find(|s| s.id == sel_id)?;
                 let scene = state.active_scene();
                 let transform = scene
@@ -469,9 +469,11 @@ pub fn draw_transform_handles(
                     .find(|(_, rect)| rect.contains(mouse_pos))
                     .map(|(id, _)| *id);
 
-                state.selected_source_id = hit; // None = deselect
-                if hit.is_some() {
+                if let Some(hit_id) = hit {
+                    state.select_source(hit_id);
                     state.selected_library_source_id = None;
+                } else {
+                    state.deselect_all();
                 }
             }
         }
@@ -483,7 +485,7 @@ pub fn draw_transform_handles(
                 .find(|(_, rect)| rect.contains(mouse_pos))
                 .map(|(id, _)| *id);
             if let Some(hit_id) = hit {
-                state.selected_source_id = Some(hit_id);
+                state.select_source(hit_id);
                 state.selected_library_source_id = None;
             }
         }
@@ -511,11 +513,11 @@ pub fn draw_transform_handles(
     if let Some(mouse_pos) = pointer
         && secondary_clicked
         && panel_rect.contains(mouse_pos)
-        && state.selected_source_id.is_some()
+        && state.selected_source_id().is_some()
     {
         ctx_state.open = true;
         ctx_state.pos = mouse_pos;
-        ctx_state.source = state.selected_source_id;
+        ctx_state.source = state.selected_source_id();
         ctx_state.open_frame = frame_nr;
     }
 
@@ -593,7 +595,7 @@ pub fn draw_transform_handles(
     }
 
     // ── Handles + dragging for selected source ──
-    let Some(selected_id) = state.selected_source_id else {
+    let Some(selected_id) = state.selected_source_id() else {
         return;
     };
     let Some(source) = state.library.iter().find(|s| s.id == selected_id) else {

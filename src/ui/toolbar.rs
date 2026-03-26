@@ -137,7 +137,7 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
 
     if new_active != active_id {
         state.active_scene_id = new_active;
-        state.selected_source_id = None;
+        state.deselect_all();
         state.mark_dirty();
     }
 }

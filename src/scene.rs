@@ -8,6 +8,20 @@ pub struct SceneId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SourceId(pub u64);
 
+/// Axis for a guide line overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum GuideAxis {
+    Horizontal,
+    Vertical,
+}
+
+/// A user-placed guide line on the canvas.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Guide {
+    pub axis: GuideAxis,
+    pub position: f32,
+}
+
 /// A scene contains an ordered list of source references with optional per-scene overrides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scene {
@@ -17,6 +31,9 @@ pub struct Scene {
     /// Whether this scene is pinned to the toolbar for quick switching.
     #[serde(default)]
     pub pinned: bool,
+    /// User-placed guide lines for alignment.
+    #[serde(default)]
+    pub guides: Vec<Guide>,
 }
 
 /// Canonical definition of a source in the global library.
@@ -69,6 +86,9 @@ pub struct SourceOverrides {
     pub muted: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume: Option<f32>,
+    /// Whether this source is locked (not movable/resizable) in this scene.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,6 +301,11 @@ impl SceneSource {
         self.overrides.muted.unwrap_or(lib.muted)
     }
 
+    /// Resolve the effective locked state (defaults to false if not overridden).
+    pub fn resolve_locked(&self) -> bool {
+        self.overrides.locked.unwrap_or(false)
+    }
+
     /// Resolve the effective volume, using the override if set, otherwise the library default.
     #[allow(unused)]
     pub fn resolve_volume(&self, lib: &LibrarySource) -> f32 {
@@ -436,6 +461,7 @@ mod legacy {
                         .map(SceneSource::new)
                         .collect(),
                     pinned: false,
+                    guides: Vec::new(),
                 })
                 .collect();
 
@@ -540,6 +566,7 @@ impl SceneCollection {
                 name: "Scene 1".to_string(),
                 sources: vec![SceneSource::new(source_id)],
                 pinned: true,
+                guides: Vec::new(),
             }],
             library: vec![LibrarySource {
                 id: source_id,
@@ -628,6 +655,7 @@ mod tests {
                 visible: Some(false),
                 muted: Some(true),
                 volume: Some(0.25),
+                locked: None,
             },
         };
 
@@ -694,6 +722,7 @@ mod tests {
                 visible: Some(false),
                 muted: None,
                 volume: Some(0.5),
+                locked: None,
             },
         };
 
@@ -779,6 +808,7 @@ mod tests {
                 SceneSource::new(SourceId(3)),
             ],
             pinned: false,
+            guides: Vec::new(),
         };
         scene.move_source_up(SourceId(2));
         assert_eq!(
@@ -794,6 +824,7 @@ mod tests {
             name: "Test".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            guides: Vec::new(),
         };
         scene.move_source_up(SourceId(1));
         assert_eq!(scene.source_ids(), vec![SourceId(1), SourceId(2)]);
@@ -810,6 +841,7 @@ mod tests {
                 SceneSource::new(SourceId(3)),
             ],
             pinned: false,
+            guides: Vec::new(),
         };
         scene.move_source_down(SourceId(1));
         assert_eq!(
@@ -825,6 +857,7 @@ mod tests {
             name: "Test".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            guides: Vec::new(),
         };
         scene.move_source_down(SourceId(2));
         assert_eq!(scene.source_ids(), vec![SourceId(1), SourceId(2)]);
@@ -840,6 +873,7 @@ mod tests {
                 SceneSource::new(SourceId(20)),
             ],
             pinned: false,
+            guides: Vec::new(),
         };
         assert_eq!(scene.source_ids(), vec![SourceId(10), SourceId(20)]);
     }
@@ -851,6 +885,7 @@ mod tests {
             name: "Test".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            guides: Vec::new(),
         };
         assert!(scene.find_source(SourceId(1)).is_some());
         assert!(scene.find_source(SourceId(99)).is_none());
@@ -863,6 +898,7 @@ mod tests {
             name: "Test".into(),
             sources: vec![SceneSource::new(SourceId(1))],
             pinned: false,
+            guides: Vec::new(),
         };
         let ss = scene.find_source_mut(SourceId(1)).unwrap();
         ss.overrides.opacity = Some(0.5);
@@ -945,6 +981,7 @@ mod tests {
                 visible: None,
                 muted: Some(true),
                 volume: None,
+                locked: None,
             },
         };
         let serialized = toml::to_string(&ss).unwrap();

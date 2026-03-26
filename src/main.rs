@@ -651,7 +651,7 @@ impl ApplicationHandler for AppManager {
                         {
                             return;
                         }
-                        if let Some(src_id) = app_state.selected_source_id {
+                        if let Some(src_id) = app_state.selected_source_id() {
                             // Scene selection → remove from active scene only.
                             if let Some(scene_id) = app_state.active_scene_id {
                                 let cmd_tx = app_state.command_tx.clone();
@@ -1115,6 +1115,7 @@ mod tests {
             name: "S".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            guides: Vec::new(),
         };
         let (to_add, to_remove) = diff_scene_sources(None, Some(&scene));
         assert_eq!(to_add.len(), 2);
@@ -1128,6 +1129,7 @@ mod tests {
             name: "S".into(),
             sources: vec![SceneSource::new(SourceId(1))],
             pinned: false,
+            guides: Vec::new(),
         };
         let (to_add, to_remove) = diff_scene_sources(Some(&scene), None);
         assert!(to_add.is_empty());
@@ -1141,12 +1143,14 @@ mod tests {
             name: "A".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            guides: Vec::new(),
         };
         let new = Scene {
             id: SceneId(2),
             name: "B".into(),
             sources: vec![SceneSource::new(SourceId(2)), SceneSource::new(SourceId(3))],
             pinned: false,
+            guides: Vec::new(),
         };
         let (to_add, to_remove) = diff_scene_sources(Some(&old), Some(&new));
         assert!(to_add.contains(&SourceId(3)));
@@ -1162,6 +1166,7 @@ mod tests {
             name: "A".into(),
             sources: vec![SceneSource::new(SourceId(1))],
             pinned: false,
+            guides: Vec::new(),
         };
         let (to_add, to_remove) = diff_scene_sources(Some(&scene), Some(&scene));
         assert!(to_add.is_empty());

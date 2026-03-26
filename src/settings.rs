@@ -63,6 +63,46 @@ pub struct GeneralSettings {
     pub snap_grid_size: f32,
     /// Exclude Lodestone windows from display capture.
     pub exclude_self_from_capture: bool,
+    /// Grid preset name (e.g., "custom").
+    #[serde(default)]
+    pub grid_preset: String,
+    /// Whether to show the grid overlay.
+    #[serde(default)]
+    pub show_grid: bool,
+    /// Whether to show user-placed guide lines.
+    #[serde(default)]
+    pub show_guides: bool,
+    /// Whether to show rule-of-thirds overlay.
+    #[serde(default)]
+    pub show_thirds: bool,
+    /// Whether to show safe zone overlays.
+    #[serde(default)]
+    pub show_safe_zones: bool,
+    /// Grid line color (RGB).
+    #[serde(default = "default_grid_color")]
+    pub grid_color: [u8; 3],
+    /// Grid line opacity [0.0, 1.0].
+    #[serde(default = "default_grid_opacity")]
+    pub grid_opacity: f32,
+    /// Guide line color (RGB).
+    #[serde(default = "default_guide_color")]
+    pub guide_color: [u8; 3],
+    /// Guide line opacity [0.0, 1.0].
+    #[serde(default = "default_guide_opacity")]
+    pub guide_opacity: f32,
+}
+
+fn default_grid_color() -> [u8; 3] {
+    [255, 255, 255]
+}
+fn default_grid_opacity() -> f32 {
+    0.15
+}
+fn default_guide_color() -> [u8; 3] {
+    [0, 255, 255]
+}
+fn default_guide_opacity() -> f32 {
+    0.60
 }
 
 impl Default for GeneralSettings {
@@ -75,6 +115,15 @@ impl Default for GeneralSettings {
             snap_to_grid: true,
             snap_grid_size: 10.0,
             exclude_self_from_capture: true,
+            grid_preset: String::new(),
+            show_grid: false,
+            show_guides: false,
+            show_thirds: false,
+            show_safe_zones: false,
+            grid_color: default_grid_color(),
+            grid_opacity: default_grid_opacity(),
+            guide_color: default_guide_color(),
+            guide_opacity: default_guide_opacity(),
         }
     }
 }

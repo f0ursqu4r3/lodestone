@@ -17,7 +17,7 @@ use crate::ui::theme::{TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, accent_color_ui
 /// selected, or transform / opacity / source-specific controls when one is.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // Determine which source is selected: prefer scene selection, fall back to library.
-    let (selected_id, from_library_selection) = if let Some(id) = state.selected_source_id {
+    let (selected_id, from_library_selection) = if let Some(id) = state.selected_source_id() {
         (id, false)
     } else if let Some(id) = state.selected_library_source_id {
         (id, true)

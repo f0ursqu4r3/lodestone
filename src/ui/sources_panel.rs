@@ -53,7 +53,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Remove selected source from scene (small icon button)
-            let has_selection = state.selected_source_id.is_some();
+            let has_selection = state.selected_source_id().is_some();
             ui.add_enabled_ui(has_selection, |ui| {
                 if ui
                     .add(egui::Button::new(
@@ -61,7 +61,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     ))
                     .on_hover_text("Remove from scene")
                     .clicked()
-                    && let Some(src_id) = state.selected_source_id
+                    && let Some(src_id) = state.selected_source_id()
                 {
                     remove_source_from_scene(state, &cmd_tx, active_id, src_id);
                 }
@@ -90,7 +90,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     });
                 }
                 start_capture_from_properties(state, &cmd_tx, src_id, &props);
-                state.selected_source_id = Some(src_id);
+                state.select_source(src_id);
                 state.mark_dirty();
             }
         });
@@ -224,7 +224,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
         // ── Render rows with animated offsets ──
         for (idx, row) in rows.iter().enumerate() {
-            let is_selected = state.selected_source_id == Some(row.id);
+            let is_selected = state.selected_source_id() == Some(row.id);
             let is_being_dragged = dragged_id == Some(row.id);
             let y_offset = offsets.get(&row.id.0).copied().unwrap_or(0.0);
 
@@ -350,7 +350,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             if let Some(properties) = props {
                 start_capture_from_properties(state, &cmd_tx, src_id, &properties);
             }
-            state.selected_source_id = Some(src_id);
+            state.select_source(src_id);
             state.mark_dirty();
         }
     }
@@ -501,7 +501,7 @@ fn draw_source_row(
 
     // Click to select.
     if row_response.clicked() {
-        state.selected_source_id = Some(row.id);
+        state.select_source(row.id);
         state.selected_library_source_id = None;
     }
 
@@ -702,8 +702,8 @@ pub(crate) fn remove_source_from_scene(
     }
 
     // Clear selection if we just removed the selected source.
-    if state.selected_source_id == Some(src_id) {
-        state.selected_source_id = None;
+    if state.selected_source_id() == Some(src_id) {
+        state.deselect_all();
     }
 
     // Update capture_active based on remaining sources.

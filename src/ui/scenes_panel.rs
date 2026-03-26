@@ -103,6 +103,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                                 name: format!("Scene {}", state.scenes.len() + 1),
                                 sources: Vec::new(),
                                 pinned: false,
+                                guides: Vec::new(),
                             });
                             state.active_scene_id = Some(new_id);
                             state.mark_dirty();
@@ -125,7 +126,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
 
             state.active_scene_id = Some(new_id);
-            state.selected_source_id = None;
+            state.deselect_all();
 
             apply_scene_diff(
                 &cmd_tx,
@@ -458,6 +459,7 @@ fn delete_scene_by_id(
             name: "Scene 1".to_string(),
             sources: Vec::new(),
             pinned: false,
+            guides: Vec::new(),
         });
     }
 
@@ -475,7 +477,7 @@ fn delete_scene_by_id(
     state.scenes.retain(|s| s.id != scene_id);
 
     // Select the first remaining scene, clear source selection.
-    state.selected_source_id = None;
+    state.deselect_all();
     let first_scene = state.scenes.first().cloned();
     if let Some(ref scene) = first_scene {
         state.active_scene_id = Some(scene.id);

@@ -476,8 +476,8 @@ pub(crate) fn delete_source_cascade(state: &mut AppState, src_id: SourceId) {
     }
 
     // Clear selection if deleted.
-    if state.selected_source_id == Some(src_id) {
-        state.selected_source_id = None;
+    if state.selected_source_id() == Some(src_id) {
+        state.deselect_all();
     }
     if state.selected_library_source_id == Some(src_id) {
         state.selected_library_source_id = None;
@@ -724,7 +724,7 @@ fn draw_source_grid(
                     // Click to select.
                     if tile_response.clicked() && !is_renaming {
                         state.selected_library_source_id = Some(row.id);
-                        state.selected_source_id = None;
+                        state.deselect_all();
                         let in_active_scene = state
                             .active_scene()
                             .map(|s| s.sources.iter().any(|ss| ss.source_id == row.id))
@@ -841,7 +841,7 @@ fn draw_source_row(
         // Handle click for selection (library selection, not scene selection).
         if row_response.clicked() && !is_renaming {
             state.selected_library_source_id = Some(row.id);
-            state.selected_source_id = None;
+            state.deselect_all();
             let in_active_scene = state
                 .active_scene()
                 .map(|s| s.sources.iter().any(|ss| ss.source_id == row.id))

@@ -1,5 +1,5 @@
 use crate::gstreamer::{GstCommand, GstError};
-use crate::scene::{LibrarySource, Scene, SceneId, SourceId};
+use crate::scene::{LibrarySource, Scene, SceneId, SourceId, SourceOverrides};
 use crate::settings::AppSettings;
 
 // ── Undo / Redo ──────────────────────────────────────────────────────────────
@@ -41,10 +41,17 @@ impl UndoStack {
         state.next_source_id = snapshot.next_source_id;
 
         // Clear selections that reference sources/scenes that no longer exist.
-        if let Some(id) = state.selected_source_id
-            && !state.library.iter().any(|s| s.id == id)
-        {
-            state.selected_source_id = None;
+        let active_source_ids: Vec<SourceId> = state
+            .active_scene()
+            .map(|s| s.source_ids())
+            .unwrap_or_default();
+        state
+            .selected_source_ids
+            .retain(|id| active_source_ids.contains(id));
+        if let Some(primary) = state.primary_selected_id {
+            if !state.selected_source_ids.contains(&primary) {
+                state.primary_selected_id = state.selected_source_ids.last().copied();
+            }
         }
         if let Some(id) = state.selected_library_source_id
             && !state.library.iter().any(|s| s.id == id)
@@ -91,19 +98,30 @@ pub enum RecordingStatus {
     Recording { path: std::path::PathBuf },
 }
 
+/// A clipboard entry for copy/paste of scene sources.
+#[derive(Clone, Debug)]
+pub struct ClipboardEntry {
+    pub library_source_id: SourceId,
+    pub overrides_snapshot: SourceOverrides,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub scenes: Vec<Scene>,
     pub library: Vec<LibrarySource>,
     pub active_scene_id: Option<SceneId>,
-    /// Source selected in the scene (sources panel / preview). Drives transform handles.
-    pub selected_source_id: Option<SourceId>,
+    /// Sources selected in the scene (sources panel / preview). Drives transform handles.
+    pub selected_source_ids: Vec<SourceId>,
+    /// The primary source in a multi-select (most recently clicked).
+    pub primary_selected_id: Option<SourceId>,
     /// Source selected in the library panel. Drives properties panel in "Library Defaults" mode.
     pub selected_library_source_id: Option<SourceId>,
     /// Source to flash briefly in the scene (sources panel + preview) when selected in library.
     pub flash_source_id: Option<SourceId>,
     /// When the flash started, for animation timing.
     pub flash_start: Option<std::time::Instant>,
+    /// Clipboard for copy/paste of scene sources.
+    pub clipboard: Vec<ClipboardEntry>,
     /// Source currently being renamed (library panel inline edit). None = not renaming.
     pub renaming_source_id: Option<SourceId>,
     /// Scene currently being renamed (scenes panel inline edit). None = not renaming.
@@ -145,10 +163,12 @@ impl Default for AppState {
             scenes: Vec::new(),
             library: Vec::new(),
             active_scene_id: None,
-            selected_source_id: None,
+            selected_source_ids: Vec::new(),
+            primary_selected_id: None,
             selected_library_source_id: None,
             flash_source_id: None,
             flash_start: None,
+            clipboard: Vec::new(),
             renaming_source_id: None,
             renaming_scene_id: None,
             rename_buffer: String::new(),
@@ -201,6 +221,43 @@ impl AppState {
     pub fn active_scene_mut(&mut self) -> Option<&mut Scene> {
         self.active_scene_id
             .and_then(|id| self.scenes.iter_mut().find(|s| s.id == id))
+    }
+
+    // ── Selection helpers ──────────────────────────────────────────────────
+
+    /// Returns the primary selected source ID (backward compat).
+    pub fn selected_source_id(&self) -> Option<SourceId> {
+        self.primary_selected_id
+    }
+
+    /// Select a single source (clears multi-select).
+    pub fn select_source(&mut self, id: SourceId) {
+        self.selected_source_ids = vec![id];
+        self.primary_selected_id = Some(id);
+    }
+
+    /// Deselect all sources.
+    pub fn deselect_all(&mut self) {
+        self.selected_source_ids.clear();
+        self.primary_selected_id = None;
+    }
+
+    /// Toggle a source in the selection (for Shift+click).
+    pub fn toggle_source_selection(&mut self, id: SourceId) {
+        if let Some(pos) = self.selected_source_ids.iter().position(|&s| s == id) {
+            self.selected_source_ids.remove(pos);
+            if self.primary_selected_id == Some(id) {
+                self.primary_selected_id = self.selected_source_ids.last().copied();
+            }
+        } else {
+            self.selected_source_ids.push(id);
+            self.primary_selected_id = Some(id);
+        }
+    }
+
+    /// Check if a source is selected.
+    pub fn is_source_selected(&self, id: SourceId) -> bool {
+        self.selected_source_ids.contains(&id)
     }
 
     /// Count how many scenes reference a given source.
@@ -372,6 +429,7 @@ mod tests {
                 overrides: SourceOverrides::default(),
             }],
             pinned: false,
+            guides: Vec::new(),
         });
         state.active_scene_id = Some(scene_id);
         state.next_scene_id = 2;

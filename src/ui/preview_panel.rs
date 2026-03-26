@@ -242,7 +242,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                     _ => {}
                 }
             }
-            state.selected_source_id = Some(src_id);
+            state.select_source(src_id);
             state.selected_library_source_id = None;
         }
     }

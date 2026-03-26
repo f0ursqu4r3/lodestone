@@ -248,6 +248,51 @@ pub struct HotkeySettings {
     pub bindings: HashMap<String, String>,
 }
 
+/// Font scale presets that proportionally scale all text sizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FontScale {
+    XS,
+    S,
+    M,
+    L,
+    XL,
+}
+
+impl FontScale {
+    /// Base body font size for this scale.
+    pub fn body_size(&self) -> f32 {
+        match self {
+            Self::XS => 11.0,
+            Self::S => 12.0,
+            Self::M => 13.0,
+            Self::L => 15.0,
+            Self::XL => 17.0,
+        }
+    }
+
+    /// All scales in display order.
+    pub fn all() -> &'static [FontScale] {
+        &[Self::XS, Self::S, Self::M, Self::L, Self::XL]
+    }
+
+    /// Human-readable label.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::XS => "XS",
+            Self::S => "S",
+            Self::M => "M",
+            Self::L => "L",
+            Self::XL => "XL",
+        }
+    }
+}
+
+impl Default for FontScale {
+    fn default() -> Self {
+        Self::M
+    }
+}
+
 /// Visual appearance preferences.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -255,7 +300,7 @@ pub struct AppearanceSettings {
     pub theme: ThemeId,
     /// Hex color override for the accent (e.g. "#ff8800"). `None` = use theme default.
     pub accent_color: Option<String>,
-    pub font_size: f32,
+    pub font_scale: FontScale,
     pub font_family: String,
 }
 
@@ -264,7 +309,7 @@ impl Default for AppearanceSettings {
         Self {
             theme: ThemeId::DefaultDark,
             accent_color: None,
-            font_size: 13.0,
+            font_scale: FontScale::M,
             font_family: "Default".to_string(),
         }
     }

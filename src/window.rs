@@ -71,6 +71,25 @@ impl WindowState {
         // Register Phosphor icon font so icon constants render as glyphs.
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+
+        // Register system fonts for font family switching.
+        // Each font is registered as a named family that can be selected in settings.
+        let system_font_names = ["SF Pro", "Helvetica Neue", "Menlo", "Monaco"];
+        for name in &system_font_names {
+            // Try to load the font from the system font directories
+            let font_data = Self::load_system_font(name);
+            if let Some(data) = font_data {
+                fonts.font_data.insert(
+                    name.to_string(),
+                    std::sync::Arc::new(egui::FontData::from_owned(data)),
+                );
+                fonts.families.insert(
+                    egui::FontFamily::Name((*name).into()),
+                    vec![name.to_string(), "Hack".to_string()],
+                );
+            }
+        }
+
         egui_ctx.set_fonts(fonts);
         let max_tex = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
@@ -136,17 +155,33 @@ impl WindowState {
             self.egui_ctx.set_visuals(egui::Visuals::light());
         }
 
-        // Apply font size from settings.
-        let font_size = state.settings.appearance.font_size;
+        // Apply font scale from settings — scales all text styles proportionally.
+        let base = state.settings.appearance.font_scale.body_size();
         let mut style = (*self.egui_ctx.style()).clone();
-        if let Some(body) = style.text_styles.get_mut(&egui::TextStyle::Body) {
-            body.size = font_size;
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Small) {
+            s.size = (base * 0.8).max(8.0);
         }
-        if let Some(button) = style.text_styles.get_mut(&egui::TextStyle::Button) {
-            button.size = font_size;
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Body) {
+            s.size = base;
         }
-        if let Some(small) = style.text_styles.get_mut(&egui::TextStyle::Small) {
-            small.size = (font_size * 0.85).max(8.0);
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Button) {
+            s.size = base;
+        }
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Monospace) {
+            s.size = base;
+        }
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Heading) {
+            s.size = base * 1.5;
+        }
+        // Apply font family if not "Default"
+        let family = &state.settings.appearance.font_family;
+        if family != "Default" {
+            let prop_family = egui::FontFamily::Name(family.clone().into());
+            for (_, font_id) in style.text_styles.iter_mut() {
+                if font_id.family == egui::FontFamily::Proportional {
+                    font_id.family = prop_family.clone();
+                }
+            }
         }
         self.egui_ctx.set_style(style);
 
@@ -313,17 +348,33 @@ impl WindowState {
             self.egui_ctx.set_visuals(egui::Visuals::light());
         }
 
-        // Apply font size from settings.
-        let font_size = state.settings.appearance.font_size;
+        // Apply font scale from settings — scales all text styles proportionally.
+        let base = state.settings.appearance.font_scale.body_size();
         let mut style = (*self.egui_ctx.style()).clone();
-        if let Some(body) = style.text_styles.get_mut(&egui::TextStyle::Body) {
-            body.size = font_size;
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Small) {
+            s.size = (base * 0.8).max(8.0);
         }
-        if let Some(button) = style.text_styles.get_mut(&egui::TextStyle::Button) {
-            button.size = font_size;
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Body) {
+            s.size = base;
         }
-        if let Some(small) = style.text_styles.get_mut(&egui::TextStyle::Small) {
-            small.size = (font_size * 0.85).max(8.0);
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Button) {
+            s.size = base;
+        }
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Monospace) {
+            s.size = base;
+        }
+        if let Some(s) = style.text_styles.get_mut(&egui::TextStyle::Heading) {
+            s.size = base * 1.5;
+        }
+        // Apply font family if not "Default"
+        let family = &state.settings.appearance.font_family;
+        if family != "Default" {
+            let prop_family = egui::FontFamily::Name(family.clone().into());
+            for (_, font_id) in style.text_styles.iter_mut() {
+                if font_id.family == egui::FontFamily::Proportional {
+                    font_id.family = prop_family.clone();
+                }
+            }
         }
         self.egui_ctx.set_style(style);
 
@@ -449,5 +500,32 @@ impl WindowState {
         } else if let Some(group) = self.layout.groups.get_mut(&group_id) {
             group.remove_tab(tab_index);
         }
+    }
+
+    /// Attempt to load a system font by name from common macOS font paths.
+    fn load_system_font(name: &str) -> Option<Vec<u8>> {
+        let candidates: Vec<std::path::PathBuf> = vec![
+            format!("/System/Library/Fonts/{name}.ttf").into(),
+            format!("/System/Library/Fonts/{name}.otf").into(),
+            format!("/Library/Fonts/{name}.ttf").into(),
+            format!("/Library/Fonts/{name}.otf").into(),
+            // SF Pro and Helvetica Neue use .ttc (TrueType Collection)
+            format!("/System/Library/Fonts/{name}.ttc").into(),
+            // Some fonts use spaces in filenames
+            format!("/System/Library/Fonts/{}.ttf", name.replace(' ', "")).into(),
+            format!("/System/Library/Fonts/{}.ttc", name.replace(' ', "")).into(),
+            // User font directory
+            dirs::home_dir()
+                .map(|h| h.join(format!("Library/Fonts/{name}.ttf")))
+                .unwrap_or_default(),
+        ];
+        for path in candidates {
+            if let Ok(data) = std::fs::read(&path) {
+                log::info!("Loaded system font '{}' from {}", name, path.display());
+                return Some(data);
+            }
+        }
+        log::debug!("System font '{}' not found", name);
+        None
     }
 }

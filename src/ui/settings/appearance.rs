@@ -141,18 +141,39 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
     // ── Font Size ────────────────────────────────────────────────────────────
 
     layout::section(ui, "Font Size", |ui| {
-        let mut size = state.settings.appearance.font_size;
-        if ui
-            .add(
-                egui::DragValue::new(&mut size)
-                    .range(8.0..=24.0)
-                    .suffix(" px"),
-            )
-            .changed()
-        {
-            state.settings.appearance.font_size = size;
-            changed = true;
-        }
+        ui.horizontal(|ui| {
+            for &scale in crate::settings::FontScale::all() {
+                let is_selected = state.settings.appearance.font_scale == scale;
+                let label = egui::RichText::new(scale.label())
+                    .color(if is_selected {
+                        current_theme.accent
+                    } else {
+                        current_theme.text_secondary
+                    })
+                    .size(11.0)
+                    .strong();
+                let fill = if is_selected {
+                    current_theme.accent_dim
+                } else {
+                    current_theme.bg_elevated
+                };
+                let btn = egui::Button::new(label)
+                    .fill(fill)
+                    .stroke(egui::Stroke::new(
+                        if is_selected { 1.0 } else { 0.5 },
+                        if is_selected {
+                            current_theme.accent
+                        } else {
+                            current_theme.border
+                        },
+                    ))
+                    .corner_radius(current_theme.radius_sm);
+                if ui.add(btn).clicked() {
+                    state.settings.appearance.font_scale = scale;
+                    changed = true;
+                }
+            }
+        });
     });
 
     // ── Font Family ──────────────────────────────────────────────────────────

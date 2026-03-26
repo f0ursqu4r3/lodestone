@@ -89,6 +89,8 @@ pub struct Transform {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+    #[serde(default)]
+    pub rotation: f32, // Degrees, default 0.0
 }
 
 /// Text alignment for text sources.
@@ -358,6 +360,7 @@ impl Transform {
             y,
             width,
             height,
+            rotation: 0.0,
         }
     }
 }

@@ -136,6 +136,20 @@ impl WindowState {
             self.egui_ctx.set_visuals(egui::Visuals::light());
         }
 
+        // Apply font size from settings.
+        let font_size = state.settings.appearance.font_size;
+        let mut style = (*self.egui_ctx.style()).clone();
+        if let Some(body) = style.text_styles.get_mut(&egui::TextStyle::Body) {
+            body.size = font_size;
+        }
+        if let Some(button) = style.text_styles.get_mut(&egui::TextStyle::Button) {
+            button.size = font_size;
+        }
+        if let Some(small) = style.text_styles.get_mut(&egui::TextStyle::Small) {
+            small.size = (font_size * 0.85).max(8.0);
+        }
+        self.egui_ctx.set_style(style);
+
         // Capture pre-frame undo snapshot before any UI mutations.
         if self.is_main {
             state.begin_frame_for_undo();
@@ -298,6 +312,20 @@ impl WindowState {
         } else {
             self.egui_ctx.set_visuals(egui::Visuals::light());
         }
+
+        // Apply font size from settings.
+        let font_size = state.settings.appearance.font_size;
+        let mut style = (*self.egui_ctx.style()).clone();
+        if let Some(body) = style.text_styles.get_mut(&egui::TextStyle::Body) {
+            body.size = font_size;
+        }
+        if let Some(button) = style.text_styles.get_mut(&egui::TextStyle::Button) {
+            button.size = font_size;
+        }
+        if let Some(small) = style.text_styles.get_mut(&egui::TextStyle::Small) {
+            small.size = (font_size * 0.85).max(8.0);
+        }
+        self.egui_ctx.set_style(style);
 
         let raw_input = self.egui_state.take_egui_input(self.window);
 

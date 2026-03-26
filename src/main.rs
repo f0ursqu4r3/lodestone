@@ -250,17 +250,7 @@ impl AppManager {
 
         let state = Arc::new(Mutex::new(initial_state));
 
-        // Populate system fonts list (curated macOS fonts; cross-platform enumeration can be added later).
-        {
-            let mut app_state = state.lock().unwrap();
-            app_state.system_fonts = vec![
-                "Default".to_string(),
-                "SF Pro".to_string(),
-                "Helvetica Neue".to_string(),
-                "Menlo".to_string(),
-                "Monaco".to_string(),
-            ];
-        }
+        // system_fonts is populated by WindowState on first render (from actually-loaded fonts).
 
         Self {
             gpu: None,

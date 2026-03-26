@@ -28,6 +28,8 @@ pub struct WindowState {
     pub is_main: bool,
     /// Set to true when user requests reattaching this window's panels to main.
     pub reattach_pending: bool,
+    /// Font families that were successfully loaded and registered with egui.
+    pub loaded_fonts: Vec<String>,
 }
 
 impl WindowState {
@@ -73,12 +75,10 @@ impl WindowState {
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
 
         // Register system fonts for font family switching.
-        // Each font is registered as a named family that can be selected in settings.
         let system_font_names = ["SF Pro", "Helvetica Neue", "Menlo", "Monaco"];
+        let mut loaded_fonts = vec!["Default".to_string()];
         for name in &system_font_names {
-            // Try to load the font from the system font directories
-            let font_data = Self::load_system_font(name);
-            if let Some(data) = font_data {
+            if let Some(data) = Self::load_system_font(name) {
                 fonts.font_data.insert(
                     name.to_string(),
                     std::sync::Arc::new(egui::FontData::from_owned(data)),
@@ -87,10 +87,11 @@ impl WindowState {
                     egui::FontFamily::Name((*name).into()),
                     vec![name.to_string(), "Hack".to_string()],
                 );
+                loaded_fonts.push(name.to_string());
             }
         }
 
-        egui_ctx.set_fonts(fonts);
+        egui_ctx.set_fonts(fonts.clone());
         let max_tex = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),
@@ -111,6 +112,7 @@ impl WindowState {
             layout,
             is_main,
             reattach_pending: false,
+            loaded_fonts,
         })
     }
 
@@ -160,8 +162,9 @@ impl WindowState {
             .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
 
         // Apply font family — set every frame to handle live switching.
+        // Only apply if the font was actually loaded (prevents panics from stale settings).
         let family = &state.settings.appearance.font_family;
-        let target_family = if family == "Default" {
+        let target_family = if family == "Default" || !self.loaded_fonts.contains(family) {
             egui::FontFamily::Proportional
         } else {
             egui::FontFamily::Name(family.clone().into())
@@ -176,6 +179,11 @@ impl WindowState {
         }
         if needs_update {
             self.egui_ctx.set_style(style);
+        }
+
+        // Sync loaded fonts to AppState so the appearance settings dropdown shows valid options.
+        if state.system_fonts != self.loaded_fonts {
+            state.system_fonts = self.loaded_fonts.clone();
         }
 
         // Capture pre-frame undo snapshot before any UI mutations.
@@ -346,8 +354,9 @@ impl WindowState {
             .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
 
         // Apply font family — set every frame to handle live switching.
+        // Only apply if the font was actually loaded (prevents panics from stale settings).
         let family = &state.settings.appearance.font_family;
-        let target_family = if family == "Default" {
+        let target_family = if family == "Default" || !self.loaded_fonts.contains(family) {
             egui::FontFamily::Proportional
         } else {
             egui::FontFamily::Name(family.clone().into())
@@ -362,6 +371,11 @@ impl WindowState {
         }
         if needs_update {
             self.egui_ctx.set_style(style);
+        }
+
+        // Sync loaded fonts to AppState so the appearance settings dropdown shows valid options.
+        if state.system_fonts != self.loaded_fonts {
+            state.system_fonts = self.loaded_fonts.clone();
         }
 
         let raw_input = self.egui_state.take_egui_input(self.window);

@@ -570,7 +570,8 @@ fn draw_source_row(
         let eye_color = if eye_hovered {
             with_opacity(theme.text_primary, effective_opacity)
         } else {
-            with_opacity(theme.text_muted, 0.5 * effective_opacity)
+            // Hidden sources get a prominent icon so the state is obvious
+            with_opacity(theme.text_secondary, effective_opacity)
         };
         painter.text(
             eye_rect.center(),

@@ -455,6 +455,19 @@ fn draw_source_properties(
                 });
 
                 if *screen_index != prev_index {
+                    let new_idx = *screen_index;
+                    // Update native_size and transform to match the new display.
+                    if let Some(display) = state
+                        .available_displays
+                        .iter()
+                        .find(|d| d.index == new_idx as usize)
+                    {
+                        source.native_size =
+                            (display.width as f32, display.height as f32);
+                        source.transform.width = display.width as f32;
+                        source.transform.height = display.height as f32;
+                    }
+
                     // Stop old capture, start new one with the new monitor.
                     if let Some(ref tx) = cmd_tx_for_display {
                         let _ = tx.try_send(GstCommand::RemoveCaptureSource {
@@ -463,7 +476,7 @@ fn draw_source_properties(
                         let _ = tx.try_send(GstCommand::AddCaptureSource {
                             source_id: selected_id,
                             config: CaptureSourceConfig::Screen {
-                                screen_index: *screen_index,
+                                screen_index: new_idx,
                                 exclude_self,
                             },
                         });
@@ -660,6 +673,15 @@ fn draw_source_properties(
                 });
 
             if *device_index != prev_device_index {
+                // Update native_size and transform to match the new camera.
+                let new_idx = *device_index;
+                if let Some(cam) = cameras.iter().find(|c| c.device_index == new_idx) {
+                    source.native_size =
+                        (cam.resolution.0 as f32, cam.resolution.1 as f32);
+                    source.transform.width = cam.resolution.0 as f32;
+                    source.transform.height = cam.resolution.1 as f32;
+                }
+
                 // Stop old capture, start new one.
                 if let Some(ref tx) = cmd_tx {
                     let _ = tx.try_send(GstCommand::RemoveCaptureSource {
@@ -668,7 +690,7 @@ fn draw_source_properties(
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: selected_id,
                         config: CaptureSourceConfig::Camera {
-                            device_index: *device_index,
+                            device_index: new_idx,
                         },
                     });
                 }

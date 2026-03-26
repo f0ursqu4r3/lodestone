@@ -45,6 +45,30 @@ Key modules: `renderer/` (render loop, pipelines, text, preview), `ui/` (egui pa
 - All public types get doc comments.
 - Prefer explicit over clever.
 
+## Design Context
+
+### Users
+Broad audience from casual Twitch/YouTube streamers to technical power users who want a native, non-Electron alternative to OBS. Users are in a creative/production context — they need the tool to be reliable and stay out of the way while they focus on content.
+
+### Brand Personality
+**Sleek, powerful, modern.** Premium feel — capable but approachable. Not a toy, not intimidating.
+
+### Aesthetic Direction
+- **Visual tone:** Professional creative tool. Think DaVinci Resolve / Logic Pro — dense but organized, information-rich without feeling cluttered.
+- **Theme:** Dark mode primary (neutral dark palette: `#111116` base, `#e0e0e8` text). Light mode planned but not yet implemented.
+- **References:** DaVinci Resolve, Logic Pro — professional creative tools with organized density.
+- **Anti-references:** OBS Studio (dated, cluttered, Windows-era UI), StreamLabs (over-designed, gamery, upsell-heavy). Avoid both clutter AND gamer aesthetic.
+- **Icons:** Phosphor Icons (consistent, clean line icons).
+- **Typography:** System proportional font, 13px base. Subpixel rendering via glyphon planned.
+- **Corners:** 4px (buttons/inputs), 6px (cards/panels), 12px (pills).
+
+### Design Principles
+1. **Every pixel is intentional** — Custom GPU-rendered UI, not themed widgets. If something is on screen, it earned its place.
+2. **Dense but not cluttered** — Show information professionals need without overwhelming. Use hierarchy (text weight, color, spacing) to create visual order.
+3. **Performance is a feature** — Native render loop, no DOM, no webview. The UI should feel instant. Animations serve function (state feedback), not decoration.
+4. **Explicit over clever** — Controls should be discoverable and predictable. No hidden gestures, no magic. Label things clearly.
+5. **Platform-native when possible** — Native menus, native file dialogs, OS-appropriate behavior. Don't reinvent what the OS already does well.
+
 ## License
 
 GPL-3.0.

@@ -39,14 +39,7 @@ pub struct SCStreamHandle {
 // We only interact with them through message sends which are themselves thread-safe.
 unsafe impl Send for SCStreamHandle {}
 
-/// Info about a display available for capture, including its native resolution
-/// in logical points.
-#[derive(Debug, Clone)]
-pub struct DisplayInfo {
-    pub index: usize,
-    pub width: u32,
-    pub height: u32,
-}
+pub use super::devices::DisplayInfo;
 
 /// Enumerate available displays and their native resolutions via ScreenCaptureKit.
 ///

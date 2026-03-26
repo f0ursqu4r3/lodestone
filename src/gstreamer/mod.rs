@@ -16,10 +16,8 @@ pub use commands::{
     AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, GstChannels, GstCommand,
     RecordingFormat, StreamConfig, StreamDestination, create_channels,
 };
-pub use devices::{CameraDevice, WindowInfo};
+pub use devices::{CameraDevice, DisplayInfo, WindowInfo};
 pub use error::GstError;
 pub use thread::spawn_gstreamer_thread;
 #[allow(unused_imports)]
 pub use types::{AudioDevice, AudioLevelUpdate, AudioLevels, RgbaFrame};
-#[cfg(target_os = "macos")]
-pub use screencapturekit::DisplayInfo;

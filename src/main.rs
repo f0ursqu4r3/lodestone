@@ -197,6 +197,28 @@ impl AppManager {
         let available_windows = crate::gstreamer::devices::enumerate_windows();
         log::info!("Found {} window(s)", available_windows.len());
 
+        // Enumerate displays for resolution detection.
+        let available_displays = {
+            #[cfg(target_os = "macos")]
+            {
+                match crate::gstreamer::screencapturekit::enumerate_displays() {
+                    Ok(displays) => {
+                        log::info!("Found {} display(s)", displays.len());
+                        displays
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to enumerate displays: {e}");
+                        Vec::new()
+                    }
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Vec::new()
+            }
+        };
+        let detected_resolution = available_displays.first().map(|d| (d.width, d.height));
+
         use crate::scene::SceneCollection;
         let scenes_path = settings::scenes_path();
         let collection = SceneCollection::load_from(&scenes_path);
@@ -205,7 +227,11 @@ impl AppManager {
             let _ = collection.save_to(&scenes_path);
         }
         // Load persisted settings (stream key, encoder, resolution, etc.).
-        let saved_settings = settings::AppSettings::load_from(&settings::settings_path());
+        // On first launch, use detected monitor resolution for defaults.
+        let saved_settings = settings::AppSettings::load_or_detect(
+            &settings::settings_path(),
+            detected_resolution,
+        );
 
         let initial_state = AppState {
             scenes: collection.scenes,
@@ -216,6 +242,8 @@ impl AppManager {
             command_tx: Some(main_channels.command_tx.clone()),
             available_cameras,
             available_windows,
+            available_displays,
+            detected_resolution,
             settings: saved_settings,
             ..AppState::default()
         };

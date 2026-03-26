@@ -263,6 +263,27 @@ impl AppSettings {
         }
     }
 
+    /// Load settings from disk. On first launch (no settings file), use the
+    /// detected monitor resolution for video/stream defaults instead of 1920x1080.
+    pub fn load_or_detect(path: &Path, detected: Option<(u32, u32)>) -> Self {
+        if path.exists() {
+            match std::fs::read_to_string(path) {
+                Ok(contents) => toml::from_str(&contents).unwrap_or_default(),
+                Err(_) => Self::default(),
+            }
+        } else if let Some((w, h)) = detected {
+            let res_str = format!("{w}x{h}");
+            let mut settings = Self::default();
+            settings.video.base_resolution = res_str.clone();
+            settings.video.output_resolution = res_str;
+            settings.stream.width = w;
+            settings.stream.height = h;
+            settings
+        } else {
+            Self::default()
+        }
+    }
+
     pub fn save_to(&self, path: &Path) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;

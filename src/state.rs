@@ -141,6 +141,11 @@ pub struct AppState {
     pub next_scene_id: u64,
     pub next_source_id: u64,
     pub monitor_count: usize,
+    /// Primary monitor resolution detected at startup via SCDisplay, in logical points.
+    /// `None` if detection failed. Used by settings UI to offer detected resolution.
+    pub detected_resolution: Option<(u32, u32)>,
+    /// Available displays with resolution info, populated at startup.
+    pub available_displays: Vec<crate::gstreamer::DisplayInfo>,
     pub capture_active: bool,
     pub active_errors: Vec<GstError>,
     pub recording_status: RecordingStatus,
@@ -191,6 +196,8 @@ impl Default for AppState {
             next_scene_id: 1,
             next_source_id: 1,
             monitor_count: 1,
+            detected_resolution: None,
+            available_displays: Vec::new(),
             capture_active: true,
             active_errors: Vec::new(),
             recording_status: RecordingStatus::Idle,

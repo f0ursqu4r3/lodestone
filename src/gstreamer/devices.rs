@@ -18,6 +18,15 @@ pub struct WindowInfo {
     pub owner_name: String,
 }
 
+/// Info about a display available for capture, including its native resolution
+/// in logical points.
+#[derive(Debug, Clone)]
+pub struct DisplayInfo {
+    pub index: usize,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Minimum window dimension (width or height) to filter out tiny/invisible windows.
 const MIN_WINDOW_DIMENSION: f64 = 50.0;
 

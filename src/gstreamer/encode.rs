@@ -33,7 +33,7 @@ fn make_appsrc_caps(config: &EncoderConfig) -> gstreamer::Caps {
 
 /// Build audio caps for an appsrc producing raw S16LE audio.
 fn make_audio_appsrc_caps(config: &AudioEncoderConfig) -> gstreamer::Caps {
-    gstreamer_audio::AudioCapsBuilder::new()
+    gstreamer_audio::AudioCapsBuilder::new_interleaved()
         .format(gstreamer_audio::AudioFormat::S16le)
         .rate(config.sample_rate as i32)
         .channels(config.channels as i32)

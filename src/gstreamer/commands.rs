@@ -43,7 +43,6 @@ pub enum GstCommand {
         format: RecordingFormat,
     },
     StopRecording,
-    #[allow(dead_code)]
     UpdateEncoder(EncoderConfig),
     SetAudioDevice {
         source: AudioSourceKind,

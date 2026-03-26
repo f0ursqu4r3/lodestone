@@ -318,7 +318,7 @@ pub fn build_audio_capture_pipeline(
         .build()
         .context("Failed to create level")?;
 
-    let caps = gstreamer_audio::AudioCapsBuilder::new()
+    let caps = gstreamer_audio::AudioCapsBuilder::new_interleaved()
         .format(gstreamer_audio::AudioFormat::S16le)
         .rate(sample_rate as i32)
         .channels(2)

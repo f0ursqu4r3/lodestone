@@ -6,6 +6,8 @@
 use egui::{self, Color32, RichText, Sense, Vec2};
 
 use crate::scene::SceneId;
+use crate::gstreamer::EncoderConfig;
+use crate::renderer::compositor::parse_resolution;
 use crate::state::{AppState, RecordingStatus, StreamStatus};
 use crate::ui::theme::{
     BG_BASE, BG_ELEVATED, BG_SURFACE, BORDER, BTN_PADDING, BTN_PILL_PADDING, GREEN_ONLINE,
@@ -208,6 +210,9 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopStream);
             state.stream_status = StreamStatus::Offline;
         } else {
+            let _ = tx.try_send(crate::gstreamer::GstCommand::UpdateEncoder(
+                encoder_config_from_settings(state),
+            ));
             let config = crate::gstreamer::StreamConfig {
                 destination: crate::gstreamer::StreamDestination::Twitch,
                 stream_key: state.settings.stream.stream_key.clone(),
@@ -293,11 +298,27 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
                 .unwrap_or(0);
             let filename = format!("lodestone-{timestamp}.mkv");
             let path = video_dir.join(filename);
+            let _ = tx.try_send(crate::gstreamer::GstCommand::UpdateEncoder(
+                encoder_config_from_settings(state),
+            ));
             let _ = tx.try_send(crate::gstreamer::GstCommand::StartRecording {
                 path: path.clone(),
                 format: crate::gstreamer::RecordingFormat::Mkv,
             });
             state.recording_status = RecordingStatus::Recording { path };
         }
+    }
+}
+
+/// Build an [`EncoderConfig`] from the current app settings.
+///
+/// Uses the output resolution from video settings and bitrate/fps from stream settings.
+fn encoder_config_from_settings(state: &AppState) -> EncoderConfig {
+    let (width, height) = parse_resolution(&state.settings.video.output_resolution);
+    EncoderConfig {
+        width,
+        height,
+        fps: state.settings.stream.fps,
+        bitrate_kbps: state.settings.stream.bitrate_kbps,
     }
 }

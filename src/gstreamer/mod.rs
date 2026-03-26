@@ -13,8 +13,8 @@ pub mod virtual_camera;
 
 #[allow(unused_imports)]
 pub use commands::{
-    AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, GstChannels, GstCommand,
-    RecordingFormat, StreamConfig, StreamDestination, create_channels,
+    AudioEncoderConfig, AudioSourceKind, CaptureSourceConfig, EncoderConfig, GstChannels,
+    GstCommand, RecordingFormat, StreamConfig, StreamDestination, create_channels,
 };
 pub use devices::{CameraDevice, DisplayInfo, WindowInfo};
 pub use error::GstError;

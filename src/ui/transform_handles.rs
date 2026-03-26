@@ -429,7 +429,7 @@ fn compute_snap(
         }
     }
 
-    // Extra targets from guides, thirds, safe zones.
+    // Extra targets from thirds and safe zones.
     x_targets.extend_from_slice(extra_x);
     y_targets.extend_from_slice(extra_y);
 
@@ -1144,21 +1144,9 @@ pub fn draw_transform_handles(
                         .unwrap_or_default();
                     let other_refs: Vec<&Transform> = other_transforms.iter().collect();
 
-                    // Build extra snap targets from guides, thirds, and safe zones.
+                    // Build extra snap targets from thirds and safe zones.
                     let mut extra_x: Vec<f32> = Vec::new();
                     let mut extra_y: Vec<f32> = Vec::new();
-
-                    // Custom guides
-                    if state.settings.general.show_guides
-                        && let Some(scene) = state.active_scene()
-                    {
-                        for guide in &scene.guides {
-                            match guide.axis {
-                                crate::scene::GuideAxis::Vertical => extra_x.push(guide.position),
-                                crate::scene::GuideAxis::Horizontal => extra_y.push(guide.position),
-                            }
-                        }
-                    }
 
                     // Thirds lines
                     if state.settings.general.show_thirds {

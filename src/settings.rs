@@ -69,9 +69,6 @@ pub struct GeneralSettings {
     /// Whether to show the grid overlay.
     #[serde(default)]
     pub show_grid: bool,
-    /// Whether to show user-placed guide lines.
-    #[serde(default)]
-    pub show_guides: bool,
     /// Whether to show rule-of-thirds overlay.
     #[serde(default)]
     pub show_thirds: bool,
@@ -117,7 +114,6 @@ impl Default for GeneralSettings {
             exclude_self_from_capture: true,
             grid_preset: String::new(),
             show_grid: false,
-            show_guides: false,
             show_thirds: false,
             show_safe_zones: false,
             grid_color: default_grid_color(),

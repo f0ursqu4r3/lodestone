@@ -95,7 +95,6 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
 
     changed |= draw_toggle(ui, "Rule of thirds", &mut settings.show_thirds);
     changed |= draw_toggle(ui, "Safe zones", &mut settings.show_safe_zones);
-    changed |= draw_toggle(ui, "Show custom guides", &mut settings.show_guides);
 
     section_header(ui, "LANGUAGE");
 

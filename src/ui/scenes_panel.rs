@@ -103,7 +103,6 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                                 name: format!("Scene {}", state.scenes.len() + 1),
                                 sources: Vec::new(),
                                 pinned: false,
-                                guides: Vec::new(),
                             });
                             state.active_scene_id = Some(new_id);
                             state.mark_dirty();
@@ -459,7 +458,6 @@ fn delete_scene_by_id(
             name: "Scene 1".to_string(),
             sources: Vec::new(),
             pinned: false,
-            guides: Vec::new(),
         });
     }
 

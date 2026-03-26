@@ -438,7 +438,6 @@ mod tests {
                 overrides: SourceOverrides::default(),
             }],
             pinned: false,
-            guides: Vec::new(),
         });
         state.active_scene_id = Some(scene_id);
         state.next_scene_id = 2;

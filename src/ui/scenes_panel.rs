@@ -8,7 +8,7 @@ use crate::gstreamer::{CaptureSourceConfig, GstCommand};
 use crate::scene::{Scene, SceneId, SourceId};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
-use crate::ui::theme::{BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::ui::theme::active_theme;
 use egui::{CornerRadius, Pos2, Rect, Sense, Stroke, vec2};
 
 /// A deferred action produced by a scene card interaction.
@@ -21,6 +21,7 @@ enum SceneAction {
 
 /// Draw the scenes panel — a 2-column grid of scene thumbnails.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
+    let theme = active_theme(ui.ctx());
     let cmd_tx = state.command_tx.clone();
 
     // Snapshot scene data to avoid borrow conflicts during iteration.
@@ -87,13 +88,14 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                             col_width,
                             response,
                             is_active,
+                            &theme,
                         ) {
                             pending_action = Some(action);
                         }
                     } else {
                         // ── "Add Scene" card ──
                         let painter = ui.painter_at(rect);
-                        draw_add_card(&painter, thumb_rect, label_pos, response.hovered());
+                        draw_add_card(&painter, thumb_rect, label_pos, response.hovered(), &theme);
 
                         if response.clicked() {
                             let new_id = SceneId(state.next_scene_id);
@@ -162,24 +164,25 @@ fn draw_scene_card(
     col_width: f32,
     response: egui::Response,
     is_active: bool,
+    theme: &crate::ui::theme::Theme,
 ) -> Option<SceneAction> {
     let is_hovered = response.hovered();
     let painter = ui.painter_at(thumb_rect.expand2(egui::vec2(0.0, label_height + 4.0)));
 
     // Thumbnail background.
-    painter.rect_filled(thumb_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
+    painter.rect_filled(thumb_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
 
-    // Border: active = TEXT_PRIMARY, hovered = TEXT_MUTED, default = BORDER.
+    // Border: active = text_primary, hovered = text_muted, default = border.
     let border_color = if is_active {
-        TEXT_PRIMARY
+        theme.text_primary
     } else if is_hovered {
-        TEXT_MUTED
+        theme.text_muted
     } else {
-        BORDER
+        theme.border
     };
     painter.rect_stroke(
         thumb_rect,
-        CornerRadius::same(RADIUS_SM as u8),
+        CornerRadius::same(theme.radius_sm as u8),
         Stroke::new(1.0, border_color),
         egui::StrokeKind::Outside,
     );
@@ -191,7 +194,7 @@ fn draw_scene_card(
             egui::Align2::RIGHT_CENTER,
             egui_phosphor::regular::PUSH_PIN,
             egui::FontId::proportional(10.0),
-            TEXT_MUTED,
+            theme.text_muted,
         );
     }
 
@@ -234,9 +237,9 @@ fn draw_scene_card(
         }
     } else {
         let label_color = if is_active {
-            TEXT_PRIMARY
+            theme.text_primary
         } else {
-            TEXT_SECONDARY
+            theme.text_secondary
         };
         painter.text(
             label_pos,
@@ -319,8 +322,8 @@ fn draw_scene_card(
 }
 
 /// Draw the dashed-border "Add" card with a "+" icon and "Add" label.
-fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hovered: bool) {
-    let border_color = if hovered { TEXT_MUTED } else { BORDER };
+fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hovered: bool, theme: &crate::ui::theme::Theme) {
+    let border_color = if hovered { theme.text_muted } else { theme.border };
 
     // Draw dashed border as short segments along the rectangle edges.
     let dash_len = 4.0;
@@ -346,7 +349,7 @@ fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hov
     }
 
     // "+" icon in center of thumbnail.
-    let icon_color = if hovered { TEXT_MUTED } else { BORDER };
+    let icon_color = if hovered { theme.text_muted } else { theme.border };
     painter.text(
         thumb_rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -361,7 +364,7 @@ fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hov
         egui::Align2::CENTER_CENTER,
         "Add",
         egui::FontId::proportional(9.0),
-        TEXT_MUTED,
+        theme.text_muted,
     );
 }
 

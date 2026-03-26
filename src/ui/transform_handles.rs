@@ -4,7 +4,7 @@ use egui::{Pos2, Rect, Stroke, StrokeKind, Vec2, pos2};
 
 use crate::scene::Transform;
 use crate::state::AppState;
-use crate::ui::theme::{BG_BASE, TEXT_PRIMARY};
+use crate::ui::theme::active_theme;
 
 const CORNER_SIZE: f32 = 8.0;
 const EDGE_SIZE: f32 = 6.0;
@@ -185,19 +185,19 @@ fn edge_positions(r: Rect) -> [Pos2; 4] {
 }
 
 /// Draw transform handles with the given opacity (1.0 = normal, 0.3 = dimmed for locked sources).
-fn draw_handles(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32, opacity: f32) {
+fn draw_handles(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32, opacity: f32, text_primary: egui::Color32, bg_base: egui::Color32) {
     use egui::Color32;
     let fg = Color32::from_rgba_unmultiplied(
-        TEXT_PRIMARY.r(),
-        TEXT_PRIMARY.g(),
-        TEXT_PRIMARY.b(),
-        (TEXT_PRIMARY.a() as f32 * opacity) as u8,
+        text_primary.r(),
+        text_primary.g(),
+        text_primary.b(),
+        (text_primary.a() as f32 * opacity) as u8,
     );
     let bg = Color32::from_rgba_unmultiplied(
-        BG_BASE.r(),
-        BG_BASE.g(),
-        BG_BASE.b(),
-        (BG_BASE.a() as f32 * opacity) as u8,
+        bg_base.r(),
+        bg_base.g(),
+        bg_base.b(),
+        (bg_base.a() as f32 * opacity) as u8,
     );
 
     if rotation_deg == 0.0 {
@@ -615,6 +615,7 @@ pub fn draw_transform_handles(
     space_held: bool,
 ) {
     use crate::scene::SourceId;
+    let theme = active_theme(ui.ctx());
 
     // Skip all interaction when a dockview panel drag is active — otherwise
     // dragging a panel tab over the preview would select/move sources underneath.
@@ -802,7 +803,7 @@ pub fn draw_transform_handles(
             if let Some(t) = flash_transform {
                 let r = transform_to_screen_rect(&t, viewport_rect, canvas_size);
                 let alpha = 1.0 - elapsed / duration;
-                let accent = crate::ui::theme::accent_color_ui(ui);
+                let accent = active_theme(ui.ctx()).accent;
                 let color = egui::Color32::from_rgba_unmultiplied(
                     accent.r(),
                     accent.g(),
@@ -843,9 +844,9 @@ pub fn draw_transform_handles(
                 .map(|ss| ss.resolve_locked())
                 .unwrap_or(false);
             if sel_locked {
-                draw_handles(ui.painter(), r, t.rotation, 0.3);
+                draw_handles(ui.painter(), r, t.rotation, 0.3, theme.text_primary, theme.bg_base);
             } else {
-                draw_handles(ui.painter(), r, t.rotation, 1.0);
+                draw_handles(ui.painter(), r, t.rotation, 1.0, theme.text_primary, theme.bg_base);
             }
         } else {
             // Non-primary selected: just the outline.
@@ -853,12 +854,12 @@ pub fn draw_transform_handles(
                 ui.painter().rect_stroke(
                     r,
                     0.0,
-                    egui::Stroke::new(1.0, TEXT_PRIMARY),
+                    egui::Stroke::new(1.0, theme.text_primary),
                     StrokeKind::Outside,
                 );
             } else {
                 let corners = rotated_corners(r, t.rotation);
-                let outline_stroke = egui::Stroke::new(1.0, TEXT_PRIMARY);
+                let outline_stroke = egui::Stroke::new(1.0, theme.text_primary);
                 for i in 0..4 {
                     ui.painter()
                         .line_segment([corners[i], corners[(i + 1) % 4]], outline_stroke);
@@ -890,7 +891,7 @@ pub fn draw_transform_handles(
                 DragMode::Marquee { start } => {
                     let marquee_rect = Rect::from_two_pos(*start, mouse_pos);
                     // Draw marquee rectangle.
-                    let accent = crate::ui::theme::accent_color_ui(ui);
+                    let accent = active_theme(ui.ctx()).accent;
                     let fill = egui::Color32::from_rgba_unmultiplied(
                         accent.r(),
                         accent.g(),
@@ -1292,7 +1293,7 @@ pub fn draw_transform_handles(
             DragMode::Marquee { start } => {
                 let marquee_rect = Rect::from_two_pos(*start, mouse_pos);
                 // Draw marquee rectangle.
-                let accent = crate::ui::theme::accent_color_ui(ui);
+                let accent = active_theme(ui.ctx()).accent;
                 let fill = egui::Color32::from_rgba_unmultiplied(
                     accent.r(),
                     accent.g(),

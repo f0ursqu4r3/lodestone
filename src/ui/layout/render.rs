@@ -14,11 +14,11 @@ use super::render_grid::render_dividers;
 use super::render_tabs::{TabBarContext, render_content, render_tab_bar};
 use super::tree::{DockLayout, DropZone, GroupId, NodeId, PanelType};
 
-use crate::ui::theme::{TAB_BAR_HEIGHT, TEXT_PRIMARY, accent_color};
+use crate::ui::theme::{TAB_BAR_HEIGHT, active_theme};
 
 /// Drop-zone highlight: accent at ~15% opacity.
 fn drop_zone_tint(ctx: &egui::Context) -> egui::Color32 {
-    let c = accent_color(ctx);
+    let c = active_theme(ctx).accent;
     egui::Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 38)
 }
 
@@ -214,6 +214,7 @@ pub fn render_layout(
     // --- Group drag overlay (grip handle drag) ---
     if let Some(dragging_gid) = dragging_group {
         if let Some(pointer_pos) = ctx.pointer_interact_pos() {
+            let drag_theme = active_theme(ctx);
             // Ghost label following cursor
             let ghost_layer =
                 egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("group_drag_ghost"));
@@ -224,7 +225,7 @@ pub fn render_layout(
                 .map(|g| g.active_tab_entry().panel_type.display_name())
                 .unwrap_or("Group");
             let font = egui::FontId::proportional(13.0);
-            let galley = ghost_painter.layout_no_wrap(group_name.to_string(), font, TEXT_PRIMARY);
+            let galley = ghost_painter.layout_no_wrap(group_name.to_string(), font, drag_theme.text_primary);
             let text_rect =
                 egui::Rect::from_min_size(pointer_pos + egui::vec2(12.0, -8.0), galley.size())
                     .expand(4.0);
@@ -233,7 +234,7 @@ pub fn render_layout(
                 4.0,
                 egui::Color32::from_rgba_premultiplied(0x1e, 0x1e, 0x2e, 0xd0),
             );
-            ghost_painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, TEXT_PRIMARY);
+            ghost_painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, drag_theme.text_primary);
 
             // Show drop zone overlays on all groups (excluding the dragged group)
             let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;
@@ -300,12 +301,13 @@ fn render_drag_overlay(
     actions: &mut Vec<LayoutAction>,
 ) {
     if let Some(pointer_pos) = ctx.pointer_interact_pos() {
+        let overlay_theme = active_theme(ctx);
         // Ghost label following cursor
         let ghost_layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("drag_ghost"));
         let painter = ctx.layer_painter(ghost_layer);
         let text = drag.panel_type.display_name();
         let font = egui::FontId::proportional(13.0);
-        let galley = painter.layout_no_wrap(text.to_string(), font, TEXT_PRIMARY);
+        let galley = painter.layout_no_wrap(text.to_string(), font, overlay_theme.text_primary);
         let text_rect =
             egui::Rect::from_min_size(pointer_pos + egui::vec2(12.0, -8.0), galley.size())
                 .expand(4.0);
@@ -314,7 +316,7 @@ fn render_drag_overlay(
             4.0,
             egui::Color32::from_rgba_premultiplied(0x1e, 0x1e, 0x2e, 0xd0),
         );
-        painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, TEXT_PRIMARY);
+        painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, overlay_theme.text_primary);
 
         // Drop zone overlays on grid groups
         let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;

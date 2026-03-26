@@ -15,10 +15,7 @@ use egui::{
 };
 
 use crate::state::AppState;
-use crate::ui::theme::{
-    BG_BASE, BG_ELEVATED, BG_SURFACE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, Theme,
-    accent_color_ui, parse_hex_color,
-};
+use crate::ui::theme::{Theme, active_theme, parse_hex_color};
 
 // ── Category enum ─────────────────────────────────────────────────────────────
 
@@ -85,6 +82,7 @@ const SIDEBAR_GROUPS: &[SidebarGroup] = &[
 /// Render settings UI directly into a native window's egui context.
 /// Called from `WindowState::render_settings()`.
 pub fn render_native(ctx: &egui::Context, state: &mut AppState) {
+    let theme = active_theme(ctx);
     let settings_id = Id::new("settings_active_category");
     let mut active = ctx
         .data_mut(|d| d.get_temp::<SettingsCategory>(settings_id))
@@ -102,7 +100,7 @@ pub fn render_native(ctx: &egui::Context, state: &mut AppState) {
     egui::SidePanel::left("settings_sidebar")
         .exact_width(190.0)
         .resizable(false)
-        .frame(egui::Frame::NONE.fill(BG_BASE))
+        .frame(egui::Frame::NONE.fill(theme.bg_base))
         .show(ctx, |ui| {
             ui.add_space(12.0);
             render_sidebar(ui, &mut active, accent);
@@ -112,7 +110,7 @@ pub fn render_native(ctx: &egui::Context, state: &mut AppState) {
     egui::CentralPanel::default()
         .frame(
             egui::Frame::NONE
-                .fill(BG_SURFACE)
+                .fill(theme.bg_surface)
                 .inner_margin(egui::Margin::same(24)),
         )
         .show(ctx, |ui| {
@@ -138,6 +136,7 @@ pub fn render_native(ctx: &egui::Context, state: &mut AppState) {
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory, accent: Color32) {
+    let theme = active_theme(ui.ctx());
     ui.add_space(16.0);
 
     for group in SIDEBAR_GROUPS {
@@ -147,7 +146,7 @@ fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory, accent: Color32) {
             ui.label(
                 egui::RichText::new(group.title)
                     .size(10.0)
-                    .color(TEXT_MUTED)
+                    .color(theme.text_muted)
                     .strong(),
             );
         });
@@ -167,7 +166,7 @@ fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory, accent: Color32) {
             // Background on hover or active
             if is_active {
                 ui.painter()
-                    .rect_filled(rect, CornerRadius::same(4), BG_ELEVATED);
+                    .rect_filled(rect, CornerRadius::same(4), theme.bg_elevated);
                 // Accent bar on the left edge
                 ui.painter().rect_filled(
                     Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())),
@@ -188,9 +187,9 @@ fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory, accent: Color32) {
 
             // Label
             let text_color = if is_active {
-                TEXT_PRIMARY
+                theme.text_primary
             } else {
-                TEXT_SECONDARY
+                theme.text_secondary
             };
             let galley = ui.painter().layout_no_wrap(
                 cat.label().to_string(),
@@ -209,13 +208,14 @@ fn render_sidebar(ui: &mut Ui, active: &mut SettingsCategory, accent: Color32) {
 
 /// Render the content area for the active category, taking `&mut AppState` directly.
 fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut AppState) -> bool {
+    let theme = active_theme(ui.ctx());
     // Section title
     ui.horizontal(|ui| {
         ui.add_space(24.0);
         ui.label(
             egui::RichText::new(category.label())
                 .size(20.0)
-                .color(TEXT_PRIMARY)
+                .color(theme.text_primary)
                 .strong(),
         );
     });
@@ -250,28 +250,31 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
 // ── Section helpers ──────────────────────────────────────────────────────────
 
 pub(super) fn section_header(ui: &mut Ui, label: &str) {
+    let theme = active_theme(ui.ctx());
     ui.add_space(12.0);
     ui.label(
         egui::RichText::new(label)
             .size(11.0)
-            .color(TEXT_MUTED)
+            .color(theme.text_muted)
             .strong(),
     );
     ui.add_space(4.0);
 }
 
 pub(super) fn labeled_row(ui: &mut Ui, label: &str) {
-    ui.label(egui::RichText::new(label).size(13.0).color(TEXT_PRIMARY));
+    let theme = active_theme(ui.ctx());
+    ui.label(egui::RichText::new(label).size(13.0).color(theme.text_primary));
 }
 
 /// Label a row as not yet implemented -- gray text and disabled controls.
 pub(super) fn labeled_row_unimplemented(ui: &mut Ui, label: &str) {
+    let theme = active_theme(ui.ctx());
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).size(13.0).color(TEXT_MUTED));
+        ui.label(egui::RichText::new(label).size(13.0).color(theme.text_muted));
         ui.label(
             egui::RichText::new("(not yet implemented)")
                 .size(10.0)
-                .color(TEXT_MUTED)
+                .color(theme.text_muted)
                 .italics(),
         );
     });
@@ -279,13 +282,14 @@ pub(super) fn labeled_row_unimplemented(ui: &mut Ui, label: &str) {
 
 /// Draw a toggle that's grayed out / not implemented.
 pub(super) fn draw_toggle_unimplemented(ui: &mut Ui, label: &str, _value: &mut bool) {
+    let theme = active_theme(ui.ctx());
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).size(13.0).color(TEXT_MUTED));
+        ui.label(egui::RichText::new(label).size(13.0).color(theme.text_muted));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.label(
                 egui::RichText::new("not implemented")
                     .size(10.0)
-                    .color(TEXT_MUTED)
+                    .color(theme.text_muted)
                     .italics(),
             );
         });
@@ -319,14 +323,15 @@ pub(super) fn toggle_switch(on: &mut bool) -> impl Widget + '_ {
         }
 
         if ui.is_rect_visible(rect) {
+            let toggle_theme = active_theme(ui.ctx());
             // Animate the toggle position
             let anim_id = response.id.with("toggle_anim");
             let t = ui.ctx().animate_bool_with_time(anim_id, *on, 0.15);
 
             let bg_color = if *on {
-                accent_color_ui(ui)
+                toggle_theme.accent
             } else {
-                BG_ELEVATED
+                toggle_theme.bg_elevated
             };
 
             let knob_radius = 7.0;
@@ -345,7 +350,7 @@ pub(super) fn toggle_switch(on: &mut bool) -> impl Widget + '_ {
                 ui.painter().rect_stroke(
                     rect,
                     CornerRadius::same(10),
-                    Stroke::new(1.0, TEXT_MUTED),
+                    Stroke::new(1.0, toggle_theme.text_muted),
                     StrokeKind::Outside,
                 );
             }

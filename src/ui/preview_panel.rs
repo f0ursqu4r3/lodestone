@@ -5,7 +5,7 @@ use egui_wgpu::{Callback, CallbackResources, CallbackTrait};
 
 use crate::state::{AppState, StreamStatus};
 use crate::ui::layout::PanelId;
-use crate::ui::theme::{RADIUS_SM, RED_GLOW, RED_LIVE, TEXT_MUTED};
+use crate::ui::theme::active_theme;
 
 // ── Zoom levels ──────────────────────────────────────────────────────────────
 
@@ -423,6 +423,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
 }
 
 fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
+    let theme = active_theme(ui.ctx());
     let panel_rect = ui.available_rect_before_wrap();
 
     // Guard against degenerate panels
@@ -738,10 +739,11 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
         // Glow shadow (larger rect behind)
         let glow_expand = 3.0;
         let glow_rect = badge_rect.expand(glow_expand);
-        painter.rect_filled(glow_rect, RADIUS_SM, RED_GLOW);
+        let red_glow = egui::Color32::from_rgba_premultiplied(theme.danger.r(), theme.danger.g(), theme.danger.b(), 0x40);
+        painter.rect_filled(glow_rect, theme.radius_sm, red_glow);
 
         // Badge background
-        painter.rect_filled(badge_rect, RADIUS_SM, RED_LIVE);
+        painter.rect_filled(badge_rect, theme.radius_sm, theme.danger);
 
         // Badge text
         let text_pos = badge_rect.min + badge_padding;
@@ -761,7 +763,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
             preview_width, preview_height, fps, zoom_text,
         );
         let font = egui::FontId::new(9.0, egui::FontFamily::Proportional);
-        let text_galley = painter.layout_no_wrap(overlay_text, font, TEXT_MUTED);
+        let text_galley = painter.layout_no_wrap(overlay_text, font, theme.text_muted);
         let text_size = text_galley.size();
         let overlay_padding = egui::vec2(4.0, 2.0);
         let overlay_size = text_size + overlay_padding * 2.0;
@@ -771,11 +773,11 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
 
         // Semi-transparent black background
         let bg = egui::Color32::from_rgba_premultiplied(0, 0, 0, 128);
-        painter.rect_filled(overlay_rect, RADIUS_SM, bg);
+        painter.rect_filled(overlay_rect, theme.radius_sm, bg);
 
         // Text
         let text_pos = overlay_rect.min + overlay_padding;
-        painter.galley(text_pos, text_galley, TEXT_MUTED);
+        painter.galley(text_pos, text_galley, theme.text_muted);
     }
 
     // Transform handles for selected source — uses zoomed viewport

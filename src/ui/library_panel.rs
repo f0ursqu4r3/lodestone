@@ -9,9 +9,7 @@ use crate::scene::{LibrarySource, SourceId, SourceProperties, SourceType, Transf
 use crate::state::AppState;
 use crate::ui::draw_helpers::{draw_segmented_buttons, draw_selection_highlight, source_icon};
 use crate::ui::layout::tree::PanelId;
-use crate::ui::theme::{
-    BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, accent_dim,
-};
+use crate::ui::theme::active_theme;
 use egui::{CornerRadius, Rect, Sense, Stroke, vec2};
 
 /// Content grouping mode for the library panel.
@@ -74,10 +72,12 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     ui.add_space(4.0);
 
+    let theme = active_theme(ui.ctx());
+
     if state.library.is_empty() {
         ui.add_space(16.0);
         ui.centered_and_justified(|ui| {
-            ui.colored_label(TEXT_MUTED, "No sources. Click + to add one.");
+            ui.colored_label(theme.text_muted, "No sources. Click + to add one.");
         });
         return;
     }
@@ -130,18 +130,18 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let icon = source_icon(&row.source_type);
             let text = format!("{} {}", icon, row.name);
             let font = egui::FontId::proportional(11.0);
-            let galley = painter.layout_no_wrap(text, font, TEXT_PRIMARY);
+            let galley = painter.layout_no_wrap(text, font, theme.text_primary);
             let text_rect =
                 egui::Rect::from_min_size(pointer_pos + vec2(12.0, -8.0), galley.size())
                     .expand(4.0);
-            painter.rect_filled(text_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
+            painter.rect_filled(text_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
             painter.rect_stroke(
                 text_rect,
-                CornerRadius::same(RADIUS_SM as u8),
-                egui::Stroke::new(1.0, BORDER),
+                CornerRadius::same(theme.radius_sm as u8),
+                egui::Stroke::new(1.0, theme.border),
                 egui::StrokeKind::Outside,
             );
-            painter.galley(text_rect.min + vec2(4.0, 4.0), galley, TEXT_PRIMARY);
+            painter.galley(text_rect.min + vec2(4.0, 4.0), galley, theme.text_primary);
         }
     }
 }
@@ -185,9 +185,10 @@ fn draw_header(
             let sep_rect = ui
                 .allocate_exact_size(vec2(1.0, ui.available_height()), Sense::hover())
                 .0;
+            let theme_local = active_theme(ui.ctx());
             ui.painter().line_segment(
                 [sep_rect.left_top(), sep_rect.left_bottom()],
-                egui::Stroke::new(1.0, BORDER),
+                egui::Stroke::new(1.0, theme_local.border),
             );
             ui.add_space(2.0);
 
@@ -234,7 +235,7 @@ fn draw_add_button(ui: &mut egui::Ui, state: &mut AppState) {
         &add_response,
         egui::PopupCloseBehavior::CloseOnClickOutside,
         |ui: &mut egui::Ui| {
-            use crate::ui::theme::{menu_item_icon, styled_menu};
+            use crate::ui::widgets::menu::{menu_item_icon, styled_menu};
             styled_menu(ui, |ui| {
                 let capture_items: &[(&str, SourceType)] = &[
                     ("Display", SourceType::Display),
@@ -657,13 +658,14 @@ fn draw_source_grid(
     items: &[&SourceRow],
     delete_source: &mut Option<SourceId>,
 ) {
+    let theme = active_theme(ui.ctx());
     let spacing = 4.0;
     let tile_size = 56.0;
     let available_width = ui.available_width();
     let cols = ((available_width + spacing) / (tile_size + spacing))
         .floor()
         .max(1.0) as usize;
-    let selected_bg = accent_dim(state.accent_color);
+    let selected_bg = theme.accent_dim;
 
     let rows_count = items.len().div_ceil(cols);
     for row_idx in 0..rows_count {
@@ -687,16 +689,16 @@ fn draw_source_grid(
                     let bg = if is_selected {
                         selected_bg
                     } else {
-                        BG_ELEVATED
+                        theme.bg_elevated
                     };
-                    painter.rect_filled(tile_rect, CornerRadius::same(RADIUS_SM as u8), bg);
+                    painter.rect_filled(tile_rect, CornerRadius::same(theme.radius_sm as u8), bg);
 
                     // Border on hover.
                     if tile_response.hovered() {
                         painter.rect_stroke(
                             tile_rect,
-                            CornerRadius::same(RADIUS_SM as u8),
-                            egui::Stroke::new(1.0, BORDER),
+                            CornerRadius::same(theme.radius_sm as u8),
+                            egui::Stroke::new(1.0, theme.border),
                             egui::StrokeKind::Inside,
                         );
                     }
@@ -708,7 +710,7 @@ fn draw_source_grid(
                         egui::Align2::CENTER_CENTER,
                         source_icon(&row.source_type),
                         egui::FontId::proportional(18.0),
-                        TEXT_PRIMARY,
+                        theme.text_primary,
                     );
 
                     // Name (small, bottom of tile, truncated).
@@ -717,7 +719,7 @@ fn draw_source_grid(
                     let name_galley = painter.layout(
                         row.name.clone(),
                         egui::FontId::proportional(8.0),
-                        TEXT_SECONDARY,
+                        theme.text_secondary,
                         max_name_width,
                     );
                     // Only draw the first line to avoid overflow.
@@ -727,7 +729,7 @@ fn draw_source_grid(
                             name_y - name_galley.rows[0].height() / 2.0,
                         ),
                         name_galley,
-                        TEXT_SECONDARY,
+                        theme.text_secondary,
                     );
 
                     // Usage count badge (top-right corner).
@@ -737,7 +739,7 @@ fn draw_source_grid(
                             egui::Align2::RIGHT_CENTER,
                             format!("{}", row.usage_count),
                             egui::FontId::proportional(8.0),
-                            TEXT_MUTED,
+                            theme.text_muted,
                         );
                     }
 
@@ -844,8 +846,9 @@ fn draw_source_row(
     total: usize,
     delete_source: &mut Option<SourceId>,
 ) {
+    let theme = active_theme(ui.ctx());
     let is_selected = state.selected_library_source_id == Some(row.id);
-    let selected_bg = accent_dim(state.accent_color);
+    let selected_bg = theme.accent_dim;
 
     ui.push_id(row.id.0, |ui| {
         let row_height = 28.0;
@@ -901,19 +904,19 @@ fn draw_source_row(
         let mut cursor_x = row_rect.left() + 4.0;
         let center_y = row_rect.center().y;
 
-        // ── Icon (16x16, BG_ELEVATED background, RADIUS_SM border radius) ──
+        // ── Icon (16x16, bg_elevated background, radius_sm border radius) ──
         let icon_size = 16.0;
         let icon_rect = Rect::from_center_size(
             egui::pos2(cursor_x + icon_size / 2.0, center_y),
             vec2(icon_size, icon_size),
         );
-        painter.rect_filled(icon_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
+        painter.rect_filled(icon_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
         painter.text(
             icon_rect.center(),
             egui::Align2::CENTER_CENTER,
             source_icon(&row.source_type),
             egui::FontId::proportional(10.0),
-            TEXT_PRIMARY,
+            theme.text_primary,
         );
         cursor_x += icon_size + 6.0;
 
@@ -963,7 +966,7 @@ fn draw_source_row(
                 egui::Align2::LEFT_CENTER,
                 &row.name,
                 egui::FontId::proportional(11.0),
-                TEXT_PRIMARY,
+                theme.text_primary,
             );
         }
 
@@ -976,7 +979,7 @@ fn draw_source_row(
                 egui::Align2::RIGHT_CENTER,
                 &badge_text,
                 egui::FontId::proportional(10.0),
-                TEXT_SECONDARY,
+                theme.text_secondary,
             );
         }
 
@@ -988,7 +991,7 @@ fn draw_source_row(
                     egui::pos2(row_rect.left(), sep_y),
                     egui::pos2(row_rect.right(), sep_y),
                 ],
-                Stroke::new(1.0, BORDER),
+                Stroke::new(1.0, theme.border),
             );
         }
     });

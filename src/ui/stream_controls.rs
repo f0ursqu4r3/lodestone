@@ -1,6 +1,6 @@
 use crate::state::{AppState, RecordingStatus};
 use crate::ui::layout::PanelId;
-use crate::ui::theme;
+use crate::ui::theme::active_theme;
 
 /// Destination options for the combo box
 const DESTINATIONS: &[&str] = &["Twitch", "YouTube", "Custom RTMP"];
@@ -9,10 +9,11 @@ const DESTINATIONS: &[&str] = &["Twitch", "YouTube", "Custom RTMP"];
 ///
 /// Go Live / Record buttons now live in the toolbar (`toolbar.rs`).
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
+    let theme = active_theme(ui.ctx());
     // --- Destination selector ---
     ui.label(
         egui::RichText::new("Destination")
-            .color(theme::TEXT_PRIMARY)
+            .color(theme.text_primary)
             .strong(),
     );
     ui.add_space(2.0);
@@ -36,7 +37,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
     if dest_idx == 2 {
         ui.label(
             egui::RichText::new("RTMP URL")
-                .color(theme::TEXT_SECONDARY)
+                .color(theme.text_secondary)
                 .size(12.0),
         );
         ui.add_space(2.0);
@@ -47,7 +48,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
 
         let input = egui::TextEdit::singleline(&mut rtmp_url)
             .hint_text("rtmp://your.server/live")
-            .text_color(theme::TEXT_PRIMARY)
+            .text_color(theme.text_primary)
             .desired_width(ui.available_width() - 8.0);
         ui.add(input);
         ui.memory_mut(|m| m.data.insert_temp(rtmp_url_id, rtmp_url));
@@ -58,7 +59,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
     // --- Stream key input (password style) ---
     ui.label(
         egui::RichText::new("Stream Key")
-            .color(theme::TEXT_SECONDARY)
+            .color(theme.text_secondary)
             .size(12.0),
     );
     ui.add_space(2.0);
@@ -69,7 +70,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
 
     let key_input = egui::TextEdit::singleline(&mut stream_key)
         .password(true)
-        .text_color(theme::TEXT_PRIMARY)
+        .text_color(theme.text_primary)
         .desired_width(ui.available_width() - 8.0);
     ui.add(key_input);
     ui.memory_mut(|m| m.data.insert_temp(key_id, stream_key));
@@ -82,7 +83,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
         let path_str = path.to_string_lossy();
         ui.label(
             egui::RichText::new(format!("REC  {}", path_str))
-                .color(theme::RED_LIVE)
+                .color(theme.danger)
                 .size(11.0),
         );
     }

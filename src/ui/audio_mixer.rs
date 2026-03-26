@@ -1,16 +1,15 @@
 use crate::gstreamer::{AudioSourceKind, GstCommand};
 use crate::state::AppState;
 use crate::ui::layout::PanelId;
-use crate::ui::theme::{
-    BG_BASE, BG_PANEL, BORDER, RADIUS_MD, RED_LIVE, TEXT_MUTED, VU_GREEN, VU_RED, VU_YELLOW,
-};
+use crate::ui::theme::active_theme;
 use egui::StrokeKind;
 
 /// Draw the audio mixer panel with per-source VU meters, faders, and mute controls.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
+    let theme = active_theme(ui.ctx());
     // Panel background
     let panel_rect = ui.available_rect_before_wrap();
-    ui.painter().rect_filled(panel_rect, 0.0, BG_PANEL);
+    ui.painter().rect_filled(panel_rect, 0.0, theme.bg_panel);
 
     // Clone levels and device info before the closure to avoid borrow conflicts.
     let mic_levels = state.audio_levels.mic.clone();
@@ -34,11 +33,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
             );
         } else {
             ui.vertical(|ui| {
-                ui.label(egui::RichText::new("SYSTEM").size(9.0).color(TEXT_MUTED));
+                ui.label(egui::RichText::new("SYSTEM").size(9.0).color(theme.text_muted));
                 ui.add_space(10.0);
                 ui.label(
                     egui::RichText::new("Install\nBlackHole\nfor system\naudio")
-                        .color(TEXT_MUTED)
+                        .color(theme.text_muted)
                         .size(9.0),
                 );
             });
@@ -53,14 +52,15 @@ fn draw_channel_strip(
     kind: AudioSourceKind,
     levels: Option<&crate::gstreamer::AudioLevels>,
 ) {
+    let theme = active_theme(ui.ctx());
     let current_db = levels.map(|l| l.rms_db).unwrap_or(-60.0);
     let peak_db = levels.map(|l| l.peak_db).unwrap_or(-60.0);
 
     ui.vertical(|ui| {
-        // Source label: 9px uppercase TEXT_MUTED, centered
+        // Source label: 9px uppercase text_muted, centered
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
             ui.set_width(46.0);
-            ui.label(egui::RichText::new(name).size(9.0).color(TEXT_MUTED));
+            ui.label(egui::RichText::new(name).size(9.0).color(theme.text_muted));
 
             ui.add_space(4.0);
 
@@ -84,26 +84,26 @@ fn draw_channel_strip(
                 egui::vec2(fader_width, vu_height),
             );
 
-            // Background: BG_BASE with 4px corner radius
+            // Background: bg_base with 4px corner radius
             ui.painter().rect(
                 rect,
                 4.0,
-                BG_BASE,
-                egui::Stroke::new(1.0, BORDER),
+                theme.bg_base,
+                egui::Stroke::new(1.0, theme.border),
                 StrokeKind::Outside,
             );
 
             // Peak glow: subtle red glow behind meter when signal > -6 dB
             if peak_db > -6.0 {
                 let glow_rect = rect.expand(2.0);
-                let glow_color = VU_RED.gamma_multiply(0.3);
-                ui.painter().rect_filled(glow_rect, RADIUS_MD, glow_color);
+                let glow_color = theme.danger.gamma_multiply(0.3);
+                ui.painter().rect_filled(glow_rect, theme.radius_md, glow_color);
                 // Re-draw background on top of glow
                 ui.painter().rect(
                     rect,
                     4.0,
-                    BG_BASE,
-                    egui::Stroke::new(1.0, BORDER),
+                    theme.bg_base,
+                    egui::Stroke::new(1.0, theme.border),
                     StrokeKind::Outside,
                 );
             }
@@ -134,13 +134,13 @@ fn draw_channel_strip(
                     let color = if row_db > -6.0 {
                         // Red zone: lerp yellow -> red from -6 to 0 dB
                         let t = ((row_db + 6.0) / 6.0).clamp(0.0, 1.0);
-                        lerp_color(VU_YELLOW, VU_RED, t)
+                        lerp_color(theme.warning, theme.danger, t)
                     } else if row_db > -18.0 {
                         // Yellow zone: lerp green -> yellow from -18 to -6 dB
                         let t = ((row_db + 18.0) / 12.0).clamp(0.0, 1.0);
-                        lerp_color(VU_GREEN, VU_YELLOW, t)
+                        lerp_color(theme.success, theme.warning, t)
                     } else {
-                        VU_GREEN
+                        theme.success
                     };
 
                     let row_rect = egui::Rect::from_min_max(
@@ -158,8 +158,8 @@ fn draw_channel_strip(
                 painter.rect(
                     fader_rect,
                     4.0,
-                    BG_BASE,
-                    egui::Stroke::new(1.0, BORDER),
+                    theme.bg_base,
+                    egui::Stroke::new(1.0, theme.border),
                     StrokeKind::Outside,
                 );
 
@@ -174,7 +174,7 @@ fn draw_channel_strip(
                         egui::pos2(fader_rect.min.x + 1.0, fader_rect.max.y - fill_h),
                         egui::pos2(fader_rect.max.x - 1.0, fader_rect.max.y),
                     );
-                    painter.rect_filled(fill_rect, 0.0, TEXT_MUTED);
+                    painter.rect_filled(fill_rect, 0.0, theme.text_muted);
                 }
 
                 // Thumb line at volume position.
@@ -217,7 +217,7 @@ fn draw_channel_strip(
             ui.label(
                 egui::RichText::new(db_text)
                     .size(9.0)
-                    .color(TEXT_MUTED)
+                    .color(theme.text_muted)
                     .monospace(),
             );
 
@@ -244,15 +244,15 @@ fn draw_channel_strip(
 
             // Draw mute button
             let (bg, text_color) = if muted {
-                (RED_LIVE, egui::Color32::WHITE)
+                (theme.danger, egui::Color32::WHITE)
             } else {
-                (BG_BASE, TEXT_MUTED)
+                (theme.bg_base, theme.text_muted)
             };
             ui.painter().rect(
                 mute_rect,
                 2.0,
                 bg,
-                egui::Stroke::new(1.0, BORDER),
+                egui::Stroke::new(1.0, theme.border),
                 StrokeKind::Outside,
             );
             ui.painter().text(

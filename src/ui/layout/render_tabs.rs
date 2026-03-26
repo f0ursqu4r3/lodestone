@@ -3,10 +3,7 @@
 use super::render::{DOCKABLE_TYPES, LayoutAction, paint_grip_dots};
 use super::tree::{DockLayout, GroupId};
 
-use crate::ui::theme::{
-    ADD_BUTTON_WIDTH, BG_ELEVATED, BG_PANEL, BG_SURFACE, DOCK_GRIP_WIDTH, PANEL_PADDING,
-    TAB_BAR_HEIGHT, TEXT_PRIMARY, TEXT_SECONDARY, accent_color_ui,
-};
+use crate::ui::theme::{ADD_BUTTON_WIDTH, DOCK_GRIP_WIDTH, TAB_BAR_HEIGHT, active_theme};
 
 /// Context flags for tab bar rendering.
 pub(crate) struct TabBarContext {
@@ -27,11 +24,12 @@ pub(crate) fn render_tab_bar(
     actions: &mut Vec<LayoutAction>,
     tctx: TabBarContext,
 ) {
+    let theme = active_theme(ctx);
     let painter = ctx.layer_painter(egui::LayerId::new(
         tctx.order,
         egui::Id::new(("tab_bar_bg", group_id.0)),
     ));
-    painter.rect_filled(tab_bar_rect, 0.0, BG_SURFACE);
+    painter.rect_filled(tab_bar_rect, 0.0, theme.bg_surface);
 
     let tab_count = group.tabs.len();
     let max_tab_width = 160.0_f32;
@@ -66,10 +64,11 @@ pub(crate) fn render_tab_bar(
                 let response = ui.allocate_response(tab_rect.size(), egui::Sense::click_and_drag());
 
                 // Background
+                let tab_theme = active_theme(ui.ctx());
                 let bg = if is_active || response.hovered() {
-                    BG_ELEVATED
+                    tab_theme.bg_elevated
                 } else {
-                    BG_SURFACE
+                    tab_theme.bg_surface
                 };
                 painter.rect_filled(tab_rect, 0.0, bg);
 
@@ -79,14 +78,14 @@ pub(crate) fn render_tab_bar(
                         egui::pos2(tab_rect.min.x, tab_rect.max.y - 2.0),
                         egui::vec2(tab_width, 2.0),
                     );
-                    painter.rect_filled(accent_rect, 0.0, accent_color_ui(ui));
+                    painter.rect_filled(accent_rect, 0.0, tab_theme.accent);
                 }
 
                 // Label — truncate with ellipsis when too wide
                 let text_color = if is_active {
-                    TEXT_PRIMARY
+                    tab_theme.text_primary
                 } else {
-                    TEXT_SECONDARY
+                    tab_theme.text_secondary
                 };
                 let label_pos = egui::pos2(tab_rect.min.x + 8.0, tab_rect.center().y - 6.0);
                 let available_text_width = (tab_width - 28.0).max(10.0);
@@ -128,9 +127,9 @@ pub(crate) fn render_tab_bar(
 
                 if response.hovered() {
                     let close_color = if close_hovered {
-                        TEXT_PRIMARY
+                        tab_theme.text_primary
                     } else {
-                        TEXT_SECONDARY
+                        tab_theme.text_secondary
                     };
 
                     let s = 3.5;
@@ -256,7 +255,7 @@ pub(crate) fn render_tab_bar(
     // Paint the "+" on the tab bar painter (not inside the Area)
     let plus_hovered = plus_response.hovered();
     if plus_hovered {
-        painter.rect_filled(plus_rect, 0.0, BG_ELEVATED);
+        painter.rect_filled(plus_rect, 0.0, theme.bg_elevated);
     }
     painter.text(
         plus_rect.center(),
@@ -264,9 +263,9 @@ pub(crate) fn render_tab_bar(
         "+",
         egui::FontId::proportional(14.0),
         if plus_hovered {
-            TEXT_PRIMARY
+            theme.text_primary
         } else {
-            TEXT_SECONDARY
+            theme.text_secondary
         },
     );
 
@@ -326,7 +325,7 @@ pub(crate) fn render_tab_bar(
         egui::vec2(DOCK_GRIP_WIDTH, TAB_BAR_HEIGHT),
     );
     // Paint grip dots (2x3 grid)
-    paint_grip_dots(&painter, dock_rect.center(), TEXT_SECONDARY);
+    paint_grip_dots(&painter, dock_rect.center(), theme.text_secondary);
     // Drag + context menu interaction via a tightly-sized Area
     let grip_area_resp = egui::Area::new(egui::Id::new(("grip_area", gid.0)))
         .fixed_pos(dock_rect.min)
@@ -403,12 +402,13 @@ pub(crate) fn render_content(
         .order(order)
         .sense(egui::Sense::hover())
         .show(ctx, |ui| {
-            ui.painter().rect_filled(content_rect, 0.0, BG_PANEL);
+            let content_theme = active_theme(ui.ctx());
+            ui.painter().rect_filled(content_rect, 0.0, content_theme.bg_panel);
 
             ui.set_min_size(content_rect.size());
             ui.set_max_size(content_rect.size());
 
-            let padded_rect = content_rect.shrink(PANEL_PADDING);
+            let padded_rect = content_rect.shrink(content_theme.panel_padding);
             let mut padded_ui = ui.new_child(egui::UiBuilder::new().max_rect(padded_rect));
 
             // Hide scrollbars on the dockview wrapper — panels that need

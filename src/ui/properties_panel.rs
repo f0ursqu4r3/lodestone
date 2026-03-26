@@ -11,11 +11,12 @@ use crate::scene::{
 };
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
-use crate::ui::theme::{TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, accent_color_ui};
+use crate::ui::theme::active_theme;
 
 /// Draw the properties panel. Shows an empty-state message when no source is
 /// selected, or transform / opacity / source-specific controls when one is.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
+    let theme = active_theme(ui.ctx());
     // Determine which source is selected: prefer scene selection, fall back to library.
     let (selected_id, from_library_selection) = if let Some(id) = state.selected_source_id() {
         (id, false)
@@ -27,7 +28,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             ui.add_space(ui.available_height() / 3.0);
             ui.label(
                 egui::RichText::new("Select a source to view properties")
-                    .color(TEXT_MUTED)
+                    .color(theme.text_muted)
                     .size(11.0),
             );
         });
@@ -38,7 +39,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     let Some(lib_idx) = state.library.iter().position(|s| s.id == selected_id) else {
         ui.label(
             egui::RichText::new("Source not found")
-                .color(TEXT_MUTED)
+                .color(theme.text_muted)
                 .size(11.0),
         );
         return;
@@ -66,7 +67,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     } else {
         ui.label(
             egui::RichText::new("LIBRARY DEFAULTS")
-                .color(TEXT_MUTED)
+                .color(theme.text_muted)
                 .size(9.0),
         );
     }
@@ -119,6 +120,7 @@ fn draw_transform_section(
     lib_idx: usize,
     in_active_scene: bool,
 ) -> bool {
+    let theme = active_theme(ui.ctx());
     let mut changed = false;
 
     // Read native size for the reset button.
@@ -139,9 +141,9 @@ fn draw_transform_section(
             .unwrap_or(lib_source.transform);
 
         let text_color = if is_overridden {
-            TEXT_PRIMARY
+            theme.text_primary
         } else {
-            TEXT_MUTED
+            theme.text_muted
         };
 
         ui.horizontal(|ui| {
@@ -187,7 +189,7 @@ fn draw_transform_section(
                     egui::Button::new(
                         egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
                             .size(12.0)
-                            .color(TEXT_SECONDARY),
+                            .color(theme.text_secondary),
                     )
                     .frame(false),
                 )
@@ -266,7 +268,7 @@ fn draw_transform_section(
                         egui::Button::new(
                             egui::RichText::new(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
                                 .size(12.0)
-                                .color(TEXT_SECONDARY),
+                                .color(theme.text_secondary),
                         )
                         .frame(false),
                     )
@@ -298,7 +300,7 @@ fn draw_transform_section(
                         .range(0.0..=360.0)
                         .update_while_editing(false),
                 );
-                ui.label(egui::RichText::new("Rotation").color(TEXT_MUTED).size(10.0));
+                ui.label(egui::RichText::new("Rotation").color(theme.text_muted).size(10.0));
                 if response.changed() {
                     source.transform.rotation = rotation.rem_euclid(360.0);
                     changed = true;
@@ -334,6 +336,7 @@ fn draw_opacity_section(
     lib_idx: usize,
     in_active_scene: bool,
 ) -> bool {
+    let theme = active_theme(ui.ctx());
     let mut changed = false;
 
     if in_active_scene {
@@ -350,9 +353,9 @@ fn draw_opacity_section(
             .unwrap_or(lib_source.opacity);
 
         let text_color = if is_overridden {
-            TEXT_PRIMARY
+            theme.text_primary
         } else {
-            TEXT_MUTED
+            theme.text_muted
         };
 
         ui.horizontal(|ui| {
@@ -404,7 +407,7 @@ fn draw_opacity_section(
             ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(format!("{}%", (source.opacity * 100.0).round() as u32))
-                    .color(TEXT_SECONDARY)
+                    .color(theme.text_secondary)
                     .size(10.0),
             );
         });
@@ -424,6 +427,7 @@ fn draw_source_properties(
     selected_id: SourceId,
     lib_idx: usize,
 ) -> bool {
+    let theme = active_theme(ui.ctx());
     let mut changed = false;
 
     let source_type = state.library[lib_idx].source_type.clone();
@@ -608,7 +612,7 @@ fn draw_source_properties(
                     .button(
                         egui::RichText::new(egui_phosphor::regular::ARROW_CLOCKWISE)
                             .size(14.0)
-                            .color(TEXT_SECONDARY),
+                            .color(theme.text_secondary),
                     )
                     .on_hover_text("Refresh window list")
                     .clicked()
@@ -757,7 +761,7 @@ fn draw_source_properties(
 
                 // Font size slider.
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Size").color(TEXT_SECONDARY).size(10.0));
+                    ui.label(egui::RichText::new("Size").color(theme.text_secondary).size(10.0));
                     if ui
                         .add(egui::Slider::new(font_size, 8.0..=200.0).suffix(" pt"))
                         .changed()
@@ -790,7 +794,7 @@ fn draw_source_properties(
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("Text Color")
-                            .color(TEXT_SECONDARY)
+                            .color(theme.text_secondary)
                             .size(10.0),
                     );
                     if ui.color_edit_button_rgba_unmultiplied(font_color).changed() {
@@ -803,7 +807,7 @@ fn draw_source_properties(
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("Background")
-                            .color(TEXT_SECONDARY)
+                            .color(theme.text_secondary)
                             .size(10.0),
                     );
                     if ui
@@ -819,7 +823,7 @@ fn draw_source_properties(
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("Align")
-                            .color(TEXT_SECONDARY)
+                            .color(theme.text_secondary)
                             .size(10.0),
                     );
                     if ui
@@ -872,7 +876,7 @@ fn draw_source_properties(
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new("Outline Color")
-                                .color(TEXT_SECONDARY)
+                                .color(theme.text_secondary)
                                 .size(10.0),
                         );
                         if ui
@@ -885,7 +889,7 @@ fn draw_source_properties(
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new("Width")
-                                .color(TEXT_SECONDARY)
+                                .color(theme.text_secondary)
                                 .size(10.0),
                         );
                         if ui
@@ -902,7 +906,7 @@ fn draw_source_properties(
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("Padding")
-                            .color(TEXT_SECONDARY)
+                            .color(theme.text_secondary)
                             .size(10.0),
                     );
                     if ui
@@ -928,7 +932,7 @@ fn draw_source_properties(
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new("Wrap Width")
-                                .color(TEXT_SECONDARY)
+                                .color(theme.text_secondary)
                                 .size(10.0),
                         );
                         if ui
@@ -1020,7 +1024,7 @@ fn draw_source_properties(
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("Color")
-                                    .color(TEXT_SECONDARY)
+                                    .color(theme.text_secondary)
                                     .size(10.0),
                             );
                             if ui.color_edit_button_rgba_unmultiplied(color).changed() {
@@ -1032,7 +1036,7 @@ fn draw_source_properties(
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("Angle")
-                                    .color(TEXT_SECONDARY)
+                                    .color(theme.text_secondary)
                                     .size(10.0),
                             );
                             if ui
@@ -1053,7 +1057,7 @@ fn draw_source_properties(
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("Center X")
-                                    .color(TEXT_SECONDARY)
+                                    .color(theme.text_secondary)
                                     .size(10.0),
                             );
                             if ui
@@ -1066,7 +1070,7 @@ fn draw_source_properties(
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("Center Y")
-                                    .color(TEXT_SECONDARY)
+                                    .color(theme.text_secondary)
                                     .size(10.0),
                             );
                             if ui
@@ -1079,7 +1083,7 @@ fn draw_source_properties(
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("Radius")
-                                    .color(TEXT_SECONDARY)
+                                    .color(theme.text_secondary)
                                     .size(10.0),
                             );
                             if ui.add(egui::Slider::new(radius, 0.01..=2.0)).changed() {
@@ -1260,7 +1264,7 @@ fn draw_source_properties(
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new("Volume")
-                        .color(TEXT_SECONDARY)
+                        .color(theme.text_secondary)
                         .size(10.0),
                 );
                 let prev_vol = source.volume;
@@ -1314,7 +1318,7 @@ fn draw_source_properties(
 
                 // Width / Height.
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("W").color(TEXT_SECONDARY).size(10.0));
+                    ui.label(egui::RichText::new("W").color(theme.text_secondary).size(10.0));
                     if ui
                         .add(egui::DragValue::new(width).range(100..=3840).speed(1.0))
                         .changed()
@@ -1322,7 +1326,7 @@ fn draw_source_properties(
                         changed = true;
                     }
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new("H").color(TEXT_SECONDARY).size(10.0));
+                    ui.label(egui::RichText::new("H").color(theme.text_secondary).size(10.0));
                     if ui
                         .add(egui::DragValue::new(height).range(100..=2160).speed(1.0))
                         .changed()
@@ -1334,7 +1338,7 @@ fn draw_source_properties(
 
                 ui.label(
                     egui::RichText::new("Browser rendering engine not yet available.")
-                        .color(TEXT_MUTED)
+                        .color(theme.text_muted)
                         .size(10.0),
                 );
 
@@ -1366,7 +1370,7 @@ fn override_dot(ui: &mut egui::Ui, is_overridden: bool) -> bool {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
     if is_overridden {
         ui.painter()
-            .circle_filled(rect.center(), size / 2.0, accent_color_ui(ui));
+            .circle_filled(rect.center(), size / 2.0, active_theme(ui.ctx()).accent);
     }
     // Right-click to reset.
     let mut reset = false;
@@ -1381,14 +1385,16 @@ fn override_dot(ui: &mut egui::Ui, is_overridden: bool) -> bool {
     reset
 }
 
-/// Render a section heading in the style: 9px uppercase `TEXT_MUTED` with letter spacing.
+/// Render a section heading in the style: 9px uppercase text_muted with letter spacing.
 fn section_label(ui: &mut egui::Ui, text: &str) {
-    ui.label(egui::RichText::new(text).color(TEXT_MUTED).size(9.0));
+    let theme = active_theme(ui.ctx());
+    ui.label(egui::RichText::new(text).color(theme.text_muted).size(9.0));
 }
 
 /// Render a labeled `DragValue` field and return whether the value changed.
 fn drag_field(ui: &mut egui::Ui, label: &str, value: &mut f32) -> bool {
-    ui.label(egui::RichText::new(label).color(TEXT_MUTED).size(10.0));
+    let theme = active_theme(ui.ctx());
+    ui.label(egui::RichText::new(label).color(theme.text_muted).size(10.0));
     ui.add(
         egui::DragValue::new(value)
             .speed(1.0)
@@ -1416,12 +1422,13 @@ fn drag_field_colored(
 
 /// Draw the aspect-ratio lock toggle between W and H. Returns `true` if clicked.
 fn aspect_lock_button(ui: &mut egui::Ui, locked: bool) -> bool {
+    let theme = active_theme(ui.ctx());
     let icon = if locked {
         egui_phosphor::regular::LOCK_SIMPLE
     } else {
         egui_phosphor::regular::LOCK_SIMPLE_OPEN
     };
-    let color = if locked { TEXT_PRIMARY } else { TEXT_MUTED };
+    let color = if locked { theme.text_primary } else { theme.text_muted };
     ui.add(egui::Button::new(egui::RichText::new(icon).size(12.0).color(color)).frame(false))
         .on_hover_text(if locked {
             "Unlock aspect ratio"
@@ -1455,12 +1462,13 @@ fn draw_gradient_stops(
     stops: &mut Vec<GradientStop>,
     _source_id: SourceId,
 ) -> bool {
+    let theme = active_theme(ui.ctx());
     let mut changed = false;
     let mut remove_idx: Option<usize> = None;
 
     ui.label(
         egui::RichText::new("Gradient Stops")
-            .color(TEXT_SECONDARY)
+            .color(theme.text_secondary)
             .size(10.0),
     );
     ui.add_space(2.0);
@@ -1470,7 +1478,7 @@ fn draw_gradient_stops(
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(format!("#{}", i + 1))
-                    .color(TEXT_MUTED)
+                    .color(theme.text_muted)
                     .size(9.0),
             );
             if ui

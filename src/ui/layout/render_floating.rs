@@ -4,10 +4,7 @@ use super::render::LayoutAction;
 use super::render_tabs::{TabBarContext, render_content, render_tab_bar};
 use super::tree::DockLayout;
 
-use crate::ui::theme::{
-    BG_SURFACE, BORDER, FLOATING_HEADER_HEIGHT, FLOATING_MIN_SIZE, TAB_BAR_HEIGHT, TEXT_PRIMARY,
-    TEXT_SECONDARY,
-};
+use crate::ui::theme::{FLOATING_HEADER_HEIGHT, FLOATING_MIN_SIZE, TAB_BAR_HEIGHT, active_theme};
 
 /// Render a floating panel container with custom chrome header, then delegate
 /// to the shared `render_tab_bar()` and `render_content()` for the panel group.
@@ -20,6 +17,7 @@ pub(crate) fn render_floating_chrome(
     actions: &mut Vec<LayoutAction>,
     is_main: bool,
 ) {
+    let theme = active_theme(ctx);
     let group_id = fg.group_id;
 
     // Collapsed state — when collapsed, only show the chrome header
@@ -62,7 +60,7 @@ pub(crate) fn render_floating_chrome(
     border_painter.rect_stroke(
         outer_rect,
         0.0,
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0, theme.border),
         egui::StrokeKind::Inside,
     );
 
@@ -74,7 +72,7 @@ pub(crate) fn render_floating_chrome(
         egui::Id::new(("floating_chrome_bar", group_id.0)),
     );
     let chrome_painter = ctx.layer_painter(chrome_layer);
-    chrome_painter.rect_filled(chrome_rect, 0.0, BG_SURFACE);
+    chrome_painter.rect_filled(chrome_rect, 0.0, theme.bg_surface);
 
     let button_size = 20.0;
     let button_margin = 4.0;
@@ -99,9 +97,9 @@ pub(crate) fn render_floating_chrome(
 
     // Draw collapse icon — chevron down (expanded) or right (collapsed)
     let collapse_color = if collapse_resp.hovered() {
-        TEXT_PRIMARY
+        theme.text_primary
     } else {
-        TEXT_SECONDARY
+        theme.text_secondary
     };
     let s = 4.0;
     if is_collapsed {
@@ -160,9 +158,9 @@ pub(crate) fn render_floating_chrome(
         .inner;
 
     let close_color = if close_resp.hovered() {
-        TEXT_PRIMARY
+        theme.text_primary
     } else {
-        TEXT_SECONDARY
+        theme.text_secondary
     };
     let xs = 3.5;
     chrome_painter.line_segment(
@@ -190,7 +188,7 @@ pub(crate) fn render_floating_chrome(
         egui::Align2::CENTER_CENTER,
         active_name,
         egui::FontId::proportional(12.0),
-        TEXT_SECONDARY,
+        theme.text_secondary,
     );
 
     // --- Title bar drag (move floating container) ---

@@ -9,7 +9,7 @@ use crate::scene::{SceneId, SceneSource, SourceId, SourceOverrides, SourceProper
 use crate::state::AppState;
 use crate::ui::draw_helpers::{draw_selection_highlight, source_icon, with_opacity};
 use crate::ui::layout::tree::PanelId;
-use crate::ui::theme::{BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_dim};
+use crate::ui::theme::active_theme;
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, vec2};
 
 /// Payload type for drag-to-reorder within the source list.
@@ -30,6 +30,7 @@ struct SourceRow {
 
 /// Draw the sources panel for the currently active scene.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
+    let theme = active_theme(ui.ctx());
     // Capture the full panel rect before any content is drawn, so the drop zone
     // covers the entire panel even when content is small.
     let full_panel_rect = ui.max_rect();
@@ -37,7 +38,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     let Some(active_id) = state.active_scene_id else {
         ui.centered_and_justified(|ui| {
-            ui.colored_label(TEXT_MUTED, "No active scene");
+            ui.colored_label(theme.text_muted, "No active scene");
         });
         return;
     };
@@ -50,7 +51,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         .map(|s| s.name.clone())
         .unwrap_or_else(|| "Sources".to_string());
     ui.horizontal(|ui| {
-        ui.colored_label(TEXT_PRIMARY, &scene_name);
+        ui.colored_label(theme.text_primary, &scene_name);
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Remove selected source from scene (small icon button)
@@ -122,12 +123,12 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     if scene_sources.is_empty() {
         ui.add_space(16.0);
         ui.centered_and_justified(|ui| {
-            ui.colored_label(TEXT_MUTED, "No sources. Click + to add one.");
+            ui.colored_label(theme.text_muted, "No sources. Click + to add one.");
         });
     }
 
     let source_count = scene_sources.len();
-    let selected_bg = accent_dim(state.accent_color);
+    let selected_bg = theme.accent_dim;
 
     // Reverse the list so top-most source (highest z-order) appears at the top.
     let rows: Vec<SourceRow> = scene_sources
@@ -300,7 +301,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // ── Drop zone: accept SourceId dragged from library panel ──
     // Use the full panel rect captured at the start of draw (before content
     // layout shrank it). Expand by PANEL_PADDING to recover the wrapper bounds.
-    let pad = crate::ui::theme::PANEL_PADDING;
+    let pad = theme.panel_padding;
     let panel_rect = full_panel_rect.expand(pad);
     let has_drag_payload = egui::DragAndDrop::has_payload_of_type::<SourceId>(ui.ctx());
     let pointer_in_panel = ui
@@ -319,7 +320,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         ));
         painter.rect_stroke(
             highlight_rect,
-            CornerRadius::same(RADIUS_SM as u8),
+            CornerRadius::same(theme.radius_sm as u8),
             Stroke::new(1.0, state.accent_color),
             egui::StrokeKind::Inside,
         );
@@ -371,7 +372,8 @@ fn draw_add_from_library_popup(
     popup_id: egui::Id,
     anchor: &egui::Response,
 ) -> Option<(SourceId, SourceProperties)> {
-    use crate::ui::theme::{menu_item_icon, styled_menu};
+    use crate::ui::widgets::menu::{menu_item_icon, styled_menu};
+    let theme = active_theme(ui.ctx());
 
     // Snapshot library entries not already in the scene.
     let scene_source_ids: Vec<SourceId> = state
@@ -407,7 +409,7 @@ fn draw_add_from_library_popup(
                 if available_sources.is_empty() {
                     ui.label(
                         egui::RichText::new("All sources added")
-                            .color(TEXT_MUTED)
+                            .color(theme.text_muted)
                             .size(11.0),
                     );
                 } else {
@@ -443,6 +445,7 @@ fn draw_source_row(
     idx: usize,
     source_count: usize,
 ) {
+    let theme = active_theme(ui.ctx());
     let (row_rect, row_response) =
         ui.allocate_exact_size(vec2(available_width, row_height), Sense::click_and_drag());
 
@@ -489,7 +492,7 @@ fn draw_source_row(
                 (255.0 * alpha) as u8,
             );
             ui.painter()
-                .rect_filled(paint_rect, CornerRadius::same(RADIUS_SM as u8), flash_color);
+                .rect_filled(paint_rect, CornerRadius::same(theme.radius_sm as u8), flash_color);
             ui.ctx().request_repaint();
         } else {
             state.flash_source_id = None;
@@ -520,13 +523,13 @@ fn draw_source_row(
         egui::pos2(cursor_x + icon_size / 2.0, center_y),
         vec2(icon_size, icon_size),
     );
-    painter.rect_filled(icon_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
+    painter.rect_filled(icon_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
     painter.text(
         icon_rect.center(),
         egui::Align2::CENTER_CENTER,
         source_icon(&row.source_type),
         egui::FontId::proportional(10.0),
-        with_opacity(TEXT_PRIMARY, effective_opacity),
+        with_opacity(theme.text_primary, effective_opacity),
     );
     cursor_x += icon_size + 6.0;
 
@@ -536,7 +539,7 @@ fn draw_source_row(
         egui::Align2::LEFT_CENTER,
         &row.name,
         egui::FontId::proportional(11.0),
-        with_opacity(TEXT_PRIMARY, effective_opacity),
+        with_opacity(theme.text_primary, effective_opacity),
     );
 
     // Audio indicator: small speaker icon after the name for audio sources.
@@ -547,7 +550,7 @@ fn draw_source_row(
             egui::Align2::LEFT_CENTER,
             egui_phosphor::regular::SPEAKER_HIGH,
             egui::FontId::proportional(9.0),
-            with_opacity(TEXT_MUTED, effective_opacity),
+            with_opacity(theme.text_muted, effective_opacity),
         );
     }
 
@@ -564,9 +567,9 @@ fn draw_source_row(
         Rect::from_center_size(egui::pos2(right_x - 8.0, center_y), vec2(16.0, row_height));
     let eye_hovered = ui.rect_contains_pointer(eye_rect);
     let eye_color = if eye_hovered {
-        with_opacity(TEXT_PRIMARY, effective_opacity)
+        with_opacity(theme.text_primary, effective_opacity)
     } else {
-        with_opacity(TEXT_MUTED, 0.5 * effective_opacity)
+        with_opacity(theme.text_muted, 0.5 * effective_opacity)
     };
     painter.text(
         eye_rect.center(),
@@ -590,16 +593,16 @@ fn draw_source_row(
     let lock_color = if row.locked {
         // Locked: brighter to draw attention
         if lock_hovered {
-            with_opacity(TEXT_PRIMARY, effective_opacity)
+            with_opacity(theme.text_primary, effective_opacity)
         } else {
-            with_opacity(TEXT_PRIMARY, 0.7 * effective_opacity)
+            with_opacity(theme.text_primary, 0.7 * effective_opacity)
         }
     } else {
         // Unlocked: dimmer (only visible on hover)
         if lock_hovered {
-            with_opacity(TEXT_MUTED, 0.8 * effective_opacity)
+            with_opacity(theme.text_muted, 0.8 * effective_opacity)
         } else {
-            with_opacity(TEXT_MUTED, 0.2 * effective_opacity)
+            with_opacity(theme.text_muted, 0.2 * effective_opacity)
         }
     };
     painter.text(
@@ -649,7 +652,7 @@ fn draw_source_row(
                 egui::pos2(paint_rect.left(), sep_y),
                 egui::pos2(paint_rect.right(), sep_y),
             ],
-            Stroke::new(1.0, BORDER),
+            Stroke::new(1.0, theme.border),
         );
     }
 }

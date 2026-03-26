@@ -1,11 +1,12 @@
 use egui::{Align, Layout, Ui};
 
 use crate::settings::HotkeySettings;
-use crate::ui::theme::TEXT_MUTED;
+use crate::ui::theme::active_theme;
 
 use super::{labeled_row, section_header};
 
 pub(super) fn draw(ui: &mut Ui, settings: &mut HotkeySettings) -> bool {
+    let theme = active_theme(ui.ctx());
     let mut changed = false;
 
     ui.label(
@@ -13,7 +14,7 @@ pub(super) fn draw(ui: &mut Ui, settings: &mut HotkeySettings) -> bool {
             "Hotkeys are not yet implemented. Bindings are saved but have no effect.",
         )
         .size(11.0)
-        .color(TEXT_MUTED)
+        .color(theme.text_muted)
         .italics(),
     );
     ui.add_space(8.0);

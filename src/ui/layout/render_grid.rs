@@ -4,7 +4,7 @@ use super::interactions::collect_dividers;
 use super::render::LayoutAction;
 use super::tree::{DockLayout, SplitDirection};
 
-use crate::ui::theme::BORDER;
+use crate::ui::theme::active_theme;
 
 /// Render split dividers with drag interaction.
 pub(crate) fn render_dividers(
@@ -13,6 +13,7 @@ pub(crate) fn render_dividers(
     available_rect: egui::Rect,
     actions: &mut Vec<LayoutAction>,
 ) {
+    let theme = active_theme(ctx);
     let dividers = collect_dividers(layout, available_rect);
     for div in &dividers {
         // Draw the 1px visible line
@@ -36,7 +37,7 @@ pub(crate) fn render_dividers(
                 )
             }
         };
-        painter.rect_filled(line_rect, 0.0, BORDER);
+        painter.rect_filled(line_rect, 0.0, theme.border);
 
         // Invisible Area for drag interaction
         let area_id = egui::Id::new(("divider_area", div.node_id.0));

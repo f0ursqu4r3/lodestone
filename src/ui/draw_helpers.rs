@@ -4,9 +4,7 @@
 //! duplication and keep panel code focused on layout and logic.
 
 use crate::scene::SourceType;
-use crate::ui::theme::{
-    BG_ELEVATED, BORDER, RADIUS_SM, TEXT_MUTED, TEXT_PRIMARY, accent_color_ui, accent_dim,
-};
+use crate::ui::theme::active_theme;
 use egui::{Color32, CornerRadius, Painter, Rect, Sense, Stroke, vec2};
 
 /// Return a Phosphor icon for a given source type.
@@ -30,6 +28,7 @@ pub fn draw_segmented_buttons(
     id_salt: &str,
     buttons: &[(&str, &str, bool)], // (icon, tooltip, is_active)
 ) -> Option<usize> {
+    let theme = active_theme(ui.ctx());
     let mut clicked = None;
     let btn_size = 20.0_f32;
     let total_width = btn_size * buttons.len() as f32;
@@ -40,7 +39,7 @@ pub fn draw_segmented_buttons(
 
     // Draw shared background.
     let painter = ui.painter_at(seg_rect);
-    painter.rect_filled(seg_rect, CornerRadius::same(RADIUS_SM as u8), BG_ELEVATED);
+    painter.rect_filled(seg_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
 
     // Draw each button.
     for (i, (icon, tooltip, active)) in buttons.iter().enumerate() {
@@ -61,15 +60,15 @@ pub fn draw_segmented_buttons(
         if *active {
             painter.rect_filled(
                 btn_rect,
-                CornerRadius::same(RADIUS_SM as u8),
-                accent_dim(accent_color_ui(ui)),
+                CornerRadius::same(theme.radius_sm as u8),
+                theme.accent_dim,
             );
         } else if response.hovered() {
-            painter.rect_filled(btn_rect, CornerRadius::same(RADIUS_SM as u8), BORDER);
+            painter.rect_filled(btn_rect, CornerRadius::same(theme.radius_sm as u8), theme.border);
         }
 
         // Icon.
-        let icon_color = if *active { TEXT_PRIMARY } else { TEXT_MUTED };
+        let icon_color = if *active { theme.text_primary } else { theme.text_muted };
         painter.text(
             btn_rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -96,19 +95,20 @@ pub fn with_opacity(color: Color32, opacity: f32) -> Color32 {
     )
 }
 
-/// Draw a selection highlight: a filled rect with `RADIUS_SM` corner radius.
+/// Draw a selection highlight: a filled rect with a small corner radius.
 pub fn draw_selection_highlight(painter: &Painter, rect: Rect, color: Color32) {
-    painter.rect_filled(rect, CornerRadius::same(RADIUS_SM as u8), color);
+    // Use a fixed radius value since this helper doesn't have egui context access.
+    painter.rect_filled(rect, CornerRadius::same(4), color);
 }
 
 /// Draw a styled rect: a filled rect with an optional stroke border.
 #[allow(dead_code)]
 pub fn draw_styled_rect(painter: &Painter, rect: Rect, fill: Color32, border: Option<Stroke>) {
-    painter.rect_filled(rect, CornerRadius::same(RADIUS_SM as u8), fill);
+    painter.rect_filled(rect, CornerRadius::same(4), fill);
     if let Some(stroke) = border {
         painter.rect_stroke(
             rect,
-            CornerRadius::same(RADIUS_SM as u8),
+            CornerRadius::same(4),
             stroke,
             egui::StrokeKind::Inside,
         );

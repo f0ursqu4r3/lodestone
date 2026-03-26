@@ -2,7 +2,7 @@ use egui::{Align, Layout, StrokeKind, Ui};
 
 use crate::state::AppState;
 use crate::ui::theme::{
-    BORDER, DEFAULT_ACCENT, RADIUS_SM, TEXT_PRIMARY, color_to_hex, parse_hex_color,
+    BORDER, RADIUS_SM, TEXT_PRIMARY, Theme, color_to_hex, parse_hex_color,
 };
 
 use super::{labeled_row_unimplemented, section_header};
@@ -16,15 +16,21 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
         labeled_row_unimplemented(ui, "Theme");
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let combo = egui::ComboBox::from_id_salt("theme_combo")
-                .selected_text(&state.settings.appearance.theme)
+                .selected_text(
+                    crate::ui::theme::ThemeId::all()
+                        .iter()
+                        .find(|&&id| id == state.settings.appearance.theme)
+                        .map(|id| id.label())
+                        .unwrap_or("Unknown"),
+                )
                 .show_ui(ui, |ui| {
                     let mut c = false;
-                    for t in &["dark", "light"] {
+                    for &id in crate::ui::theme::ThemeId::all() {
                         c |= ui
                             .selectable_value(
                                 &mut state.settings.appearance.theme,
-                                t.to_string(),
-                                *t,
+                                id,
+                                id.label(),
                             )
                             .changed();
                     }
@@ -62,11 +68,20 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
     ui.add_space(8.0);
 
     ui.horizontal(|ui| {
+        // Resolve the effective accent: override hex if set, else theme default.
+        let effective_accent = state
+            .settings
+            .appearance
+            .accent_color
+            .as_deref()
+            .map(parse_hex_color)
+            .unwrap_or_else(|| Theme::builtin(state.settings.appearance.theme).accent);
+
         // Color swatch preview
-        let accent = parse_hex_color(&state.settings.appearance.accent_color);
         let (swatch_rect, _) =
             ui.allocate_exact_size(egui::Vec2::new(24.0, 24.0), egui::Sense::hover());
-        ui.painter().rect_filled(swatch_rect, RADIUS_SM, accent);
+        ui.painter()
+            .rect_filled(swatch_rect, RADIUS_SM, effective_accent);
         ui.painter().rect_stroke(
             swatch_rect,
             RADIUS_SM,
@@ -76,23 +91,28 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
 
         ui.add_space(8.0);
 
-        // Hex input
-        let mut hex = state.settings.appearance.accent_color.clone();
+        // Hex input — show current effective accent as the editable value.
+        let mut hex = state
+            .settings
+            .appearance
+            .accent_color
+            .clone()
+            .unwrap_or_else(|| color_to_hex(effective_accent));
         let response = ui.add(
             egui::TextEdit::singleline(&mut hex)
                 .desired_width(80.0)
                 .font(egui::TextStyle::Monospace),
         );
         if response.changed() {
-            state.settings.appearance.accent_color = hex;
+            state.settings.appearance.accent_color = Some(hex);
             state.settings_dirty = true;
         }
 
         ui.add_space(8.0);
 
-        // Reset to default
+        // Reset clears the override so the theme default takes effect.
         if ui.button("Reset").clicked() {
-            state.settings.appearance.accent_color = color_to_hex(DEFAULT_ACCENT);
+            state.settings.appearance.accent_color = None;
             state.settings_dirty = true;
         }
     });

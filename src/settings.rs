@@ -1,4 +1,5 @@
 use crate::gstreamer::{EncoderType, QualityPreset, RecordingFormat, StreamDestination};
+use crate::ui::theme::ThemeId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -251,17 +252,20 @@ pub struct HotkeySettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppearanceSettings {
-    pub accent_color: String,
+    pub theme: ThemeId,
+    /// Hex color override for the accent (e.g. "#ff8800"). `None` = use theme default.
+    pub accent_color: Option<String>,
     pub font_size: f32,
-    pub theme: String,
+    pub font_family: String,
 }
 
 impl Default for AppearanceSettings {
     fn default() -> Self {
         Self {
-            accent_color: "#e0e0e8".to_string(),
+            theme: ThemeId::DefaultDark,
+            accent_color: None,
             font_size: 13.0,
-            theme: "dark".to_string(),
+            font_family: "Default".to_string(),
         }
     }
 }

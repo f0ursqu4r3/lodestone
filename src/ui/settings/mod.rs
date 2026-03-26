@@ -16,8 +16,8 @@ use egui::{
 
 use crate::state::AppState;
 use crate::ui::theme::{
-    BG_BASE, BG_ELEVATED, BG_SURFACE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, accent_color_ui,
-    parse_hex_color,
+    BG_BASE, BG_ELEVATED, BG_SURFACE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, Theme,
+    accent_color_ui, parse_hex_color,
 };
 
 // ── Category enum ─────────────────────────────────────────────────────────────
@@ -90,7 +90,13 @@ pub fn render_native(ctx: &egui::Context, state: &mut AppState) {
         .data_mut(|d| d.get_temp::<SettingsCategory>(settings_id))
         .unwrap_or(SettingsCategory::General);
 
-    let accent = parse_hex_color(&state.settings.appearance.accent_color);
+    let accent = state
+        .settings
+        .appearance
+        .accent_color
+        .as_deref()
+        .map(parse_hex_color)
+        .unwrap_or_else(|| Theme::builtin(state.settings.appearance.theme).accent);
 
     // Sidebar panel
     egui::SidePanel::left("settings_sidebar")

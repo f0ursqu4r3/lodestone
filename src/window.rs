@@ -110,13 +110,31 @@ impl WindowState {
         gpu: &SharedGpuState,
         state: &mut AppState,
     ) -> Result<(Vec<DetachRequest>, bool)> {
-        // Sync cached accent color from settings string (once per frame).
-        state.accent_color =
-            crate::ui::theme::parse_hex_color(&state.settings.appearance.accent_color);
-        // Also store in egui context data so layout renderers (which don't have state) can read it.
+        // Resolve active theme from settings, applying any per-user accent override.
+        let mut theme = crate::ui::theme::Theme::builtin(state.settings.appearance.theme);
+        if let Some(ref hex) = state.settings.appearance.accent_color {
+            let accent = crate::ui::theme::parse_hex_color(hex);
+            theme.accent = accent;
+            theme.accent_hover = accent;
+            theme.accent_dim = crate::ui::theme::accent_dim(accent);
+        }
+        // Store resolved ThemeId in context data (read by active_theme()).
         self.egui_ctx.data_mut(|d| {
-            d.insert_temp(egui::Id::new("accent_color"), state.accent_color);
+            d.insert_temp(egui::Id::new("active_theme"), theme.id);
         });
+        // Maintain old accent_color key for backward compat during migration.
+        state.accent_color = theme.accent;
+        self.egui_ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new("accent_color"), theme.accent);
+        });
+        // Set egui dark/light visuals based on theme brightness.
+        let luminance =
+            theme.bg_base.r() as u16 + theme.bg_base.g() as u16 + theme.bg_base.b() as u16;
+        if luminance < 384 {
+            self.egui_ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            self.egui_ctx.set_visuals(egui::Visuals::light());
+        }
 
         // Capture pre-frame undo snapshot before any UI mutations.
         if self.is_main {
@@ -255,10 +273,31 @@ impl WindowState {
 
     /// Render the settings window content.
     pub fn render_settings(&mut self, gpu: &SharedGpuState, state: &mut AppState) -> Result<()> {
-        // Sync accent color so settings widgets (toggle switches, etc.) can read it.
+        // Resolve active theme from settings, applying any per-user accent override.
+        let mut theme = crate::ui::theme::Theme::builtin(state.settings.appearance.theme);
+        if let Some(ref hex) = state.settings.appearance.accent_color {
+            let accent = crate::ui::theme::parse_hex_color(hex);
+            theme.accent = accent;
+            theme.accent_hover = accent;
+            theme.accent_dim = crate::ui::theme::accent_dim(accent);
+        }
+        // Store resolved ThemeId in context data (read by active_theme()).
         self.egui_ctx.data_mut(|d| {
-            d.insert_temp(egui::Id::new("accent_color"), state.accent_color);
+            d.insert_temp(egui::Id::new("active_theme"), theme.id);
         });
+        // Maintain old accent_color key for backward compat during migration.
+        state.accent_color = theme.accent;
+        self.egui_ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new("accent_color"), theme.accent);
+        });
+        // Set egui dark/light visuals based on theme brightness.
+        let luminance =
+            theme.bg_base.r() as u16 + theme.bg_base.g() as u16 + theme.bg_base.b() as u16;
+        if luminance < 384 {
+            self.egui_ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            self.egui_ctx.set_visuals(egui::Visuals::light());
+        }
 
         let raw_input = self.egui_state.take_egui_input(self.window);
 

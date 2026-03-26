@@ -172,6 +172,8 @@ pub struct AppState {
     pub(crate) frame_snapshot: Option<UndoSnapshot>,
     /// Timestamp of the last arrow-key nudge, for batching undo snapshots.
     pub last_nudge_time: Option<std::time::Instant>,
+    /// Available system font families for the appearance settings UI.
+    pub system_fonts: Vec<String>,
 }
 
 impl Default for AppState {
@@ -219,6 +221,7 @@ impl Default for AppState {
             in_continuous_edit: false,
             frame_snapshot: None,
             last_nudge_time: None,
+            system_fonts: vec!["Default".to_string()],
         }
     }
 }

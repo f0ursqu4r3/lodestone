@@ -123,7 +123,9 @@ pub guide_opacity: f32,         // Default: 0.60
 New fields on the preview panel state (not persisted to settings — ephemeral per session):
 
 ```rust
-pub zoom: f32,          // 1.0 = fit-to-panel, >1.0 = zoomed in
+pub zoom: f32,          // Multiplier on fit-to-panel scale. 1.0 = fit canvas to panel (default).
+                        // 2.0 = 2x the fit-to-panel size. Cmd+1 calculates the zoom value
+                        // that gives 1:1 canvas-to-screen pixel mapping.
 pub pan_offset: Vec2,   // Canvas-space offset from center
 ```
 

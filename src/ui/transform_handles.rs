@@ -50,10 +50,13 @@ enum DragMode {
     None,
     Move {
         start_mouse: Pos2,
-        start_transform: Transform,
-        /// Unsnapped X position (tracks true mouse intent).
+        /// Start transforms for ALL selected sources.
+        start_transforms: Vec<(crate::scene::SourceId, Transform)>,
+        /// The source being directly dragged (snapping applies to this one).
+        anchor_id: crate::scene::SourceId,
+        /// Unsnapped X position of the anchor (tracks true mouse intent).
         raw_x: f32,
-        /// Unsnapped Y position.
+        /// Unsnapped Y position of the anchor.
         raw_y: f32,
         /// Active X snap: (snap line, which edge snapped).
         snapped_x: Option<(f32, SnapEdgeX)>,
@@ -65,6 +68,11 @@ enum DragMode {
         start_mouse: Pos2,
         start_transform: Transform,
         aspect_ratio: f32,
+    },
+    /// Marquee (rubber-band) selection.
+    Marquee {
+        /// Screen-space start point.
+        start: Pos2,
     },
 }
 
@@ -543,10 +551,17 @@ pub fn draw_transform_handles(
                     .map(|(id, _)| *id);
 
                 if let Some(hit_id) = hit {
-                    state.select_source(hit_id);
+                    if shift_held {
+                        state.toggle_source_selection(hit_id);
+                    } else {
+                        state.select_source(hit_id);
+                    }
                     state.selected_library_source_id = None;
                 } else {
-                    state.deselect_all();
+                    // Clicked empty space — deselect (unless shift held).
+                    if !shift_held {
+                        state.deselect_all();
+                    }
                 }
             }
         }
@@ -667,8 +682,103 @@ pub fn draw_transform_handles(
         }
     }
 
+    // ── Draw selection outlines for all selected sources ──
+    let selected_ids = state.selected_source_ids.clone();
+    let primary_id = state.primary_selected_id;
+    for &sel_id in &selected_ids {
+        let Some(lib) = state.library.iter().find(|s| s.id == sel_id) else {
+            continue;
+        };
+        let t = state
+            .active_scene()
+            .and_then(|s| s.find_source(sel_id))
+            .map(|ss| ss.resolve_transform(lib))
+            .unwrap_or(lib.transform);
+        let r = transform_to_screen_rect(&t, viewport_rect, canvas_size);
+
+        if primary_id == Some(sel_id) {
+            // Primary selected: draw full handles (outline + corners + edges).
+            draw_handles(ui.painter(), r);
+        } else {
+            // Non-primary selected: just the outline.
+            ui.painter().rect_stroke(
+                r,
+                0.0,
+                egui::Stroke::new(1.0, TEXT_PRIMARY),
+                StrokeKind::Outside,
+            );
+        }
+    }
+
     // ── Handles + dragging for selected source ──
     let Some(selected_id) = state.selected_source_id() else {
+        // No primary selection — still need to handle marquee drag.
+        let drag_id = egui::Id::new("transform_drag_marquee");
+        let mut drag_mode: DragMode =
+            ui.memory(|m| m.data.get_temp(drag_id).unwrap_or_default());
+
+        if let Some(mouse_pos) = pointer {
+            match &drag_mode {
+                DragMode::None => {
+                    if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open {
+                        // No source hit, no selection — start marquee.
+                        let hit = active_scene_sources
+                            .iter()
+                            .find(|(_, rect)| rect.contains(mouse_pos))
+                            .map(|(id, _)| *id);
+                        if hit.is_none() {
+                            drag_mode = DragMode::Marquee { start: mouse_pos };
+                        }
+                    }
+                }
+                DragMode::Marquee { start } => {
+                    let marquee_rect = Rect::from_two_pos(*start, mouse_pos);
+                    // Draw marquee rectangle.
+                    let accent = crate::ui::theme::accent_color_ui(ui);
+                    let fill = egui::Color32::from_rgba_unmultiplied(
+                        accent.r(),
+                        accent.g(),
+                        accent.b(),
+                        25, // ~10% opacity
+                    );
+                    ui.painter().rect_filled(marquee_rect, 0.0, fill);
+                    ui.painter().rect_stroke(
+                        marquee_rect,
+                        0.0,
+                        Stroke::new(1.0, accent),
+                        StrokeKind::Outside,
+                    );
+                    ui.ctx().request_repaint();
+                }
+                _ => {}
+            }
+
+            if primary_released && matches!(drag_mode, DragMode::Marquee { .. }) {
+                if let DragMode::Marquee { start } = drag_mode {
+                    let marquee_rect = Rect::from_two_pos(start, mouse_pos);
+                    // Select all non-locked sources whose screen rects intersect the marquee.
+                    if !shift_held {
+                        state.deselect_all();
+                    }
+                    for (src_id, src_rect) in &active_scene_sources {
+                        if marquee_rect.intersects(*src_rect) {
+                            // Skip locked sources.
+                            let is_locked = state
+                                .active_scene()
+                                .and_then(|s| s.find_source(*src_id))
+                                .map(|ss| ss.resolve_locked())
+                                .unwrap_or(false);
+                            if !is_locked && !state.is_source_selected(*src_id) {
+                                state.toggle_source_selection(*src_id);
+                            }
+                        }
+                    }
+                }
+                drag_mode = DragMode::None;
+            }
+        }
+
+        ui.memory_mut(|m| m.data.insert_temp(drag_id, drag_mode));
         return;
     };
     let Some(source) = state.library.iter().find(|s| s.id == selected_id) else {
@@ -681,10 +791,8 @@ pub fn draw_transform_handles(
         .unwrap_or(source.transform);
     let screen_rect = transform_to_screen_rect(&transform, viewport_rect, canvas_size);
 
-    draw_handles(ui.painter(), screen_rect);
-
     // Drag state from egui memory
-    let drag_id = egui::Id::new(("transform_drag", selected_id.0));
+    let drag_id = egui::Id::new("transform_drag_main");
     let mut drag_mode: DragMode = ui.memory(|m| m.data.get_temp(drag_id).unwrap_or_default());
 
     if let Some(mouse_pos) = pointer {
@@ -699,22 +807,94 @@ pub fn draw_transform_handles(
                             start_transform: transform,
                             aspect_ratio: transform.width / transform.height.max(1.0),
                         };
-                    } else if screen_rect.contains(mouse_pos) {
-                        state.begin_continuous_edit();
-                        drag_mode = DragMode::Move {
-                            start_mouse: mouse_pos,
-                            start_transform: transform,
-                            raw_x: transform.x,
-                            raw_y: transform.y,
-                            snapped_x: None,
-                            snapped_y: None,
-                        };
+                    } else {
+                        // Check if we clicked on any selected source (for group move).
+                        let clicked_selected = selected_ids.iter().any(|&sid| {
+                            state
+                                .library
+                                .iter()
+                                .find(|s| s.id == sid)
+                                .and_then(|lib| {
+                                    let t = state
+                                        .active_scene()
+                                        .and_then(|s| s.find_source(sid))
+                                        .map(|ss| ss.resolve_transform(lib))
+                                        .unwrap_or(lib.transform);
+                                    let r =
+                                        transform_to_screen_rect(&t, viewport_rect, canvas_size);
+                                    Some(r.contains(mouse_pos))
+                                })
+                                .unwrap_or(false)
+                        });
+
+                        if clicked_selected || screen_rect.contains(mouse_pos) {
+                            // Determine which source is the anchor (the one under cursor).
+                            let anchor = selected_ids
+                                .iter()
+                                .find(|&&sid| {
+                                    state
+                                        .library
+                                        .iter()
+                                        .find(|s| s.id == sid)
+                                        .and_then(|lib| {
+                                            let t = state
+                                                .active_scene()
+                                                .and_then(|s| s.find_source(sid))
+                                                .map(|ss| ss.resolve_transform(lib))
+                                                .unwrap_or(lib.transform);
+                                            let r = transform_to_screen_rect(
+                                                &t,
+                                                viewport_rect,
+                                                canvas_size,
+                                            );
+                                            Some(r.contains(mouse_pos))
+                                        })
+                                        .unwrap_or(false)
+                                })
+                                .copied()
+                                .unwrap_or(selected_id);
+
+                            // Capture start transforms for ALL selected sources.
+                            let start_transforms: Vec<(SourceId, Transform)> = selected_ids
+                                .iter()
+                                .filter_map(|&sid| {
+                                    let lib = state.library.iter().find(|s| s.id == sid)?;
+                                    let t = state
+                                        .active_scene()
+                                        .and_then(|s| s.find_source(sid))
+                                        .map(|ss| ss.resolve_transform(lib))
+                                        .unwrap_or(lib.transform);
+                                    Some((sid, t))
+                                })
+                                .collect();
+
+                            let anchor_transform = start_transforms
+                                .iter()
+                                .find(|(sid, _)| *sid == anchor)
+                                .map(|(_, t)| *t)
+                                .unwrap_or(transform);
+
+                            state.begin_continuous_edit();
+                            drag_mode = DragMode::Move {
+                                start_mouse: mouse_pos,
+                                start_transforms,
+                                anchor_id: anchor,
+                                raw_x: anchor_transform.x,
+                                raw_y: anchor_transform.y,
+                                snapped_x: None,
+                                snapped_y: None,
+                            };
+                        } else {
+                            // Clicked empty space — start marquee.
+                            drag_mode = DragMode::Marquee { start: mouse_pos };
+                        }
                     }
                 }
             }
             DragMode::Move {
                 start_mouse,
-                start_transform,
+                start_transforms,
+                anchor_id,
                 raw_x,
                 raw_y,
                 snapped_x,
@@ -723,9 +903,16 @@ pub fn draw_transform_handles(
                 let delta = screen_to_canvas(mouse_pos, viewport_rect, canvas_size)
                     - screen_to_canvas(*start_mouse, viewport_rect, canvas_size);
 
-                // 1. Compute raw (unsnapped) position from mouse delta.
-                let new_raw_x = start_transform.x + delta.x;
-                let new_raw_y = start_transform.y + delta.y;
+                // Find anchor's start transform.
+                let anchor_start = start_transforms
+                    .iter()
+                    .find(|(sid, _)| *sid == *anchor_id)
+                    .map(|(_, t)| *t)
+                    .unwrap_or(transform);
+
+                // 1. Compute raw (unsnapped) position from mouse delta for anchor.
+                let new_raw_x = anchor_start.x + delta.x;
+                let new_raw_y = anchor_start.y + delta.y;
                 *raw_x = new_raw_x;
                 *raw_y = new_raw_y;
 
@@ -733,6 +920,7 @@ pub fn draw_transform_handles(
                 let mut final_y = new_raw_y;
 
                 // 2. Apply magnetic snapping if enabled and Alt is not held.
+                //    Snapping only applies to the anchor source.
                 let snap_enabled = state.settings.general.snap_to_grid && !alt_held;
                 if snap_enabled {
                     let grid = state.settings.general.snap_grid_size;
@@ -740,10 +928,14 @@ pub fn draw_transform_handles(
                     let attract = SNAP_ATTRACT * scale;
                     let dead = SNAP_DEAD * scale;
 
-                    let width = start_transform.width;
-                    let height = start_transform.height;
+                    let width = anchor_start.width;
+                    let height = anchor_start.height;
 
-                    // Collect other source transforms.
+                    // Collect other source transforms (excluding all selected sources).
+                    let selected_set: Vec<SourceId> = start_transforms
+                        .iter()
+                        .map(|(sid, _)| *sid)
+                        .collect();
                     let other_transforms: Vec<Transform> = state
                         .active_scene()
                         .map(|scene| {
@@ -751,7 +943,7 @@ pub fn draw_transform_handles(
                                 .sources
                                 .iter()
                                 .filter_map(|ss| {
-                                    if ss.source_id == selected_id {
+                                    if selected_set.contains(&ss.source_id) {
                                         return None;
                                     }
                                     state
@@ -776,26 +968,20 @@ pub fn draw_transform_handles(
 
                     // X axis: magnetic two-zone logic.
                     if let Some((line, edge)) = snapped_x {
-                        // Currently snapped — check dead zone escape.
                         let raw_edge = raw_edge_x(new_raw_x, width, *edge);
                         if (raw_edge - *line).abs() > dead {
-                            // Broke free — clear snap.
                             *snapped_x = None;
                             final_x = new_raw_x;
                         } else {
-                            // Stay locked.
                             final_x = match edge {
                                 SnapEdgeX::Left => *line,
                                 SnapEdgeX::Right => *line - width,
                                 SnapEdgeX::Center => *line - width / 2.0,
                             };
                         }
-                    } else {
-                        // Not snapped — check attraction zone.
-                        if let Some((line, edge)) = snap.snapped_x {
-                            *snapped_x = Some((line, edge));
-                            final_x = new_raw_x + snap.offset_x;
-                        }
+                    } else if let Some((line, edge)) = snap.snapped_x {
+                        *snapped_x = Some((line, edge));
+                        final_x = new_raw_x + snap.offset_x;
                     }
 
                     // Y axis: magnetic two-zone logic.
@@ -811,25 +997,28 @@ pub fn draw_transform_handles(
                                 SnapEdgeY::Center => *line - height / 2.0,
                             };
                         }
-                    } else {
-                        if let Some((line, edge)) = snap.snapped_y {
-                            *snapped_y = Some((line, edge));
-                            final_y = new_raw_y + snap.offset_y;
-                        }
+                    } else if let Some((line, edge)) = snap.snapped_y {
+                        *snapped_y = Some((line, edge));
+                        final_y = new_raw_y + snap.offset_y;
                     }
                 } else {
-                    // Snapping disabled or Alt held — clear snap state.
                     *snapped_x = None;
                     *snapped_y = None;
                 }
 
-                let mut new_transform = *start_transform;
-                new_transform.x = final_x;
-                new_transform.y = final_y;
-                if let Some(scene) = state.active_scene_mut()
-                    && let Some(ss) = scene.find_source_mut(selected_id)
-                {
-                    ss.overrides.transform = Some(new_transform);
+                // 3. Compute delta from anchor's start to final position, apply to all.
+                let anchor_delta_x = final_x - anchor_start.x;
+                let anchor_delta_y = final_y - anchor_start.y;
+
+                for (sid, start_t) in start_transforms.iter() {
+                    let mut new_t = *start_t;
+                    new_t.x = start_t.x + anchor_delta_x;
+                    new_t.y = start_t.y + anchor_delta_y;
+                    if let Some(scene) = state.active_scene_mut()
+                        && let Some(ss) = scene.find_source_mut(*sid)
+                    {
+                        ss.overrides.transform = Some(new_t);
+                    }
                 }
             }
             DragMode::Resize {
@@ -861,17 +1050,38 @@ pub fn draw_transform_handles(
                     ss.overrides.transform = Some(new_transform);
                 }
             }
+            DragMode::Marquee { start } => {
+                let marquee_rect = Rect::from_two_pos(*start, mouse_pos);
+                // Draw marquee rectangle.
+                let accent = crate::ui::theme::accent_color_ui(ui);
+                let fill = egui::Color32::from_rgba_unmultiplied(
+                    accent.r(),
+                    accent.g(),
+                    accent.b(),
+                    25, // ~10% opacity
+                );
+                ui.painter().rect_filled(marquee_rect, 0.0, fill);
+                ui.painter().rect_stroke(
+                    marquee_rect,
+                    0.0,
+                    Stroke::new(1.0, accent),
+                    StrokeKind::Outside,
+                );
+                ui.ctx().request_repaint();
+            }
         }
 
         // Draw snap guides when actively snapped during a move.
         if let DragMode::Move {
+            anchor_id,
             snapped_x,
             snapped_y,
             ..
         } = &drag_mode
         {
             if snapped_x.is_some() || snapped_y.is_some() {
-                // Collect other source transforms for guide drawing.
+                let anchor = *anchor_id;
+                // Collect other source transforms for guide drawing (excluding selected).
                 let other_transforms: Vec<Transform> = state
                     .active_scene()
                     .map(|scene| {
@@ -879,7 +1089,7 @@ pub fn draw_transform_handles(
                             .sources
                             .iter()
                             .filter_map(|ss| {
-                                if ss.source_id == selected_id {
+                                if state.is_source_selected(ss.source_id) {
                                     return None;
                                 }
                                 state
@@ -900,12 +1110,35 @@ pub fn draw_transform_handles(
 
                 if let Some(t) = state
                     .active_scene()
-                    .and_then(|s| s.find_source(selected_id))
+                    .and_then(|s| s.find_source(anchor))
                     .and_then(|ss| ss.overrides.transform)
                 {
                     draw_snap_guides(ui.painter(), &t, canvas_size, viewport_rect, &other_refs);
                 }
             }
+        }
+
+        // Handle marquee release.
+        if primary_released && matches!(drag_mode, DragMode::Marquee { .. }) {
+            if let DragMode::Marquee { start } = drag_mode {
+                let marquee_rect = Rect::from_two_pos(start, mouse_pos);
+                if !shift_held {
+                    state.deselect_all();
+                }
+                for (src_id, src_rect) in &active_scene_sources {
+                    if marquee_rect.intersects(*src_rect) {
+                        let is_locked = state
+                            .active_scene()
+                            .and_then(|s| s.find_source(*src_id))
+                            .map(|ss| ss.resolve_locked())
+                            .unwrap_or(false);
+                        if !is_locked && !state.is_source_selected(*src_id) {
+                            state.toggle_source_selection(*src_id);
+                        }
+                    }
+                }
+            }
+            drag_mode = DragMode::None;
         }
 
         let is_dragging = !matches!(drag_mode, DragMode::None);

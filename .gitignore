@@ -1,4 +1,7 @@
 /target
 .superpowers/
 .worktrees/
-.superpowers/
+.DS_Store
+Lodestone.app/
+xcuserdata/
+*.xcuserstate

@@ -9,9 +9,9 @@ pub mod screencapturekit;
 pub mod thread;
 pub mod types;
 #[cfg(target_os = "macos")]
-pub mod window_watcher;
-#[cfg(target_os = "macos")]
 pub mod virtual_camera;
+#[cfg(target_os = "macos")]
+pub mod window_watcher;
 
 #[allow(unused_imports)]
 pub use commands::{
@@ -19,7 +19,7 @@ pub use commands::{
     EncoderType, GstChannels, GstCommand, QualityPreset, RecordingFormat, StreamDestination,
     create_channels,
 };
-pub use devices::{AppInfo, CameraDevice, DisplayInfo, WindowInfo};
+pub use devices::{CameraDevice, DisplayInfo};
 pub use error::GstError;
 pub use thread::spawn_gstreamer_thread;
 #[allow(unused_imports)]

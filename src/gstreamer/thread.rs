@@ -17,6 +17,8 @@ use super::encode::{
 };
 use super::error::GstError;
 use super::types::RgbaFrame;
+#[cfg(target_os = "macos")]
+use super::window_watcher::{WatchedSource, WindowWatcher};
 use crate::scene::SourceId;
 
 #[derive(Debug)]
@@ -56,6 +58,12 @@ struct GstThread {
     virtual_camera_handle: Option<super::virtual_camera::VirtualCameraHandle>,
     /// Per-source audio pipelines, keyed by SourceId.
     audio_pipelines: HashMap<SourceId, AudioPipeline>,
+    /// Watcher that resolves window capture targets.
+    #[cfg(target_os = "macos")]
+    window_watcher: WindowWatcher,
+    /// Active window capture sources being watched.
+    #[cfg(target_os = "macos")]
+    watched_windows: HashMap<SourceId, WatchedSource>,
     // Audio capture
     mic_pipeline: Option<gstreamer::Pipeline>,
     mic_appsink: Option<AppSink>,
@@ -72,6 +80,10 @@ impl GstThread {
             channels,
             captures: HashMap::new(),
             audio_pipelines: HashMap::new(),
+            #[cfg(target_os = "macos")]
+            window_watcher: WindowWatcher::new(),
+            #[cfg(target_os = "macos")]
+            watched_windows: HashMap::new(),
             stream_handles: None,
             record_handles: None,
             #[cfg(target_os = "macos")]
@@ -101,10 +113,10 @@ impl GstThread {
             return;
         }
 
-        // Window capture uses a dedicated appsrc pipeline + grab thread.
+        // Window capture uses ScreenCaptureKit + WindowWatcher on macOS.
         #[cfg(target_os = "macos")]
-        if let CaptureSourceConfig::Window { .. } = config {
-            // TODO(Task 6): pass mode to window watcher instead of raw window_id
+        if let CaptureSourceConfig::Window { mode } = config {
+            self.add_window_capture_source(source_id, mode.clone());
             return;
         }
 
@@ -148,85 +160,107 @@ impl GstThread {
         }
     }
 
-    /// Start a window capture pipeline with a dedicated frame-grabbing thread.
+    /// Register a window capture source with the WindowWatcher and start capture if a target is found.
     #[cfg(target_os = "macos")]
-    fn add_window_capture_source(&mut self, source_id: SourceId, window_id: u32) {
-        use super::capture::{build_window_capture_pipeline, grab_window_frame};
+    fn add_window_capture_source(
+        &mut self,
+        source_id: SourceId,
+        mode: crate::scene::WindowCaptureMode,
+    ) {
+        let watched = WatchedSource {
+            mode: mode.clone(),
+            current_window_id: None,
+            current_window_size: None,
+        };
+        self.watched_windows.insert(source_id, watched);
 
-        // Grab one frame to determine the window dimensions.
-        let (_, initial_width, initial_height) = match grab_window_frame(window_id) {
-            Some(frame) => frame,
-            None => {
-                log::error!(
-                    "Cannot capture window {window_id} for source {source_id:?}: window unavailable"
-                );
-                let _ = self.channels.error_tx.send(GstError::CaptureFailure {
-                    message: format!("Window {window_id} is not available for capture"),
-                });
-                return;
-            }
+        self.window_watcher.force_refresh();
+        let initial_window_id = self.window_watcher.resolve_target(&mode);
+
+        let Some(window_id) = initial_window_id else {
+            log::info!("No window found for source {source_id:?}, watcher will retry");
+            return;
         };
 
+        self.start_sck_window_capture(source_id, window_id);
+    }
+
+    /// Start a ScreenCaptureKit-based window capture for the given window ID.
+    ///
+    /// Follows the same pattern as [`add_display_capture_source`]: start SCK capture,
+    /// build an appsrc pipeline, spawn a pump thread, and store the handle.
+    #[cfg(target_os = "macos")]
+    fn start_sck_window_capture(&mut self, source_id: SourceId, window_id: u32) {
+        use super::capture::build_display_capture_pipeline;
+        use super::screencapturekit;
+
+        let width = 1920u32;
+        let height = 1080u32;
         let fps = 30u32;
 
-        let (pipeline, appsink, appsrc) =
-            match build_window_capture_pipeline(initial_width, initial_height, fps) {
-                Ok(handles) => handles,
+        let (sck_handle, frame_rx) =
+            match screencapturekit::start_window_capture(window_id, width, height, fps) {
+                Ok(result) => result,
                 Err(e) => {
-                    log::error!(
-                        "Failed to build window capture pipeline for source {source_id:?}: {e}"
-                    );
+                    log::error!("Window capture failed for source {source_id:?}: {e}");
+                    let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                        message: format!("Window capture failed: {e}"),
+                    });
                     return;
                 }
             };
 
+        let (pipeline, appsink, appsrc) = match build_display_capture_pipeline(width, height, fps) {
+            Ok(result) => result,
+            Err(e) => {
+                log::error!("Failed to build window pipeline for source {source_id:?}: {e}");
+                let _ = screencapturekit::stop_display_capture(sck_handle);
+                return;
+            }
+        };
+
         if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
             log::error!("Failed to start window capture for source {source_id:?}: {e}");
+            let _ = screencapturekit::stop_display_capture(sck_handle);
             return;
         }
 
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = Arc::clone(&running);
-        let error_tx = self.channels.error_tx.clone();
-        let frame_interval = std::time::Duration::from_nanos(1_000_000_000 / fps as u64);
 
         std::thread::Builder::new()
-            .name(format!("window-grab-{}", window_id))
+            .name(format!("window-capture-{window_id}"))
             .spawn(move || {
-                log::info!("Window grab thread started for window {window_id}");
+                log::info!("Window capture pump started for window {window_id}");
                 while running_clone.load(Ordering::Relaxed) {
-                    let frame_start = std::time::Instant::now();
-
-                    match grab_window_frame(window_id) {
-                        Some((rgba_data, _w, _h)) => {
-                            let mut buffer = gstreamer::Buffer::with_size(rgba_data.len()).unwrap();
+                    match frame_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                        Ok(frame) => {
+                            let mut buffer =
+                                gstreamer::Buffer::with_size(frame.data.len()).unwrap();
                             {
                                 let buf_ref = buffer.get_mut().unwrap();
                                 let mut map = buf_ref.map_writable().unwrap();
-                                map.as_mut_slice().copy_from_slice(&rgba_data);
+                                map.as_mut_slice().copy_from_slice(&frame.data);
                             }
                             if appsrc.push_buffer(buffer).is_err() {
                                 log::warn!("Failed to push buffer to window appsrc, stopping");
                                 break;
                             }
                         }
-                        None => {
-                            log::warn!("Window {window_id} became unavailable, stopping capture");
-                            let _ = error_tx.send(GstError::CaptureFailure {
-                                message: format!("Window {window_id} is no longer available"),
-                            });
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            log::warn!("Window capture channel disconnected");
                             break;
                         }
                     }
-
-                    let elapsed = frame_start.elapsed();
-                    if elapsed < frame_interval {
-                        std::thread::sleep(frame_interval - elapsed);
-                    }
                 }
-                log::info!("Window grab thread exiting for window {window_id}");
+                log::info!("Window capture pump exiting for window {window_id}");
             })
-            .expect("spawn window grab thread");
+            .expect("spawn window capture pump thread");
+
+        if let Some(watched) = self.watched_windows.get_mut(&source_id) {
+            watched.current_window_id = Some(window_id);
+        }
 
         self.captures.insert(
             source_id,
@@ -234,11 +268,42 @@ impl GstThread {
                 pipeline,
                 appsink,
                 capture_running: Some(running),
-                #[cfg(target_os = "macos")]
-                sck_handle: None,
+                sck_handle: Some(sck_handle),
             },
         );
-        log::info!("Window capture pipeline started for source {source_id:?} (window {window_id})");
+        log::info!("Window capture started for source {source_id:?} (window {window_id})");
+    }
+
+    /// Handle a window target change detected by the WindowWatcher.
+    #[cfg(target_os = "macos")]
+    fn handle_window_target_change(&mut self, source_id: SourceId, new_window_id: Option<u32>) {
+        match new_window_id {
+            Some(wid) => {
+                // Try to update the existing SCK stream in-place first.
+                if let Some(capture) = self.captures.get_mut(&source_id) {
+                    if let Some(ref mut sck_handle) = capture.sck_handle {
+                        match super::screencapturekit::update_window_target(sck_handle, wid) {
+                            Ok(()) => {
+                                if let Some(watched) = self.watched_windows.get_mut(&source_id) {
+                                    watched.current_window_id = Some(wid);
+                                }
+                                log::info!("Switched window target for {source_id:?} to {wid}");
+                                return;
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to update window target, rebuilding: {e}")
+                            }
+                        }
+                    }
+                }
+                // Fall back: tear down and rebuild.
+                self.remove_capture_source(source_id);
+                self.start_sck_window_capture(source_id, wid);
+            }
+            None => {
+                log::info!("Target window gone for {source_id:?}, holding last frame");
+            }
+        }
     }
 
     /// Start a display capture pipeline backed by ScreenCaptureKit.
@@ -442,6 +507,9 @@ impl GstThread {
 
     /// Stop and remove the capture pipeline for the given source_id.
     fn remove_capture_source(&mut self, source_id: SourceId) {
+        #[cfg(target_os = "macos")]
+        self.watched_windows.remove(&source_id);
+
         if let Some(handle) = self.captures.remove(&source_id) {
             // Signal the capture thread to stop (if any).
             if let Some(ref running) = handle.capture_running {
@@ -1000,6 +1068,15 @@ impl GstThread {
                         return;
                     }
                     Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                }
+            }
+
+            // Poll window watcher for target changes.
+            #[cfg(target_os = "macos")]
+            {
+                let changes = self.window_watcher.poll(&self.watched_windows);
+                for (source_id, new_window_id) in changes {
+                    self.handle_window_target_change(source_id, new_window_id);
                 }
             }
 

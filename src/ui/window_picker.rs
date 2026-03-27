@@ -23,6 +23,7 @@ mod native {
     use core_foundation::dictionary::CFDictionaryRef;
     use core_foundation::number::CFNumber;
     use core_foundation::string::CFString;
+    use core_graphics::color::CGColor;
     use core_graphics::window::{
         CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListExcludeDesktopElements,
         kCGWindowListOptionOnScreenOnly,
@@ -34,7 +35,6 @@ mod native {
     };
     use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
     use std::cell::RefCell;
-    use std::ffi::c_void;
 
     type CGFloat = f64;
 
@@ -434,20 +434,15 @@ mod native {
         view.setWantsLayer(true);
 
         if let Some(layer) = view.layer() {
-            unsafe {
-                // Semi-transparent blue fill.
-                let cg_color: *mut c_void = objc2::msg_send![
-                    &NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.47, 1.0, 0.2),
-                    CGColor
-                ];
-                let _: () = objc2::msg_send![&layer, setBackgroundColor: cg_color];
+            // Use Core Graphics to create colors, cast to raw pointers for CALayer msg_send.
+            let bg_color = CGColor::rgb(0.0, 0.47, 1.0, 0.2);
+            let border_color = CGColor::rgb(0.0, 0.47, 1.0, 0.8);
+            let bg_ptr = bg_color.as_concrete_TypeRef() as *const std::ffi::c_void;
+            let border_ptr = border_color.as_concrete_TypeRef() as *const std::ffi::c_void;
 
-                // Blue border.
-                let border_color: *mut c_void = objc2::msg_send![
-                    &NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.47, 1.0, 0.8),
-                    CGColor
-                ];
-                let _: () = objc2::msg_send![&layer, setBorderColor: border_color];
+            unsafe {
+                let _: () = objc2::msg_send![&layer, setBackgroundColor: bg_ptr];
+                let _: () = objc2::msg_send![&layer, setBorderColor: border_ptr];
                 let _: () = objc2::msg_send![&layer, setBorderWidth: 2.0 as CGFloat];
                 let _: () = objc2::msg_send![&layer, setCornerRadius: 4.0 as CGFloat];
             }

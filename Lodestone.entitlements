@@ -3,6 +3,8 @@
 <plist version="1.0">
 <dict>
     <!-- TODO: Request com.apple.developer.system-extension.install entitlement from Apple for distribution -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
     <key>com.apple.security.application-groups</key>
     <array>
         <string>group.com.lodestone.app</string>

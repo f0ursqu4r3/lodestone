@@ -1,6 +1,6 @@
 import CoreMediaIO
 import Foundation
 
-let provider = LodestoneProvider()
-CMIOExtensionProvider.startService(provider: provider)
+let source = LodestoneProvider()
+CMIOExtensionProvider.startService(provider: source.provider)
 CFRunLoopRun()

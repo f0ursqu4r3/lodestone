@@ -4,23 +4,20 @@ import Foundation
 /// Virtual camera device that exposes a single output stream.
 class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
 
-    let device: CMIOExtensionDevice
-    private let _stream: LodestoneStream
+    private(set) var device: CMIOExtensionDevice!
+    private var _stream: LodestoneStream!
 
-    init(provider: CMIOExtensionProvider) {
-        let deviceID = UUID()
+    override init() {
+        super.init()
+
         _stream = LodestoneStream()
 
         device = CMIOExtensionDevice(
             localizedName: "Lodestone Virtual Camera",
-            deviceID: deviceID,
+            deviceID: UUID(),
             legacyDeviceID: nil,
-            source: nil
+            source: self
         )
-
-        super.init()
-
-        device.source = self
 
         do {
             try device.addStream(_stream.stream)
@@ -32,7 +29,7 @@ class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
     // MARK: - CMIOExtensionDeviceSource
 
     var availableProperties: Set<CMIOExtensionProperty> {
-        return [.deviceModel, .deviceTransportType]
+        return [.deviceModel]
     }
 
     func deviceProperties(forProperties properties: Set<CMIOExtensionProperty>) throws
@@ -41,9 +38,6 @@ class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
         let deviceProperties = CMIOExtensionDeviceProperties(dictionary: [:])
         if properties.contains(.deviceModel) {
             deviceProperties.model = "Lodestone Virtual Camera"
-        }
-        if properties.contains(.deviceTransportType) {
-            deviceProperties.transportType = kIOAudioDeviceTransportTypeVirtual
         }
         return deviceProperties
     }

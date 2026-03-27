@@ -10,7 +10,7 @@ class LodestoneProvider: NSObject, CMIOExtensionProviderSource {
     override init() {
         super.init()
         provider = CMIOExtensionProvider(source: self, clientQueue: nil)
-        device = LodestoneDevice(provider: provider)
+        device = LodestoneDevice()
 
         do {
             try provider.addDevice(device.device)
@@ -37,5 +37,13 @@ class LodestoneProvider: NSObject, CMIOExtensionProviderSource {
 
     func setProviderProperties(_ providerProperties: CMIOExtensionProviderProperties) throws {
         // No settable properties
+    }
+
+    func connect(to client: CMIOExtensionClient) throws {
+        // Accept all client connections
+    }
+
+    func disconnect(from client: CMIOExtensionClient) {
+        // No cleanup needed on disconnect
     }
 }

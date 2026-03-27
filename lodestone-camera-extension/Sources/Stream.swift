@@ -7,7 +7,7 @@ import IOSurface
 /// and delivers them to consuming applications (Zoom, Discord, etc.).
 class LodestoneStream: NSObject, CMIOExtensionStreamSource {
 
-    let stream: CMIOExtensionStream
+    private(set) var stream: CMIOExtensionStream!
 
     private static let appGroupID = "group.com.lodestone.app"
     private static let surfaceIDKey = "virtualCameraSurfaceID"
@@ -32,16 +32,7 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
         frameHeight = Int32(defaults?.integer(forKey: LodestoneStream.heightKey) ?? 1080)
         frameRate = Double(defaults?.integer(forKey: LodestoneStream.fpsKey) ?? 30)
 
-        let streamID = UUID()
-
         // Create format description for BGRA
-        var pixelBufferAttributes: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: frameWidth,
-            kCVPixelBufferHeightKey as String: frameHeight,
-        ]
-        _ = pixelBufferAttributes  // suppress unused warning
-
         var fmtDesc: CMFormatDescription?
         CMVideoFormatDescriptionCreate(
             allocator: kCFAllocatorDefault,
@@ -54,30 +45,15 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
 
         formatDescription = fmtDesc
 
-        let streamFormat = CMIOExtensionStreamFormat(
-            formatDescription: fmtDesc!,
-            maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
-            minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
-            validFrameDurations: nil
-        )
+        super.init()
 
         stream = CMIOExtensionStream(
             localizedName: "Lodestone Virtual Camera",
-            streamID: streamID,
+            streamID: UUID(),
             direction: .source,
-            clockType: .hostTimeClock,
-            source: nil
+            clockType: .hostTime,
+            source: self
         )
-
-        super.init()
-
-        stream.source = self
-
-        do {
-            try stream.setActiveFormatIndex(0)
-        } catch {
-            // Format index 0 is the default, ignore errors
-        }
     }
 
     // MARK: - CMIOExtensionStreamSource
@@ -175,7 +151,7 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
 
         if let surface = surface {
             // Wrap the IOSurface directly into a CVPixelBuffer (zero-copy)
-            var pb: CVPixelBuffer?
+            var pb: Unmanaged<CVPixelBuffer>?
             let status = CVPixelBufferCreateWithIOSurface(
                 kCFAllocatorDefault,
                 surface,
@@ -188,7 +164,7 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
             )
 
             if status == kCVReturnSuccess, let pb = pb {
-                pixelBuffer = pb
+                pixelBuffer = pb.takeRetainedValue()
             } else {
                 pixelBuffer = createBlackFrame()
             }

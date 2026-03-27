@@ -13,6 +13,7 @@ pub mod sources_panel;
 pub mod stream_controls;
 pub mod toolbar;
 pub mod transform_handles;
+pub mod window_picker;
 
 use crate::state::AppState;
 use layout::{PanelId, PanelType};

@@ -228,10 +228,8 @@ impl AppManager {
         }
         // Load persisted settings (stream key, encoder, resolution, etc.).
         // On first launch, use detected monitor resolution for defaults.
-        let saved_settings = settings::AppSettings::load_or_detect(
-            &settings::settings_path(),
-            detected_resolution,
-        );
+        let saved_settings =
+            settings::AppSettings::load_or_detect(&settings::settings_path(), detected_resolution);
 
         let initial_state = AppState {
             scenes: collection.scenes,
@@ -1436,6 +1434,25 @@ impl ApplicationHandler for AppManager {
                 self.windows.insert(window_id, win_state);
                 self.settings_window_id = Some(window_id);
                 self.refresh_display_exclusion();
+            }
+        }
+
+        // Launch native window picker overlay if requested.
+        {
+            let should_pick = {
+                let mut app_state = self.state.lock().expect("lock AppState");
+                let active = app_state.window_picker_active;
+                if active {
+                    app_state.window_picker_active = false;
+                }
+                active
+            };
+            if should_pick {
+                let result = crate::ui::window_picker::run_window_picker();
+                if result.is_some() {
+                    let mut app_state = self.state.lock().expect("lock AppState");
+                    app_state.window_picker_result = result;
+                }
             }
         }
 

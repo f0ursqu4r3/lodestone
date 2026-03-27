@@ -568,6 +568,26 @@ fn draw_source_properties(
             if state.available_apps.is_empty() {
                 state.available_apps = crate::gstreamer::devices::enumerate_applications();
             }
+
+            // Consume window picker result if available.
+            if let Some(result) = state.window_picker_result.take() {
+                let source = &mut state.library[lib_idx];
+                if let SourceProperties::Window { ref mut mode, .. } = source.properties {
+                    *mode = WindowCaptureMode::Application {
+                        bundle_id: result.bundle_id,
+                        app_name: result.app_name,
+                        pinned_title: if result.window_title.is_empty() {
+                            None
+                        } else {
+                            Some(result.window_title)
+                        },
+                    };
+                    changed = true;
+                    // Refresh app list so the newly selected app shows up.
+                    state.available_apps = crate::gstreamer::devices::enumerate_applications();
+                }
+            }
+
             let apps = state.available_apps.clone();
             let cmd_tx = state.command_tx.clone();
 
@@ -647,6 +667,19 @@ fn draw_source_properties(
                             }
                         }
                     });
+
+                    // Window picker (dropper) button
+                    if ui
+                        .button(
+                            egui::RichText::new(egui_phosphor::regular::CROSSHAIR)
+                                .size(14.0)
+                                .color(theme.text_secondary),
+                        )
+                        .on_hover_text("Pick a window from screen")
+                        .clicked()
+                    {
+                        state.window_picker_active = true;
+                    }
 
                     // Refresh button
                     if ui

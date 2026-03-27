@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
@@ -151,6 +152,13 @@ fn create_render_texture(device: &Device, label: &str, width: u32, height: u32) 
     })
 }
 
+/// State for an in-flight async readback.
+struct ReadbackInflight {
+    ready: Arc<AtomicBool>,
+    width: u32,
+    height: u32,
+}
+
 /// Create a readback buffer sized for the given dimensions (with 256-byte row alignment).
 fn create_readback_buffer(device: &Device, width: u32, height: u32) -> wgpu::Buffer {
     let bytes_per_row_padded = ((width * 4) + 255) & !255;
@@ -229,6 +237,9 @@ pub struct Compositor {
 
     /// Readback buffer for CPU-side frame access (sized for output resolution).
     readback_buffer: wgpu::Buffer,
+
+    /// Async readback state: dimensions and completion flag for the in-flight map.
+    readback_inflight: Option<ReadbackInflight>,
 
     /// Sampler for the preview panel: nearest-neighbor magnification for pixel-sharp
     /// display when zoomed past 1:1, linear minification for smooth zoom-out.
@@ -510,6 +521,7 @@ impl Compositor {
             texture_bind_group_layout,
             source_layers: HashMap::new(),
             readback_buffer,
+            readback_inflight: None,
             preview_sampler,
             canvas_bind_group: Arc::new(canvas_bind_group),
             canvas_pipeline: Arc::new(canvas_pipeline),
@@ -716,13 +728,18 @@ impl Compositor {
         pass.draw(0..4, 0..1);
     }
 
-    /// Read back the composited output from the GPU, returning a CPU-side `RgbaFrame`.
+    /// Begin an async GPU readback of the composited output.
     ///
-    /// When base and output resolutions differ, reads from the scaled output texture.
-    /// When they are equal, reads directly from the canvas texture.
-    ///
-    /// This blocks until the GPU work is complete.
-    pub fn readback(&self, device: &Device, queue: &Queue) -> RgbaFrame {
+    /// Submits a texture-to-buffer copy and starts an async buffer map.
+    /// Call [`try_finish_readback`] on a subsequent frame to collect the result
+    /// without blocking the render loop.
+    pub fn start_readback(&mut self, device: &Device, queue: &Queue) {
+        // If a previous readback is still in flight, skip — we'll collect it
+        // next frame and start a fresh one after that.
+        if self.readback_inflight.is_some() {
+            return;
+        }
+
         let (read_texture, read_width, read_height) =
             if self.canvas_width == self.output_width && self.canvas_height == self.output_height {
                 (&self.canvas_texture, self.canvas_width, self.canvas_height)
@@ -758,18 +775,44 @@ impl Compositor {
             },
         );
 
-        let submission_index = queue.submit(std::iter::once(encoder.finish()));
+        queue.submit(std::iter::once(encoder.finish()));
 
-        // Map and read back, stripping row padding.
+        let ready = Arc::new(AtomicBool::new(false));
+        let ready_clone = Arc::clone(&ready);
+
         let slice = self.readback_buffer.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(submission_index),
-                timeout: None,
-            })
-            .expect("GPU poll failed during readback");
+        slice.map_async(wgpu::MapMode::Read, move |_| {
+            ready_clone.store(true, Ordering::Release);
+        });
 
+        self.readback_inflight = Some(ReadbackInflight {
+            ready,
+            width: read_width,
+            height: read_height,
+        });
+    }
+
+    /// Try to collect a previously started async readback.
+    ///
+    /// Returns `Some(frame)` if the GPU copy has completed, `None` if it is
+    /// still in flight (or no readback was started). A non-blocking
+    /// `device.poll` drives the map callback without stalling the render loop.
+    pub fn try_finish_readback(&mut self, device: &Device) -> Option<RgbaFrame> {
+        let inflight = self.readback_inflight.as_ref()?;
+
+        // Drive wgpu callbacks without blocking.
+        let _ = device.poll(wgpu::PollType::Poll);
+
+        if !inflight.ready.load(Ordering::Acquire) {
+            return None;
+        }
+
+        let inflight = self.readback_inflight.take().unwrap();
+        let read_width = inflight.width;
+        let read_height = inflight.height;
+        let bytes_per_row_padded = ((read_width * 4) + 255) & !255;
+
+        let slice = self.readback_buffer.slice(..);
         let raw = slice.get_mapped_range();
         let unpadded_bytes_per_row = (read_width * 4) as usize;
         let padded = bytes_per_row_padded as usize;
@@ -781,11 +824,11 @@ impl Compositor {
         drop(raw);
         self.readback_buffer.unmap();
 
-        RgbaFrame {
+        Some(RgbaFrame {
             data,
             width: read_width,
             height: read_height,
-        }
+        })
     }
 
     /// Recreate GPU resources after a resolution change.

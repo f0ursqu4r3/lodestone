@@ -1239,6 +1239,15 @@ impl ApplicationHandler for AppManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        // Collect any completed async readback from the previous frame and
+        // forward it to the GStreamer encode thread (non-blocking).
+        if let Some(ref mut gpu) = self.gpu
+            && let Some(frame) = gpu.compositor.try_finish_readback(&gpu.device)
+            && let Some(ref channels) = self.gst_channels
+        {
+            let _ = channels.composited_frame_tx.try_send(frame);
+        }
+
         // Poll GStreamer latest frames and upload to compositor source layers.
         // Drain the shared frame map into a local vec first so we can release
         // self.gst_channels borrow before mutably borrowing self.gpu.
@@ -1311,8 +1320,7 @@ impl ApplicationHandler for AppManager {
         }
 
         // Compose active scene sources onto the canvas.
-        // upload_frame() (mut borrow) is finished above; compose() uses &self — no overlap.
-        if let Some(ref gpu) = self.gpu {
+        if let Some(ref mut gpu) = self.gpu {
             let app_state = self.state.lock().expect("lock AppState");
             if let Some(active_scene_id) = app_state.active_scene_id {
                 // Resolve sources: apply per-scene overrides from SceneSource onto LibrarySource.
@@ -1361,13 +1369,10 @@ impl ApplicationHandler for AppManager {
 
                 gpu.queue.submit(std::iter::once(encoder.finish()));
 
-                // Readback for encoding if streaming or recording.
+                // Start async readback — the result is collected at the top of
+                // the next about_to_wait() call, keeping the render loop free.
                 if is_encoding {
-                    drop(app_state); // release lock before blocking readback
-                    let frame = gpu.compositor.readback(&gpu.device, &gpu.queue);
-                    if let Some(ref channels) = self.gst_channels {
-                        let _ = channels.composited_frame_tx.try_send(frame);
-                    }
+                    gpu.compositor.start_readback(&gpu.device, &gpu.queue);
                 }
             }
         }

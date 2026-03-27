@@ -1128,19 +1128,30 @@ impl GstThread {
                 }
             }
 
-            // Forward composited frames to active encode pipelines.
-            while let Ok(frame) = self.channels.composited_frame_rx.try_recv() {
-                if let Some(ref handles) = self.stream_handles {
-                    Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
+            // Forward the latest composited frame to encode pipelines.
+            // Drain the channel first (fast) to avoid starvation: if
+            // write_frame is slow (e.g. debug-mode VCam pixel swizzle), the
+            // main thread refills the channel during processing, turning the
+            // old `while try_recv` into an infinite loop that blocks capture
+            // pulls above.
+            {
+                let mut latest: Option<RgbaFrame> = None;
+                while let Ok(frame) = self.channels.composited_frame_rx.try_recv() {
+                    latest = Some(frame);
                 }
-                if let Some(ref handles) = self.record_handles {
-                    Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
-                }
-                #[cfg(target_os = "macos")]
-                if let Some(ref handle) = self.virtual_camera_handle
-                    && let Err(e) = super::virtual_camera::write_frame(handle, &frame)
-                {
-                    log::warn!("Virtual camera frame write failed: {e}");
+                if let Some(frame) = latest {
+                    if let Some(ref handles) = self.stream_handles {
+                        Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
+                    }
+                    if let Some(ref handles) = self.record_handles {
+                        Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
+                    }
+                    #[cfg(target_os = "macos")]
+                    if let Some(ref handle) = self.virtual_camera_handle
+                        && let Err(e) = super::virtual_camera::write_frame(handle, &frame)
+                    {
+                        log::warn!("Virtual camera frame write failed: {e}");
+                    }
                 }
             }
 

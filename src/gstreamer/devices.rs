@@ -20,6 +20,7 @@ pub struct WindowInfo {
     pub owner_name: String,
     pub bundle_id: String,
     /// Bounding rect: (x, y, width, height) in logical points.
+    #[allow(dead_code)]
     pub bounds: (f64, f64, f64, f64),
     pub is_on_screen: bool,
     pub is_fullscreen: bool,
@@ -86,10 +87,10 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
 
         // Skip our own process's windows.
         let app = unsafe { window.owningApplication() };
-        if let Some(ref a) = app {
-            if unsafe { a.processID() } == own_pid {
-                continue;
-            }
+        if let Some(ref a) = app
+            && unsafe { a.processID() } == own_pid
+        {
+            continue;
         }
 
         // Extract window ID.
@@ -163,11 +164,13 @@ pub fn enumerate_applications() -> Vec<AppInfo> {
     let windows = enumerate_windows();
     let mut apps: std::collections::HashMap<String, AppInfo> = std::collections::HashMap::new();
     for win in windows {
-        let entry = apps.entry(win.bundle_id.clone()).or_insert_with(|| AppInfo {
-            bundle_id: win.bundle_id.clone(),
-            name: win.owner_name.clone(),
-            windows: Vec::new(),
-        });
+        let entry = apps
+            .entry(win.bundle_id.clone())
+            .or_insert_with(|| AppInfo {
+                bundle_id: win.bundle_id.clone(),
+                name: win.owner_name.clone(),
+                windows: Vec::new(),
+            });
         entry.windows.push(win);
     }
     let mut result: Vec<AppInfo> = apps.into_values().collect();

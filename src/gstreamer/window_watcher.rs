@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use super::devices::{enumerate_applications, AppInfo};
+use super::devices::{AppInfo, enumerate_applications};
 use super::screencapturekit;
 use crate::scene::{SourceId, WindowCaptureMode};
 
@@ -15,6 +15,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(1500);
 pub struct WatchedSource {
     pub mode: WindowCaptureMode,
     pub current_window_id: Option<u32>,
+    #[allow(dead_code)]
     pub current_window_size: Option<(u32, u32)>,
 }
 
@@ -68,9 +69,11 @@ impl WindowWatcher {
     pub fn resolve_target(&self, mode: &WindowCaptureMode) -> Option<u32> {
         match mode {
             WindowCaptureMode::AnyFullscreen => self.find_fullscreen_window(),
-            WindowCaptureMode::Application { bundle_id, pinned_title, .. } => {
-                self.find_app_window(bundle_id, pinned_title.as_deref())
-            }
+            WindowCaptureMode::Application {
+                bundle_id,
+                pinned_title,
+                ..
+            } => self.find_app_window(bundle_id, pinned_title.as_deref()),
         }
     }
 
@@ -87,10 +90,10 @@ impl WindowWatcher {
         if app.windows.is_empty() {
             return None;
         }
-        if let Some(title) = pinned_title {
-            if let Some(win) = app.windows.iter().find(|w| w.title.contains(title)) {
-                return Some(win.window_id);
-            }
+        if let Some(title) = pinned_title
+            && let Some(win) = app.windows.iter().find(|w| w.title.contains(title))
+        {
+            return Some(win.window_id);
         }
         app.windows
             .iter()

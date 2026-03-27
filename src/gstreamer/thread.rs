@@ -280,19 +280,19 @@ impl GstThread {
         match new_window_id {
             Some(wid) => {
                 // Try to update the existing SCK stream in-place first.
-                if let Some(capture) = self.captures.get_mut(&source_id) {
-                    if let Some(ref mut sck_handle) = capture.sck_handle {
-                        match super::screencapturekit::update_window_target(sck_handle, wid) {
-                            Ok(()) => {
-                                if let Some(watched) = self.watched_windows.get_mut(&source_id) {
-                                    watched.current_window_id = Some(wid);
-                                }
-                                log::info!("Switched window target for {source_id:?} to {wid}");
-                                return;
+                if let Some(capture) = self.captures.get_mut(&source_id)
+                    && let Some(ref mut sck_handle) = capture.sck_handle
+                {
+                    match super::screencapturekit::update_window_target(sck_handle, wid) {
+                        Ok(()) => {
+                            if let Some(watched) = self.watched_windows.get_mut(&source_id) {
+                                watched.current_window_id = Some(wid);
                             }
-                            Err(e) => {
-                                log::warn!("Failed to update window target, rebuilding: {e}")
-                            }
+                            log::info!("Switched window target for {source_id:?} to {wid}");
+                            return;
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to update window target, rebuilding: {e}")
                         }
                     }
                 }
@@ -534,8 +534,11 @@ impl GstThread {
     fn start_audio_capture(&mut self, kind: AudioSourceKind, device_uid: &str) {
         self.stop_audio_capture(kind);
 
-        match build_audio_capture_pipeline(kind, device_uid, AudioEncoderConfig::default().sample_rate)
-        {
+        match build_audio_capture_pipeline(
+            kind,
+            device_uid,
+            AudioEncoderConfig::default().sample_rate,
+        ) {
             Ok((pipeline, appsink, volume_name)) => {
                 log::info!("Starting {kind:?} audio pipeline for device '{device_uid}'");
                 if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
@@ -991,8 +994,8 @@ impl GstThread {
                 .is_ok()
             {
                 let is_hw = encoder_type.is_hardware();
-                let is_recommended = !found_recommended
-                    && (is_hw || encoder_type == EncoderType::H264x264);
+                let is_recommended =
+                    !found_recommended && (is_hw || encoder_type == EncoderType::H264x264);
                 if is_recommended {
                     found_recommended = true;
                 }
@@ -1004,7 +1007,9 @@ impl GstThread {
         }
 
         if !found_recommended
-            && let Some(enc) = encoders.iter_mut().find(|e| e.encoder_type == EncoderType::H264x264)
+            && let Some(enc) = encoders
+                .iter_mut()
+                .find(|e| e.encoder_type == EncoderType::H264x264)
         {
             enc.is_recommended = true;
         }
@@ -1019,7 +1024,10 @@ impl GstThread {
         log::info!(
             "Detected {} encoder(s): {:?}",
             encoders.len(),
-            encoders.iter().map(|e| e.encoder_type.display_name()).collect::<Vec<_>>()
+            encoders
+                .iter()
+                .map(|e| e.encoder_type.display_name())
+                .collect::<Vec<_>>()
         );
         let _ = self.channels.encoders_tx.send(encoders);
 

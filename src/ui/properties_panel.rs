@@ -301,7 +301,11 @@ fn draw_transform_section(
                         .range(0.0..=360.0)
                         .update_while_editing(false),
                 );
-                ui.label(egui::RichText::new("Rotation").color(theme.text_muted).size(10.0));
+                ui.label(
+                    egui::RichText::new("Rotation")
+                        .color(theme.text_muted)
+                        .size(10.0),
+                );
                 if response.changed() {
                     source.transform.rotation = rotation.rem_euclid(360.0);
                     changed = true;
@@ -467,8 +471,7 @@ fn draw_source_properties(
                         .iter()
                         .find(|d| d.index == new_idx as usize)
                     {
-                        source.native_size =
-                            (display.width as f32, display.height as f32);
+                        source.native_size = (display.width as f32, display.height as f32);
                         source.transform.width = display.width as f32;
                         source.transform.height = display.height as f32;
                     }
@@ -587,27 +590,29 @@ fn draw_source_properties(
                 "Specific Application"
             };
 
-            egui::ComboBox::from_id_salt(
-                egui::Id::new("props_window_mode").with(selected_id.0),
-            )
-            .selected_text(mode_label)
-            .width(ui.available_width())
-            .show_ui(ui, |ui| {
-                if ui.selectable_label(!is_fullscreen_mode, "Specific Application").clicked() {
-                    if is_fullscreen_mode {
+            egui::ComboBox::from_id_salt(egui::Id::new("props_window_mode").with(selected_id.0))
+                .selected_text(mode_label)
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(!is_fullscreen_mode, "Specific Application")
+                        .clicked()
+                        && is_fullscreen_mode
+                    {
                         *mode = WindowCaptureMode::Application {
                             bundle_id: String::new(),
                             app_name: String::new(),
                             pinned_title: None,
                         };
                     }
-                }
-                if ui.selectable_label(is_fullscreen_mode, "Any Fullscreen Application").clicked() {
-                    if !is_fullscreen_mode {
+                    if ui
+                        .selectable_label(is_fullscreen_mode, "Any Fullscreen Application")
+                        .clicked()
+                        && !is_fullscreen_mode
+                    {
                         *mode = WindowCaptureMode::AnyFullscreen;
                     }
-                }
-            });
+                });
 
             ui.add_space(4.0);
 
@@ -658,34 +663,39 @@ fn draw_source_properties(
                 });
 
                 // Pin-to-window toggle (when app has multiple windows)
-                if !bundle_id.is_empty() {
-                    if let Some(app) = apps.iter().find(|a| a.bundle_id == *bundle_id) {
-                        if app.windows.len() > 1 {
-                            ui.add_space(4.0);
-                            let mut is_pinned = pinned_title.is_some();
-                            if ui.checkbox(&mut is_pinned, "Pin to specific window").changed() {
-                                if is_pinned {
-                                    *pinned_title = app.windows.first().map(|w| w.title.clone());
-                                } else {
-                                    *pinned_title = None;
+                if !bundle_id.is_empty()
+                    && let Some(app) = apps.iter().find(|a| a.bundle_id == *bundle_id)
+                    && app.windows.len() > 1
+                {
+                    ui.add_space(4.0);
+                    let mut is_pinned = pinned_title.is_some();
+                    if ui
+                        .checkbox(&mut is_pinned, "Pin to specific window")
+                        .changed()
+                    {
+                        if is_pinned {
+                            *pinned_title = app.windows.first().map(|w| w.title.clone());
+                        } else {
+                            *pinned_title = None;
+                        }
+                    }
+
+                    if let Some(title) = pinned_title {
+                        egui::ComboBox::from_id_salt(
+                            egui::Id::new("props_window_pin").with(selected_id.0),
+                        )
+                        .selected_text(title.as_str())
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for win in &app.windows {
+                                if ui
+                                    .selectable_label(*title == win.title, &win.title)
+                                    .clicked()
+                                {
+                                    *title = win.title.clone();
                                 }
                             }
-
-                            if let Some(title) = pinned_title {
-                                egui::ComboBox::from_id_salt(
-                                    egui::Id::new("props_window_pin").with(selected_id.0),
-                                )
-                                .selected_text(title.as_str())
-                                .width(ui.available_width())
-                                .show_ui(ui, |ui| {
-                                    for win in &app.windows {
-                                        if ui.selectable_label(*title == win.title, &win.title).clicked() {
-                                            *title = win.title.clone();
-                                        }
-                                    }
-                                });
-                            }
-                        }
+                        });
                     }
                 }
             }
@@ -708,15 +718,13 @@ fn draw_source_properties(
                     _ => "Select an application".to_string(),
                 }
             };
-            ui.label(
-                egui::RichText::new(&status)
-                    .size(11.0)
-                    .color(if current_window_id.is_some() {
-                        theme.text_secondary
-                    } else {
-                        theme.text_muted
-                    }),
-            );
+            ui.label(egui::RichText::new(&status).size(11.0).color(
+                if current_window_id.is_some() {
+                    theme.text_secondary
+                } else {
+                    theme.text_muted
+                },
+            ));
 
             // Trigger capture restart if mode changed
             if *mode != prev_mode {
@@ -726,9 +734,7 @@ fn draw_source_properties(
                     });
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: selected_id,
-                        config: CaptureSourceConfig::Window {
-                            mode: mode.clone(),
-                        },
+                        config: CaptureSourceConfig::Window { mode: mode.clone() },
                     });
                 }
                 changed = true;
@@ -777,8 +783,7 @@ fn draw_source_properties(
                 // Update native_size and transform to match the new camera.
                 let new_idx = *device_index;
                 if let Some(cam) = cameras.iter().find(|c| c.device_index == new_idx) {
-                    source.native_size =
-                        (cam.resolution.0 as f32, cam.resolution.1 as f32);
+                    source.native_size = (cam.resolution.0 as f32, cam.resolution.1 as f32);
                     source.transform.width = cam.resolution.0 as f32;
                     source.transform.height = cam.resolution.1 as f32;
                 }
@@ -858,7 +863,11 @@ fn draw_source_properties(
 
                 // Font size slider.
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Size").color(theme.text_secondary).size(10.0));
+                    ui.label(
+                        egui::RichText::new("Size")
+                            .color(theme.text_secondary)
+                            .size(10.0),
+                    );
                     if ui
                         .add(egui::Slider::new(font_size, 8.0..=200.0).suffix(" pt"))
                         .changed()
@@ -1415,7 +1424,11 @@ fn draw_source_properties(
 
                 // Width / Height.
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("W").color(theme.text_secondary).size(10.0));
+                    ui.label(
+                        egui::RichText::new("W")
+                            .color(theme.text_secondary)
+                            .size(10.0),
+                    );
                     if ui
                         .add(egui::DragValue::new(width).range(100..=3840).speed(1.0))
                         .changed()
@@ -1423,7 +1436,11 @@ fn draw_source_properties(
                         changed = true;
                     }
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new("H").color(theme.text_secondary).size(10.0));
+                    ui.label(
+                        egui::RichText::new("H")
+                            .color(theme.text_secondary)
+                            .size(10.0),
+                    );
                     if ui
                         .add(egui::DragValue::new(height).range(100..=2160).speed(1.0))
                         .changed()
@@ -1491,7 +1508,11 @@ fn section_label(ui: &mut egui::Ui, text: &str) {
 /// Render a labeled `DragValue` field and return whether the value changed.
 fn drag_field(ui: &mut egui::Ui, label: &str, value: &mut f32) -> bool {
     let theme = active_theme(ui.ctx());
-    ui.label(egui::RichText::new(label).color(theme.text_muted).size(10.0));
+    ui.label(
+        egui::RichText::new(label)
+            .color(theme.text_muted)
+            .size(10.0),
+    );
     ui.add(
         egui::DragValue::new(value)
             .speed(1.0)
@@ -1525,7 +1546,11 @@ fn aspect_lock_button(ui: &mut egui::Ui, locked: bool) -> bool {
     } else {
         egui_phosphor::regular::LOCK_SIMPLE_OPEN
     };
-    let color = if locked { theme.text_primary } else { theme.text_muted };
+    let color = if locked {
+        theme.text_primary
+    } else {
+        theme.text_muted
+    };
     ui.add(egui::Button::new(egui::RichText::new(icon).size(12.0).color(color)).frame(false))
         .on_hover_text(if locked {
             "Unlock aspect ratio"

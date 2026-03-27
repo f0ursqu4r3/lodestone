@@ -31,7 +31,10 @@ pub enum CaptureKind {
     /// Capturing an entire display by index.
     Display { screen_index: usize },
     /// Capturing a single window by CGWindowID.
-    Window { window_id: u32 },
+    Window {
+        #[allow(dead_code)]
+        window_id: u32,
+    },
 }
 
 /// Handle to a running ScreenCaptureKit capture session.
@@ -298,8 +301,12 @@ pub fn start_window_capture(
 
     // 2. Find the SCWindow with matching window_id
     let windows: Retained<NSArray<SCWindow>> = unsafe { content.windows() };
-    let window = find_window_by_id(&windows, window_id)
-        .ok_or_else(|| anyhow!("Window with ID {} not found in shareable content", window_id))?;
+    let window = find_window_by_id(&windows, window_id).ok_or_else(|| {
+        anyhow!(
+            "Window with ID {} not found in shareable content",
+            window_id
+        )
+    })?;
 
     // 3. Build a desktop-independent window filter
     let filter = unsafe {
@@ -412,10 +419,7 @@ pub fn update_window_target(handle: &mut SCStreamHandle, new_window_id: u32) -> 
 // ---------------------------------------------------------------------------
 
 /// Find an `SCWindow` in the array by its CGWindowID.
-fn find_window_by_id(
-    windows: &NSArray<SCWindow>,
-    target_id: u32,
-) -> Option<Retained<SCWindow>> {
+fn find_window_by_id(windows: &NSArray<SCWindow>, target_id: u32) -> Option<Retained<SCWindow>> {
     let count = windows.count();
     for i in 0..count {
         let window = unsafe { windows.objectAtIndex_unchecked(i) };

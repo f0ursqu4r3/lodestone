@@ -25,6 +25,15 @@ use std::sync::mpsc as std_mpsc;
 
 use super::types::RgbaFrame;
 
+/// Describes what content a [`SCStreamHandle`] is currently capturing.
+#[derive(Debug)]
+pub enum CaptureKind {
+    /// Capturing an entire display by index.
+    Display { screen_index: usize },
+    /// Capturing a single window by CGWindowID.
+    Window { window_id: u32 },
+}
+
 /// Handle to a running ScreenCaptureKit capture session.
 ///
 /// Dropping this handle does **not** automatically stop the capture -- call
@@ -32,7 +41,7 @@ use super::types::RgbaFrame;
 pub struct SCStreamHandle {
     stream: Retained<SCStream>,
     _delegate: Retained<StreamOutputDelegate>,
-    screen_index: usize,
+    pub kind: CaptureKind,
 }
 
 // SAFETY: SCStream and the delegate are thread-safe ObjC objects managed by ARC.
@@ -197,7 +206,7 @@ pub fn start_display_capture(
     let handle = SCStreamHandle {
         stream,
         _delegate: delegate,
-        screen_index,
+        kind: CaptureKind::Display { screen_index },
     };
 
     Ok((handle, frame_rx))
@@ -229,13 +238,23 @@ pub fn stop_display_capture(handle: SCStreamHandle) -> Result<()> {
 ///
 /// Re-enumerates shareable content to pick up any new/closed windows, rebuilds
 /// the filter with the current exclusion setting, and applies it live.
+/// Only meaningful for [`CaptureKind::Display`] handles; returns an error for
+/// window captures (use [`update_window_target`] instead).
 pub fn update_exclusion(handle: &SCStreamHandle, exclude_own_pid: bool) -> Result<()> {
+    let screen_index = match handle.kind {
+        CaptureKind::Display { screen_index } => screen_index,
+        CaptureKind::Window { .. } => {
+            return Err(anyhow!(
+                "update_exclusion is not applicable to window captures"
+            ));
+        }
+    };
     let content = get_shareable_content()?;
     let displays: Retained<NSArray<SCDisplay>> = unsafe { content.displays() };
-    if handle.screen_index >= displays.count() {
+    if screen_index >= displays.count() {
         return Err(anyhow!("Display no longer available"));
     }
-    let display = unsafe { displays.objectAtIndex_unchecked(handle.screen_index) };
+    let display = unsafe { displays.objectAtIndex_unchecked(screen_index) };
     let filter = build_content_filter(display, &content, exclude_own_pid)?;
 
     let (tx, rx) = std_mpsc::channel();
@@ -257,12 +276,158 @@ pub fn update_exclusion(handle: &SCStreamHandle, exclude_own_pid: bool) -> Resul
     Ok(())
 }
 
+/// Start capturing a single window via ScreenCaptureKit.
+///
+/// # Arguments
+/// * `window_id` -- CGWindowID of the window to capture
+/// * `width` -- output pixel width
+/// * `height` -- output pixel height
+/// * `fps` -- target frames per second
+///
+/// # Returns
+/// A tuple of `(handle, frame_receiver)`. The receiver yields `RgbaFrame`s as
+/// they are captured. Call [`stop_display_capture`] with the handle to stop.
+pub fn start_window_capture(
+    window_id: u32,
+    width: u32,
+    height: u32,
+    fps: u32,
+) -> Result<(SCStreamHandle, std_mpsc::Receiver<RgbaFrame>)> {
+    // 1. Enumerate shareable content
+    let content = get_shareable_content()?;
+
+    // 2. Find the SCWindow with matching window_id
+    let windows: Retained<NSArray<SCWindow>> = unsafe { content.windows() };
+    let window = find_window_by_id(&windows, window_id)
+        .ok_or_else(|| anyhow!("Window with ID {} not found in shareable content", window_id))?;
+
+    // 3. Build a desktop-independent window filter
+    let filter = unsafe {
+        SCContentFilter::initWithDesktopIndependentWindow(SCContentFilter::alloc(), &window)
+    };
+
+    // 4. Build stream configuration
+    let config = build_stream_config(width, height, fps)?;
+
+    // 5. Create frame channel
+    let (frame_tx, frame_rx) = std_mpsc::channel();
+
+    // 6. Create delegate
+    let delegate = StreamOutputDelegate::new(frame_tx);
+
+    // 7. Create SCStream with delegate
+    let delegate_for_stream: Retained<ProtocolObject<dyn SCStreamDelegate>> =
+        ProtocolObject::from_retained(delegate.clone());
+    let stream = unsafe {
+        SCStream::initWithFilter_configuration_delegate(
+            SCStream::alloc(),
+            &filter,
+            &config,
+            Some(&*delegate_for_stream),
+        )
+    };
+
+    // 8. Add stream output
+    let output_proto: Retained<ProtocolObject<dyn SCStreamOutput>> =
+        ProtocolObject::from_retained(delegate.clone());
+    unsafe {
+        stream
+            .addStreamOutput_type_sampleHandlerQueue_error(
+                &output_proto,
+                SCStreamOutputType::Screen,
+                None,
+            )
+            .map_err(|e| anyhow!("Failed to add stream output: {}", e))?;
+    }
+
+    // 9. Start capture (blocking via channel)
+    let (start_tx, start_rx) = std_mpsc::channel();
+    let start_block = RcBlock::new(move |error: *mut NSError| {
+        if error.is_null() {
+            let _ = start_tx.send(Ok(()));
+        } else {
+            let desc = unsafe { (*error).localizedDescription().to_string() };
+            let _ = start_tx.send(Err(anyhow!("Failed to start SCStream: {}", desc)));
+        }
+    });
+    unsafe {
+        stream.startCaptureWithCompletionHandler(Some(&start_block));
+    }
+    start_rx
+        .recv()
+        .map_err(|_| anyhow!("Start capture channel closed"))??;
+
+    let handle = SCStreamHandle {
+        stream,
+        _delegate: delegate,
+        kind: CaptureKind::Window { window_id },
+    };
+
+    Ok((handle, frame_rx))
+}
+
+/// Switch a window capture to a different window without stopping the stream.
+///
+/// Re-enumerates shareable content, finds the new window, builds a new filter,
+/// and applies it live via `updateContentFilter_completionHandler`.
+pub fn update_window_target(handle: &mut SCStreamHandle, new_window_id: u32) -> Result<()> {
+    let content = get_shareable_content()?;
+    let windows: Retained<NSArray<SCWindow>> = unsafe { content.windows() };
+    let window = find_window_by_id(&windows, new_window_id).ok_or_else(|| {
+        anyhow!(
+            "Window with ID {} not found in shareable content",
+            new_window_id
+        )
+    })?;
+
+    let filter = unsafe {
+        SCContentFilter::initWithDesktopIndependentWindow(SCContentFilter::alloc(), &window)
+    };
+
+    let (tx, rx) = std_mpsc::channel();
+    let block = RcBlock::new(move |error: *mut NSError| {
+        if error.is_null() {
+            let _ = tx.send(Ok(()));
+        } else {
+            let desc = unsafe { (*error).localizedDescription().to_string() };
+            let _ = tx.send(Err(anyhow!("Failed to update window filter: {}", desc)));
+        }
+    });
+    unsafe {
+        handle
+            .stream
+            .updateContentFilter_completionHandler(&filter, Some(&block));
+    }
+    rx.recv()
+        .map_err(|_| anyhow!("Update window filter channel closed"))??;
+
+    handle.kind = CaptureKind::Window {
+        window_id: new_window_id,
+    };
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Find an `SCWindow` in the array by its CGWindowID.
+fn find_window_by_id(
+    windows: &NSArray<SCWindow>,
+    target_id: u32,
+) -> Option<Retained<SCWindow>> {
+    let count = windows.count();
+    for i in 0..count {
+        let window = unsafe { windows.objectAtIndex_unchecked(i) };
+        if unsafe { window.windowID() } == target_id {
+            return Some(window.retain());
+        }
+    }
+    None
+}
+
 /// Fetch shareable content synchronously by bridging the async ObjC callback.
-fn get_shareable_content() -> Result<Retained<SCShareableContent>> {
+pub(crate) fn get_shareable_content() -> Result<Retained<SCShareableContent>> {
     let (tx, rx) = std_mpsc::channel();
     let block = RcBlock::new(
         move |content: *mut SCShareableContent, error: *mut NSError| {

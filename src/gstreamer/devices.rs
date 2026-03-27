@@ -12,12 +12,25 @@ pub struct CameraDevice {
     pub resolution: (u32, u32),
 }
 
-/// A window available for capture, discovered via CoreGraphics.
+/// A window available for capture, discovered via ScreenCaptureKit.
 #[derive(Debug, Clone)]
 pub struct WindowInfo {
     pub window_id: u32,
     pub title: String,
     pub owner_name: String,
+    pub bundle_id: String,
+    /// Bounding rect: (x, y, width, height) in logical points.
+    pub bounds: (f64, f64, f64, f64),
+    pub is_on_screen: bool,
+    pub is_fullscreen: bool,
+}
+
+/// An application with one or more capturable windows.
+#[derive(Debug, Clone)]
+pub struct AppInfo {
+    pub bundle_id: String,
+    pub name: String,
+    pub windows: Vec<WindowInfo>,
 }
 
 /// Info about a display available for capture, including its native resolution
@@ -34,111 +47,102 @@ const MIN_WINDOW_DIMENSION: f64 = 50.0;
 
 /// Enumerate on-screen windows available for capture (macOS).
 ///
-/// Uses CoreGraphics `CGWindowListCopyWindowInfo` to discover visible windows.
-/// Filters out windows with empty titles, windows owned by Lodestone itself,
-/// and windows that are too small to be useful capture targets.
+/// Uses ScreenCaptureKit to discover visible windows. Filters out windows with
+/// empty titles, windows owned by Lodestone itself, and windows that are too
+/// small to be useful capture targets.
 #[cfg(target_os = "macos")]
 pub fn enumerate_windows() -> Vec<WindowInfo> {
-    use core_foundation::base::{CFType, TCFType};
-    use core_foundation::dictionary::CFDictionary;
-    use core_foundation::number::CFNumber;
-    use core_foundation::string::CFString;
-    use core_graphics::window::{
-        copy_window_info, kCGNullWindowID, kCGWindowListExcludeDesktopElements,
-        kCGWindowListOptionOnScreenOnly,
+    let content = match super::screencapturekit::get_shareable_content() {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("enumerate_windows: failed to get shareable content: {e}");
+            return Vec::new();
+        }
     };
 
-    let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+    let own_pid = std::process::id() as i32;
 
-    let window_list = match copy_window_info(options, kCGNullWindowID) {
-        Some(list) => list,
-        None => return Vec::new(),
-    };
+    // Collect display bounds for fullscreen detection.
+    let displays = unsafe { content.displays() };
+    let display_count = displays.count();
+    let mut display_bounds: Vec<(f64, f64, f64, f64)> = Vec::with_capacity(display_count);
+    for i in 0..display_count {
+        let d = unsafe { displays.objectAtIndex_unchecked(i) };
+        let frame = unsafe { d.frame() };
+        display_bounds.push((
+            frame.origin.x,
+            frame.origin.y,
+            frame.size.width,
+            frame.size.height,
+        ));
+    }
 
-    let own_pid = std::process::id();
-
-    let key_number = CFString::new("kCGWindowNumber");
-    let key_owner = CFString::new("kCGWindowOwnerName");
-    let key_name = CFString::new("kCGWindowName");
-    let key_owner_pid = CFString::new("kCGWindowOwnerPID");
-    let key_bounds = CFString::new("kCGWindowBounds");
-
+    let windows = unsafe { content.windows() };
+    let count = windows.count();
     let mut results = Vec::new();
 
-    for i in 0..window_list.len() {
-        // Each entry is a CFDictionary; get it as a raw CFType and downcast.
-        let entry: CFType = unsafe { CFType::wrap_under_get_rule(*window_list.get(i).unwrap()) };
-        let dict: CFDictionary<CFString, CFType> =
-            unsafe { CFDictionary::wrap_under_get_rule(entry.as_CFTypeRef() as *const _) };
+    for i in 0..count {
+        let window = unsafe { windows.objectAtIndex_unchecked(i) };
 
-        // Extract owner PID and skip our own windows.
-        let owner_pid = dict.find(&key_owner_pid).and_then(|v| unsafe {
-            CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_i64()
-        });
-        if let Some(pid) = owner_pid
-            && pid as u32 == own_pid
-        {
-            continue;
+        // Skip our own process's windows.
+        let app = unsafe { window.owningApplication() };
+        if let Some(ref a) = app {
+            if unsafe { a.processID() } == own_pid {
+                continue;
+            }
         }
 
         // Extract window ID.
-        let window_id = match dict.find(&key_number).and_then(|v| unsafe {
-            CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_i64()
-        }) {
-            Some(id) if id > 0 => id as u32,
-            _ => continue,
-        };
+        let window_id = unsafe { window.windowID() };
+        if window_id == 0 {
+            continue;
+        }
 
         // Extract title — skip windows with empty or missing titles.
-        let title = match dict.find(&key_name) {
-            Some(v) => {
-                let s = unsafe { CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _) };
-                let t = s.to_string();
-                if t.is_empty() {
+        let title = match unsafe { window.title() } {
+            Some(t) => {
+                let s = t.to_string();
+                if s.is_empty() {
                     continue;
                 }
-                t
+                s
             }
             None => continue,
         };
 
-        // Extract owner name.
-        let owner_name = dict
-            .find(&key_owner)
-            .map(|v| unsafe {
-                CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_string()
-            })
-            .unwrap_or_default();
+        // Extract owner info.
+        let (owner_name, bundle_id) = if let Some(ref a) = app {
+            let name = unsafe { a.applicationName() }.to_string();
+            let bundle = unsafe { a.bundleIdentifier() }.to_string();
+            (name, bundle)
+        } else {
+            (String::new(), String::new())
+        };
 
-        // Filter out very small windows by checking bounds dictionary.
-        if let Some(bounds_val) = dict.find(&key_bounds) {
-            let bounds_dict: CFDictionary<CFString, CFType> =
-                unsafe { CFDictionary::wrap_under_get_rule(bounds_val.as_CFTypeRef() as *const _) };
-            let width_key = CFString::new("Width");
-            let height_key = CFString::new("Height");
-
-            let width = bounds_dict
-                .find(&width_key)
-                .and_then(|v| unsafe {
-                    CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_f64()
-                })
-                .unwrap_or(0.0);
-            let height = bounds_dict
-                .find(&height_key)
-                .and_then(|v| unsafe {
-                    CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _).to_f64()
-                })
-                .unwrap_or(0.0);
-
-            if width < MIN_WINDOW_DIMENSION || height < MIN_WINDOW_DIMENSION {
-                continue;
-            }
+        // Extract bounds and filter tiny windows.
+        let frame = unsafe { window.frame() };
+        let (x, y, w, h) = (
+            frame.origin.x,
+            frame.origin.y,
+            frame.size.width,
+            frame.size.height,
+        );
+        if w < MIN_WINDOW_DIMENSION || h < MIN_WINDOW_DIMENSION {
+            continue;
         }
+        let bounds = (x, y, w, h);
+
+        let is_on_screen = unsafe { window.isOnScreen() };
+        let is_fullscreen = is_window_fullscreen(bounds, &display_bounds);
 
         results.push(WindowInfo {
             window_id,
             title,
             owner_name,
+            bundle_id,
+            bounds,
+            is_on_screen,
+            is_fullscreen,
         });
     }
 
@@ -149,6 +153,50 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
 #[cfg(not(target_os = "macos"))]
 pub fn enumerate_windows() -> Vec<WindowInfo> {
     Vec::new()
+}
+
+/// Group windows by owning application (macOS).
+///
+/// Returns a list of [`AppInfo`] sorted alphabetically by application name.
+#[cfg(target_os = "macos")]
+pub fn enumerate_applications() -> Vec<AppInfo> {
+    let windows = enumerate_windows();
+    let mut apps: std::collections::HashMap<String, AppInfo> = std::collections::HashMap::new();
+    for win in windows {
+        let entry = apps.entry(win.bundle_id.clone()).or_insert_with(|| AppInfo {
+            bundle_id: win.bundle_id.clone(),
+            name: win.owner_name.clone(),
+            windows: Vec::new(),
+        });
+        entry.windows.push(win);
+    }
+    let mut result: Vec<AppInfo> = apps.into_values().collect();
+    result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    result
+}
+
+/// Fallback for non-macOS platforms.
+#[cfg(not(target_os = "macos"))]
+pub fn enumerate_applications() -> Vec<AppInfo> {
+    Vec::new()
+}
+
+/// Returns `true` if the window bounds match any display bounds (within 1pt tolerance).
+fn is_window_fullscreen(
+    window_bounds: (f64, f64, f64, f64),
+    displays: &[(f64, f64, f64, f64)],
+) -> bool {
+    let (wx, wy, ww, wh) = window_bounds;
+    for &(dx, dy, dw, dh) in displays {
+        if (wx - dx).abs() <= 1.0
+            && (wy - dy).abs() <= 1.0
+            && (ww - dw).abs() <= 1.0
+            && (wh - dh).abs() <= 1.0
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Name substrings that indicate a screen-capture source rather than a real camera.
@@ -300,6 +348,8 @@ mod tests {
         for w in &windows {
             assert!(!w.title.is_empty());
             assert!(w.window_id != 0);
+            assert!(w.bounds.2 >= super::MIN_WINDOW_DIMENSION);
+            assert!(w.bounds.3 >= super::MIN_WINDOW_DIMENSION);
         }
     }
 

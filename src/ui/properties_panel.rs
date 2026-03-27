@@ -8,6 +8,7 @@ use crate::gstreamer::types::RgbaFrame;
 use crate::gstreamer::{CaptureSourceConfig, GstCommand, GstError};
 use crate::scene::{
     AudioInput, ColorFill, GradientStop, SourceId, SourceProperties, SourceType, TextAlignment,
+    WindowCaptureMode,
 };
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
@@ -558,10 +559,179 @@ fn draw_source_properties(
             }
         }
         SourceType::Window => {
-            // TODO(Task 8): rewrite with new WindowCaptureMode UI
-            let SourceProperties::Window { .. } = state.library[lib_idx].properties else {
+            section_label(ui, "SOURCE");
+            ui.add_space(4.0);
+
+            let apps = crate::gstreamer::devices::enumerate_applications();
+            let cmd_tx = state.command_tx.clone();
+
+            let source = &mut state.library[lib_idx];
+            let SourceProperties::Window {
+                ref mut mode,
+                ref current_window_id,
+            } = source.properties
+            else {
                 return changed;
             };
+
+            let prev_mode = mode.clone();
+
+            // Mode selector
+            let is_fullscreen_mode = matches!(mode, WindowCaptureMode::AnyFullscreen);
+            let mode_label = if is_fullscreen_mode {
+                "Any Fullscreen Application"
+            } else {
+                "Specific Application"
+            };
+
+            egui::ComboBox::from_id_salt(
+                egui::Id::new("props_window_mode").with(selected_id.0),
+            )
+            .selected_text(mode_label)
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(!is_fullscreen_mode, "Specific Application").clicked() {
+                    if is_fullscreen_mode {
+                        *mode = WindowCaptureMode::Application {
+                            bundle_id: String::new(),
+                            app_name: String::new(),
+                            pinned_title: None,
+                        };
+                    }
+                }
+                if ui.selectable_label(is_fullscreen_mode, "Any Fullscreen Application").clicked() {
+                    if !is_fullscreen_mode {
+                        *mode = WindowCaptureMode::AnyFullscreen;
+                    }
+                }
+            });
+
+            ui.add_space(4.0);
+
+            // App selector (only in Application mode)
+            if let WindowCaptureMode::Application {
+                bundle_id,
+                app_name,
+                pinned_title,
+            } = mode
+            {
+                let selected_app_label = if app_name.is_empty() {
+                    "Select an application...".to_string()
+                } else {
+                    app_name.clone()
+                };
+
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt(
+                        egui::Id::new("props_window_app").with(selected_id.0),
+                    )
+                    .selected_text(&selected_app_label)
+                    .width(ui.available_width() - 32.0)
+                    .show_ui(ui, |ui| {
+                        for app in &apps {
+                            if ui
+                                .selectable_label(*bundle_id == app.bundle_id, &app.name)
+                                .clicked()
+                            {
+                                *bundle_id = app.bundle_id.clone();
+                                *app_name = app.name.clone();
+                                *pinned_title = None;
+                            }
+                        }
+                    });
+
+                    // Refresh button
+                    if ui
+                        .button(
+                            egui::RichText::new(egui_phosphor::regular::ARROW_CLOCKWISE)
+                                .size(14.0)
+                                .color(theme.text_secondary),
+                        )
+                        .on_hover_text("Refresh application list")
+                        .clicked()
+                    {
+                        // Re-enumerate on next frame by dropping; no cached field yet.
+                        // Task 9 will add state.available_apps for proper caching.
+                        let _ = crate::gstreamer::devices::enumerate_applications();
+                    }
+                });
+
+                // Pin-to-window toggle (when app has multiple windows)
+                if !bundle_id.is_empty() {
+                    if let Some(app) = apps.iter().find(|a| a.bundle_id == *bundle_id) {
+                        if app.windows.len() > 1 {
+                            ui.add_space(4.0);
+                            let mut is_pinned = pinned_title.is_some();
+                            if ui.checkbox(&mut is_pinned, "Pin to specific window").changed() {
+                                if is_pinned {
+                                    *pinned_title = app.windows.first().map(|w| w.title.clone());
+                                } else {
+                                    *pinned_title = None;
+                                }
+                            }
+
+                            if let Some(title) = pinned_title {
+                                egui::ComboBox::from_id_salt(
+                                    egui::Id::new("props_window_pin").with(selected_id.0),
+                                )
+                                .selected_text(title.as_str())
+                                .width(ui.available_width())
+                                .show_ui(ui, |ui| {
+                                    for win in &app.windows {
+                                        if ui.selectable_label(*title == win.title, &win.title).clicked() {
+                                            *title = win.title.clone();
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Status display
+            ui.add_space(4.0);
+            let status = if current_window_id.is_some() {
+                match mode {
+                    WindowCaptureMode::Application { app_name, .. } => {
+                        format!("Capturing: {app_name}")
+                    }
+                    WindowCaptureMode::AnyFullscreen => "Capturing fullscreen app".to_string(),
+                }
+            } else {
+                match mode {
+                    WindowCaptureMode::Application { app_name, .. } if !app_name.is_empty() => {
+                        format!("Waiting for {}...", app_name)
+                    }
+                    WindowCaptureMode::AnyFullscreen => "No fullscreen application".to_string(),
+                    _ => "Select an application".to_string(),
+                }
+            };
+            ui.label(
+                egui::RichText::new(&status)
+                    .size(11.0)
+                    .color(if current_window_id.is_some() {
+                        theme.text_secondary
+                    } else {
+                        theme.text_muted
+                    }),
+            );
+
+            // Trigger capture restart if mode changed
+            if *mode != prev_mode {
+                if let Some(ref tx) = cmd_tx {
+                    let _ = tx.try_send(GstCommand::RemoveCaptureSource {
+                        source_id: selected_id,
+                    });
+                    let _ = tx.try_send(GstCommand::AddCaptureSource {
+                        source_id: selected_id,
+                        config: CaptureSourceConfig::Window {
+                            mode: mode.clone(),
+                        },
+                    });
+                }
+                changed = true;
+            }
         }
         SourceType::Camera => {
             section_label(ui, "SOURCE");

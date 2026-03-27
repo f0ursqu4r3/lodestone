@@ -91,58 +91,6 @@ pub fn build_capture_pipeline(
     Ok((pipeline, appsink))
 }
 
-/// Capture a single frame from a macOS window using CoreGraphics.
-///
-/// Returns `Some((rgba_bytes, width, height))` if the window is available,
-/// or `None` if the window cannot be captured (e.g., it has been closed).
-/// CoreGraphics outputs BGRA pixel data, so this function swaps B and R
-/// channels to produce RGBA output.
-#[cfg(target_os = "macos")]
-pub fn grab_window_frame(window_id: u32) -> Option<(Vec<u8>, u32, u32)> {
-    use core_graphics::geometry::{CGPoint, CGRect, CGSize};
-    use core_graphics::window::{
-        kCGWindowImageBoundsIgnoreFraming, kCGWindowImageNominalResolution,
-        kCGWindowListOptionIncludingWindow,
-    };
-
-    // A zero-sized rect tells CoreGraphics to use the window's own bounds.
-    let null_rect = CGRect::new(&CGPoint::new(0.0, 0.0), &CGSize::new(0.0, 0.0));
-
-    let image = core_graphics::window::create_image(
-        null_rect,
-        kCGWindowListOptionIncludingWindow,
-        window_id,
-        kCGWindowImageBoundsIgnoreFraming | kCGWindowImageNominalResolution,
-    )?;
-
-    let width = image.width() as u32;
-    let height = image.height() as u32;
-    let bytes_per_row = image.bytes_per_row();
-    let cf_data = image.data();
-    let raw = cf_data.bytes();
-
-    // Convert from BGRA (CoreGraphics native) to RGBA, handling row padding.
-    let stride = (width as usize) * 4;
-    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-    for row in 0..height as usize {
-        let row_start = row * bytes_per_row;
-        let row_end = row_start + stride;
-        if row_end > raw.len() {
-            break;
-        }
-        let row_slice = &raw[row_start..row_end];
-        for pixel in row_slice.chunks_exact(4) {
-            // BGRA → RGBA: swap B and R
-            rgba.push(pixel[2]); // R
-            rgba.push(pixel[1]); // G
-            rgba.push(pixel[0]); // B
-            rgba.push(pixel[3]); // A
-        }
-    }
-
-    Some((rgba, width, height))
-}
-
 /// Build a GStreamer pipeline for display capture using `appsrc`.
 ///
 /// Returns `(pipeline, appsink, appsrc)`. The caller pushes RGBA frames from
@@ -206,70 +154,6 @@ pub fn build_display_capture_pipeline(
 
     gstreamer::Element::link_many([appsrc.upcast_ref(), &convert, &scale, appsink.upcast_ref()])
         .context("Failed to link display capture pipeline elements")?;
-
-    Ok((pipeline, appsink, appsrc))
-}
-
-/// Build a GStreamer pipeline for window capture using `appsrc`.
-///
-/// Returns `(pipeline, appsink, appsrc)`. The caller pushes RGBA frames into
-/// the `appsrc` from a dedicated capture thread; the `appsink` emits frames
-/// for the compositor.
-///
-/// Pipeline: `appsrc → videoconvert → videoscale → appsink`
-#[cfg(target_os = "macos")]
-pub fn build_window_capture_pipeline(
-    width: u32,
-    height: u32,
-    fps: u32,
-) -> Result<(gstreamer::Pipeline, AppSink, AppSrc)> {
-    let pipeline = gstreamer::Pipeline::with_name("window-capture-pipeline");
-
-    let src_caps = gstreamer_video::VideoCapsBuilder::new()
-        .format(gstreamer_video::VideoFormat::Rgba)
-        .width(width as i32)
-        .height(height as i32)
-        .framerate(gstreamer::Fraction::new(fps as i32, 1))
-        .build();
-
-    let appsrc = AppSrc::builder()
-        .name("window-capture-src")
-        .caps(&src_caps)
-        .is_live(true)
-        .format(gstreamer::Format::Time)
-        .do_timestamp(true)
-        .build();
-
-    let convert = gstreamer::ElementFactory::make("videoconvert")
-        .name("window-capture-convert")
-        .build()
-        .context("Failed to create videoconvert for window capture")?;
-
-    let scale = gstreamer::ElementFactory::make("videoscale")
-        .name("window-capture-scale")
-        .build()
-        .context("Failed to create videoscale for window capture")?;
-
-    let sink_caps = gstreamer_video::VideoCapsBuilder::new()
-        .format(gstreamer_video::VideoFormat::Rgba)
-        .width(width as i32)
-        .height(height as i32)
-        .framerate(gstreamer::Fraction::new(fps as i32, 1))
-        .build();
-
-    let appsink = AppSink::builder()
-        .name("window-capture-sink")
-        .caps(&sink_caps)
-        .max_buffers(2)
-        .drop(true)
-        .build();
-
-    pipeline
-        .add_many([appsrc.upcast_ref(), &convert, &scale, appsink.upcast_ref()])
-        .context("Failed to add elements to window capture pipeline")?;
-
-    gstreamer::Element::link_many([appsrc.upcast_ref(), &convert, &scale, appsink.upcast_ref()])
-        .context("Failed to link window capture pipeline elements")?;
 
     Ok((pipeline, appsink, appsrc))
 }

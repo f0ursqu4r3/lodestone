@@ -13,6 +13,8 @@ pub struct PickerResult {
     pub bundle_id: String,
     pub app_name: String,
     pub window_title: String,
+    pub width: u32,
+    pub height: u32,
 }
 
 // ─── Native implementation (macOS) ───────────────────────────────────────────
@@ -295,6 +297,8 @@ mod native {
                         bundle_id: hl.bundle_id.clone(),
                         app_name: hl.app_name.clone(),
                         window_title: hl.window_title.clone(),
+                        width: hl.bounds.size.width as u32,
+                        height: hl.bounds.size.height as u32,
                     })
                 });
                 PICKER_RESULT.with(|r| *r.borrow_mut() = Some(result));
@@ -315,6 +319,8 @@ mod native {
                     bundle_id: hl.bundle_id.clone(),
                     app_name: hl.app_name.clone(),
                     window_title: hl.window_title.clone(),
+                    width: hl.bounds.size.width as u32,
+                    height: hl.bounds.size.height as u32,
                 })
             });
             PICKER_RESULT.with(|r| *r.borrow_mut() = Some(result));

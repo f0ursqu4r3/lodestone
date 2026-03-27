@@ -571,6 +571,8 @@ fn draw_source_properties(
 
             // Consume window picker result if available.
             if let Some(result) = state.window_picker_result.take() {
+                let w = result.width as f32;
+                let h = result.height as f32;
                 let source = &mut state.library[lib_idx];
                 if let SourceProperties::Window { ref mut mode, .. } = source.properties {
                     let new_mode = WindowCaptureMode::Application {
@@ -583,6 +585,10 @@ fn draw_source_properties(
                         },
                     };
                     *mode = new_mode.clone();
+                    // Update native size and transform to match the window.
+                    source.native_size = (w, h);
+                    source.transform.width = w;
+                    source.transform.height = h;
                     changed = true;
                     // Restart capture with the new mode.
                     if let Some(ref tx) = state.command_tx {
@@ -770,15 +776,31 @@ fn draw_source_properties(
                 },
             ));
 
-            // Trigger capture restart if mode changed
-            if *mode != prev_mode {
+            // Trigger capture restart if mode changed.
+            let mode_changed = *mode != prev_mode;
+            let new_mode = mode.clone();
+
+            if mode_changed {
+                // Update native_size and transform from the target window's bounds.
+                if let WindowCaptureMode::Application { ref bundle_id, .. } = new_mode {
+                    if let Some(app) = apps.iter().find(|a| a.bundle_id == *bundle_id) {
+                        if let Some(win) = app.windows.first() {
+                            let w = win.bounds.2 as f32;
+                            let h = win.bounds.3 as f32;
+                            let source = &mut state.library[lib_idx];
+                            source.native_size = (w, h);
+                            source.transform.width = w;
+                            source.transform.height = h;
+                        }
+                    }
+                }
                 if let Some(ref tx) = cmd_tx {
                     let _ = tx.try_send(GstCommand::RemoveCaptureSource {
                         source_id: selected_id,
                     });
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: selected_id,
-                        config: CaptureSourceConfig::Window { mode: mode.clone() },
+                        config: CaptureSourceConfig::Window { mode: new_mode },
                     });
                 }
                 changed = true;

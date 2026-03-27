@@ -194,8 +194,8 @@ impl AppManager {
                 Vec::new()
             }
         };
-        let available_windows = crate::gstreamer::devices::enumerate_windows();
-        log::info!("Found {} window(s)", available_windows.len());
+        let available_apps = crate::gstreamer::devices::enumerate_applications();
+        log::info!("Found {} application(s)", available_apps.len());
 
         // Enumerate displays for resolution detection.
         let available_displays = {
@@ -241,7 +241,7 @@ impl AppManager {
             next_source_id: collection.next_source_id,
             command_tx: Some(main_channels.command_tx.clone()),
             available_cameras,
-            available_windows,
+            available_apps,
             available_displays,
             detected_resolution,
             settings: saved_settings,

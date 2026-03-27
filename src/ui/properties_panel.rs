@@ -562,7 +562,10 @@ fn draw_source_properties(
             section_label(ui, "SOURCE");
             ui.add_space(4.0);
 
-            let apps = crate::gstreamer::devices::enumerate_applications();
+            if state.available_apps.is_empty() {
+                state.available_apps = crate::gstreamer::devices::enumerate_applications();
+            }
+            let apps = state.available_apps.clone();
             let cmd_tx = state.command_tx.clone();
 
             let source = &mut state.library[lib_idx];
@@ -650,9 +653,7 @@ fn draw_source_properties(
                         .on_hover_text("Refresh application list")
                         .clicked()
                     {
-                        // Re-enumerate on next frame by dropping; no cached field yet.
-                        // Task 9 will add state.available_apps for proper caching.
-                        let _ = crate::gstreamer::devices::enumerate_applications();
+                        state.available_apps = crate::gstreamer::devices::enumerate_applications();
                     }
                 });
 

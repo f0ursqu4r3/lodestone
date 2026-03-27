@@ -573,7 +573,7 @@ fn draw_source_properties(
             if let Some(result) = state.window_picker_result.take() {
                 let source = &mut state.library[lib_idx];
                 if let SourceProperties::Window { ref mut mode, .. } = source.properties {
-                    *mode = WindowCaptureMode::Application {
+                    let new_mode = WindowCaptureMode::Application {
                         bundle_id: result.bundle_id,
                         app_name: result.app_name,
                         pinned_title: if result.window_title.is_empty() {
@@ -582,7 +582,18 @@ fn draw_source_properties(
                             Some(result.window_title)
                         },
                     };
+                    *mode = new_mode.clone();
                     changed = true;
+                    // Restart capture with the new mode.
+                    if let Some(ref tx) = state.command_tx {
+                        let _ = tx.try_send(GstCommand::RemoveCaptureSource {
+                            source_id: selected_id,
+                        });
+                        let _ = tx.try_send(GstCommand::AddCaptureSource {
+                            source_id: selected_id,
+                            config: CaptureSourceConfig::Window { mode: new_mode },
+                        });
+                    }
                     // Refresh app list so the newly selected app shows up.
                     state.available_apps = crate::gstreamer::devices::enumerate_applications();
                 }

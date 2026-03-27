@@ -30,7 +30,7 @@ mod native {
     };
     use objc2::rc::Retained;
     use objc2_app_kit::{
-        NSApplication, NSColor, NSCursor, NSEvent, NSEventType, NSPanel, NSScreen, NSView,
+        NSColor, NSCursor, NSEvent, NSPanel, NSScreen, NSView,
         NSWindowStyleMask,
     };
     use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
@@ -50,7 +50,8 @@ mod native {
     const MIN_WINDOW_DIM: f64 = 50.0;
 
     thread_local! {
-        /// Stores the picker result (or None if cancelled).
+        /// Stores the picker result (or None if cancelled). `Some(Some(...))` = selected,
+        /// `Some(None)` = cancelled, `None` = still picking.
         static PICKER_RESULT: RefCell<Option<Option<PickerResult>>> = const { RefCell::new(None) };
         /// Current highlight for drawing.
         static PICKER_HIGHLIGHT: RefCell<Option<PickerHighlight>> = const { RefCell::new(None) };
@@ -58,6 +59,8 @@ mod native {
         static PICKER_PANEL: RefCell<Option<Retained<NSPanel>>> = const { RefCell::new(None) };
         /// The highlight subview, for updating its frame on mouse move.
         static HIGHLIGHT_VIEW: RefCell<Option<Retained<NSView>>> = const { RefCell::new(None) };
+        /// Retained event monitors so we can remove them on cleanup.
+        static EVENT_MONITORS: RefCell<Vec<Retained<objc2::runtime::AnyObject>>> = const { RefCell::new(Vec::new()) };
     }
 
     /// Find the topmost window under `screen_point` (in macOS screen coordinates,
@@ -259,12 +262,42 @@ mod native {
         // Make key and order front.
         panel.makeKeyAndOrderFront(None);
 
-        // Run modal — blocks until stopModal() is called.
-        let app = NSApplication::sharedApplication(mtm);
-        app.runModalForWindow(&panel);
+        // Install event monitors (both local and global for multi-monitor support).
+        install_event_monitors(mtm);
+
+        // Poll until a result is set by the event monitors.
+        // Use CFRunLoopRunInMode to process events without blocking forever.
+        let run_loop_mode = unsafe { core_foundation::runloop::kCFRunLoopDefaultMode };
+        loop {
+            // Process pending events for a short interval.
+            unsafe {
+                core_foundation::runloop::CFRunLoopRunInMode(
+                    run_loop_mode,
+                    0.016, // ~60fps
+                    true as u8,
+                );
+            }
+
+            // Also poll mouse position on each tick to handle cases where
+            // the global monitor doesn't fire mouseMoved (e.g., mouse already
+            // over another monitor when picker opens).
+            let mouse_loc = NSEvent::mouseLocation();
+            let highlight = window_under_cursor(mouse_loc);
+            update_highlight_view(&highlight);
+            PICKER_HIGHLIGHT.with(|h| *h.borrow_mut() = highlight);
+
+            // Check if we have a result.
+            let done = PICKER_RESULT.with(|r| r.borrow().is_some());
+            if done {
+                break;
+            }
+        }
 
         // Restore cursor.
         NSCursor::crosshairCursor().pop();
+
+        // Remove event monitors.
+        remove_event_monitors();
 
         // Clean up.
         panel.orderOut(None);
@@ -323,77 +356,96 @@ mod native {
         // Accept key events.
         panel.setBecomesKeyOnlyIfNeeded(false);
 
-        // Install an event monitor for mouse and keyboard events.
-        install_event_monitor(mtm, frame);
-
         panel
     }
 
-    /// Install a local event monitor to handle mouse-moved, mouse-down, and escape.
-    fn install_event_monitor(_mtm: MainThreadMarker, screen_frame: NSRect) {
+    /// Install both local and global event monitors for click and keyboard.
+    ///
+    /// - **Local monitor**: catches events when our overlay panel is focused (keyboard, clicks on panel).
+    /// - **Global monitor**: catches mouse clicks anywhere on screen (other monitors, other apps).
+    fn install_event_monitors(_mtm: MainThreadMarker) {
         use objc2_app_kit::NSEventMask;
         use std::ptr::NonNull;
 
-        let mask = NSEventMask::MouseMoved
-            | NSEventMask::LeftMouseDown
-            | NSEventMask::LeftMouseUp
-            | NSEventMask::KeyDown;
+        let click_mask = NSEventMask::LeftMouseUp;
+        let key_mask = NSEventMask::KeyDown;
 
-        let block = block2::RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
-            let event_ref = unsafe { event.as_ref() };
-            let event_type = event_ref.r#type();
-
-            match event_type {
-                NSEventType::MouseMoved => {
-                    handle_mouse_moved(event_ref, screen_frame);
-                    event.as_ptr() // Pass through
-                }
-                NSEventType::LeftMouseDown | NSEventType::LeftMouseUp => {
-                    // On click, capture the current highlight.
-                    if event_type == NSEventType::LeftMouseUp {
-                        let result = PICKER_HIGHLIGHT.with(|h| {
-                            h.borrow().as_ref().map(|hl| PickerResult {
-                                bundle_id: hl.bundle_id.clone(),
-                                app_name: hl.app_name.clone(),
-                                window_title: hl.window_title.clone(),
-                            })
-                        });
-                        PICKER_RESULT.with(|r| *r.borrow_mut() = Some(result));
-                        stop_modal();
-                    }
-                    std::ptr::null_mut() // Consume event
-                }
-                NSEventType::KeyDown => {
-                    let keycode = event_ref.keyCode();
-                    if keycode == 53 {
-                        // Escape
-                        PICKER_RESULT.with(|r| *r.borrow_mut() = Some(None));
-                        stop_modal();
-                    }
-                    std::ptr::null_mut() // Consume event
-                }
-                _ => event.as_ptr(),
-            }
+        // Global monitor for clicks anywhere (including other monitors/apps).
+        // Global monitors cannot consume events (return void, not *mut NSEvent).
+        let global_click_block = block2::RcBlock::new(move |event: NonNull<NSEvent>| {
+            let _event_ref = unsafe { event.as_ref() };
+            // Mouse up anywhere — select the currently highlighted window.
+            let result = PICKER_HIGHLIGHT.with(|h| {
+                h.borrow().as_ref().map(|hl| PickerResult {
+                    bundle_id: hl.bundle_id.clone(),
+                    app_name: hl.app_name.clone(),
+                    window_title: hl.window_title.clone(),
+                })
+            });
+            PICKER_RESULT.with(|r| *r.borrow_mut() = Some(result));
         });
 
-        unsafe {
-            NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &block);
+        let global_monitor =
+            NSEvent::addGlobalMonitorForEventsMatchingMask_handler(click_mask, &global_click_block);
+        if let Some(m) = global_monitor {
+            EVENT_MONITORS.with(|monitors| monitors.borrow_mut().push(m));
+        }
+
+        // Local monitor for clicks on our overlay panel.
+        let local_click_block =
+            block2::RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+                let _event_ref = unsafe { event.as_ref() };
+                let result = PICKER_HIGHLIGHT.with(|h| {
+                    h.borrow().as_ref().map(|hl| PickerResult {
+                        bundle_id: hl.bundle_id.clone(),
+                        app_name: hl.app_name.clone(),
+                        window_title: hl.window_title.clone(),
+                    })
+                });
+                PICKER_RESULT.with(|r| *r.borrow_mut() = Some(result));
+                std::ptr::null_mut() // Consume event
+            });
+
+        let local_click_monitor = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(click_mask, &local_click_block)
+        };
+        if let Some(m) = local_click_monitor {
+            EVENT_MONITORS.with(|monitors| monitors.borrow_mut().push(m));
+        }
+
+        // Local monitor for keyboard (Escape to cancel).
+        let local_key_block =
+            block2::RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+                let event_ref = unsafe { event.as_ref() };
+                if event_ref.keyCode() == 53 {
+                    // Escape
+                    PICKER_RESULT.with(|r| *r.borrow_mut() = Some(None));
+                }
+                std::ptr::null_mut()
+            });
+
+        let local_key_monitor = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(key_mask, &local_key_block)
+        };
+        if let Some(m) = local_key_monitor {
+            EVENT_MONITORS.with(|monitors| monitors.borrow_mut().push(m));
         }
     }
 
-    /// Handle mouse movement — find the window under cursor and update highlight.
-    fn handle_mouse_moved(_event: &NSEvent, _screen_frame: NSRect) {
-        let mouse_loc = NSEvent::mouseLocation();
+    /// Remove all event monitors installed by the picker.
+    fn remove_event_monitors() {
+        EVENT_MONITORS.with(|monitors| {
+            for monitor in monitors.borrow_mut().drain(..) {
+                unsafe { NSEvent::removeMonitor(&monitor) };
+            }
+        });
+    }
 
-        let highlight = window_under_cursor(mouse_loc);
-
-        PICKER_HIGHLIGHT.with(|h| *h.borrow_mut() = highlight.clone());
-
-        // Update the highlight view frame.
+    /// Update the highlight subview to match the given highlight bounds.
+    fn update_highlight_view(highlight: &Option<PickerHighlight>) {
         HIGHLIGHT_VIEW.with(|hv| {
             if let Some(view) = hv.borrow().as_ref() {
-                if let Some(hl) = &highlight {
-                    // Convert screen coords to panel-local coords.
+                if let Some(hl) = highlight {
                     let panel_frame =
                         PICKER_PANEL.with(|p| p.borrow().as_ref().map(|panel| panel.frame()));
                     if let Some(pf) = panel_frame {
@@ -413,14 +465,6 @@ mod native {
                 }
             }
         });
-    }
-
-    /// Stop the modal session.
-    fn stop_modal() {
-        if let Some(mtm) = MainThreadMarker::new() {
-            let app = NSApplication::sharedApplication(mtm);
-            app.stopModal();
-        }
     }
 
     /// Create a simple colored NSView for the highlight rectangle.

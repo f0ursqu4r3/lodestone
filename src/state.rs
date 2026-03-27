@@ -175,8 +175,10 @@ pub struct AppState {
     /// Available system font families for the appearance settings UI.
     pub system_fonts: Vec<String>,
     /// Set to `true` when the user clicks the window picker button.
-    /// The main event loop picks this up and launches the native overlay.
+    /// Set to true by the UI to request opening the window picker overlay.
     pub window_picker_active: bool,
+    /// True while the picker overlay is open (managed by main event loop).
+    pub window_picker_running: bool,
     /// Result from the window picker overlay, consumed by the properties panel.
     pub window_picker_result: Option<crate::ui::window_picker::PickerResult>,
 }
@@ -228,6 +230,7 @@ impl Default for AppState {
             last_nudge_time: None,
             system_fonts: vec!["Default".to_string()],
             window_picker_active: false,
+            window_picker_running: false,
             window_picker_result: None,
         }
     }

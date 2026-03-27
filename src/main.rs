@@ -1437,21 +1437,29 @@ impl ApplicationHandler for AppManager {
             }
         }
 
-        // Launch native window picker overlay if requested.
+        // Window picker: non-blocking overlay lifecycle.
         {
-            let should_pick = {
+            let app_state = self.state.lock().expect("lock AppState");
+            let should_start = app_state.window_picker_active && !app_state.window_picker_running;
+            let is_running = app_state.window_picker_running;
+            drop(app_state);
+
+            if should_start {
+                crate::ui::window_picker::start_window_picker();
                 let mut app_state = self.state.lock().expect("lock AppState");
-                let active = app_state.window_picker_active;
-                if active {
-                    app_state.window_picker_active = false;
-                }
-                active
-            };
-            if should_pick {
-                let result = crate::ui::window_picker::run_window_picker();
-                if result.is_some() {
+                app_state.window_picker_running = true;
+                app_state.window_picker_active = false;
+            } else if is_running {
+                // Poll for result each frame.
+                if let Some(result) = crate::ui::window_picker::poll_window_picker() {
+                    crate::ui::window_picker::stop_window_picker();
                     let mut app_state = self.state.lock().expect("lock AppState");
+                    app_state.window_picker_running = false;
                     app_state.window_picker_result = result;
+                }
+                // Request redraw to keep polling.
+                for win in self.windows.values() {
+                    win.window.request_redraw();
                 }
             }
         }

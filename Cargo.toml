@@ -41,6 +41,7 @@ objc2-screen-capture-kit = "0.3"
 objc2-core-media = "0.3"
 objc2-core-video = "0.3"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSColor", "NSPanel", "NSScreen", "NSGraphicsContext", "NSBezierPath", "NSApplication", "NSRunningApplication", "NSCursor", "NSResponder", "NSEvent", "NSTrackingArea", "NSWindowScripting", "NSCell", "NSText", "NSControl"] }
+objc2-core-graphics = { version = "0.3", features = ["CGColor", "CGColorSpace"] }
 objc2-quartz-core = { version = "0.3", features = ["CALayer"] }
 chrono = "0.4.44"
 

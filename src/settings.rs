@@ -187,7 +187,13 @@ impl RecordSettings {
         let now = chrono::Local::now();
         let sanitized_scene: String = scene_name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
 
         template
@@ -270,7 +276,6 @@ impl FontScale {
             Self::XL => 1.20,
         }
     }
-
 
     /// All scales in display order.
     pub fn all() -> &'static [FontScale] {

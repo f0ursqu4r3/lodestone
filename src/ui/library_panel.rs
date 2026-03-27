@@ -134,7 +134,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             let text_rect =
                 egui::Rect::from_min_size(pointer_pos + vec2(12.0, -8.0), galley.size())
                     .expand(4.0);
-            painter.rect_filled(text_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
+            painter.rect_filled(
+                text_rect,
+                CornerRadius::same(theme.radius_sm as u8),
+                theme.bg_elevated,
+            );
             painter.rect_stroke(
                 text_rect,
                 CornerRadius::same(theme.radius_sm as u8),
@@ -395,22 +399,18 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
     // Determine native size from detected resolution for display/camera,
     // or use default 1920x1080 for other source types.
     let (native_w, native_h) = match &properties {
-        SourceProperties::Display { screen_index } => {
-            state
-                .available_displays
-                .iter()
-                .find(|d| d.index == *screen_index as usize)
-                .map(|d| (d.width as f32, d.height as f32))
-                .unwrap_or((1920.0, 1080.0))
-        }
-        SourceProperties::Camera { device_index, .. } => {
-            state
-                .available_cameras
-                .iter()
-                .find(|c| c.device_index == *device_index)
-                .map(|c| (c.resolution.0 as f32, c.resolution.1 as f32))
-                .unwrap_or((1920.0, 1080.0))
-        }
+        SourceProperties::Display { screen_index } => state
+            .available_displays
+            .iter()
+            .find(|d| d.index == *screen_index as usize)
+            .map(|d| (d.width as f32, d.height as f32))
+            .unwrap_or((1920.0, 1080.0)),
+        SourceProperties::Camera { device_index, .. } => state
+            .available_cameras
+            .iter()
+            .find(|c| c.device_index == *device_index)
+            .map(|c| (c.resolution.0 as f32, c.resolution.1 as f32))
+            .unwrap_or((1920.0, 1080.0)),
         _ => (1920.0, 1080.0),
     };
 
@@ -909,7 +909,11 @@ fn draw_source_row(
             egui::pos2(cursor_x + icon_size / 2.0, center_y),
             vec2(icon_size, icon_size),
         );
-        painter.rect_filled(icon_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
+        painter.rect_filled(
+            icon_rect,
+            CornerRadius::same(theme.radius_sm as u8),
+            theme.bg_elevated,
+        );
         painter.text(
             icon_rect.center(),
             egui::Align2::CENTER_CENTER,

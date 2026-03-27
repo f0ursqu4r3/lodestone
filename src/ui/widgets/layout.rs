@@ -45,7 +45,6 @@ pub fn separator(ui: &mut Ui) {
     ui.add_space(4.0);
     let available = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(available, 1.0), egui::Sense::hover());
-    ui.painter()
-        .rect_filled(rect, 0.0, theme.border);
+    ui.painter().rect_filled(rect, 0.0, theme.border);
     ui.add_space(4.0);
 }

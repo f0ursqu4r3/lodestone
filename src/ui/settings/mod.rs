@@ -236,7 +236,9 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
                     record::draw(ui, &mut state.settings.record, &encoders)
                 }
                 SettingsCategory::Audio => audio::draw(ui, state),
-                SettingsCategory::Video => video::draw(ui, &mut state.settings.video, state.detected_resolution),
+                SettingsCategory::Video => {
+                    video::draw(ui, &mut state.settings.video, state.detected_resolution)
+                }
                 SettingsCategory::Hotkeys => hotkeys::draw(ui, &mut state.settings.hotkeys),
                 SettingsCategory::Appearance => appearance::draw(ui, state),
                 SettingsCategory::Advanced => advanced::draw(ui, &mut state.settings.advanced),
@@ -263,14 +265,22 @@ pub(super) fn section_header(ui: &mut Ui, label: &str) {
 
 pub(super) fn labeled_row(ui: &mut Ui, label: &str) {
     let theme = active_theme(ui.ctx());
-    ui.label(egui::RichText::new(label).size(13.0).color(theme.text_primary));
+    ui.label(
+        egui::RichText::new(label)
+            .size(13.0)
+            .color(theme.text_primary),
+    );
 }
 
 /// Label a row as not yet implemented -- gray text and disabled controls.
 pub(super) fn labeled_row_unimplemented(ui: &mut Ui, label: &str) {
     let theme = active_theme(ui.ctx());
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).size(13.0).color(theme.text_muted));
+        ui.label(
+            egui::RichText::new(label)
+                .size(13.0)
+                .color(theme.text_muted),
+        );
         ui.label(
             egui::RichText::new("(not yet implemented)")
                 .size(10.0)
@@ -284,7 +294,11 @@ pub(super) fn labeled_row_unimplemented(ui: &mut Ui, label: &str) {
 pub(super) fn draw_toggle_unimplemented(ui: &mut Ui, label: &str, _value: &mut bool) {
     let theme = active_theme(ui.ctx());
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).size(13.0).color(theme.text_muted));
+        ui.label(
+            egui::RichText::new(label)
+                .size(13.0)
+                .color(theme.text_muted),
+        );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.label(
                 egui::RichText::new("not implemented")

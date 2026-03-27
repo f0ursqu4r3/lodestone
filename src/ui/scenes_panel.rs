@@ -170,7 +170,11 @@ fn draw_scene_card(
     let painter = ui.painter_at(thumb_rect.expand2(egui::vec2(0.0, label_height + 4.0)));
 
     // Thumbnail background.
-    painter.rect_filled(thumb_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
+    painter.rect_filled(
+        thumb_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        theme.bg_elevated,
+    );
 
     // Border: active = text_primary, hovered = text_muted, default = border.
     let border_color = if is_active {
@@ -364,8 +368,18 @@ fn draw_scene_card(
 }
 
 /// Draw the dashed-border "Add" card with a "+" icon and "Add" label.
-fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hovered: bool, theme: &crate::ui::theme::Theme) {
-    let border_color = if hovered { theme.text_muted } else { theme.border };
+fn draw_add_card(
+    painter: &egui::Painter,
+    thumb_rect: Rect,
+    label_pos: Pos2,
+    hovered: bool,
+    theme: &crate::ui::theme::Theme,
+) {
+    let border_color = if hovered {
+        theme.text_muted
+    } else {
+        theme.border
+    };
 
     // Draw dashed border as short segments along the rectangle edges.
     let dash_len = 4.0;
@@ -391,7 +405,11 @@ fn draw_add_card(painter: &egui::Painter, thumb_rect: Rect, label_pos: Pos2, hov
     }
 
     // "+" icon in center of thumbnail.
-    let icon_color = if hovered { theme.text_muted } else { theme.border };
+    let icon_color = if hovered {
+        theme.text_muted
+    } else {
+        theme.border
+    };
     painter.text(
         thumb_rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -446,9 +464,7 @@ fn apply_scene_diff(
                 crate::scene::SourceProperties::Window { mode, .. } => {
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
-                        config: CaptureSourceConfig::Window {
-                            mode: mode.clone(),
-                        },
+                        config: CaptureSourceConfig::Window { mode: mode.clone() },
                     });
                 }
                 crate::scene::SourceProperties::Camera { device_index, .. } => {
@@ -564,9 +580,7 @@ pub(crate) fn send_capture_for_scene(
                 crate::scene::SourceProperties::Window { mode, .. } => {
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
-                        config: CaptureSourceConfig::Window {
-                            mode: mode.clone(),
-                        },
+                        config: CaptureSourceConfig::Window { mode: mode.clone() },
                     });
                     any_started = true;
                 }

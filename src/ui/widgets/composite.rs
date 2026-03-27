@@ -2,9 +2,9 @@
 
 use egui::Ui;
 
+use crate::gstreamer::QualityPreset;
 #[allow(unused_imports)]
 use crate::ui::theme::active_theme;
-use crate::gstreamer::QualityPreset;
 
 /// Encoder selection dropdown showing available encoders with "Recommended" tag.
 /// Returns `true` if the selection changed.

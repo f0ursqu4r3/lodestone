@@ -403,7 +403,8 @@ pub(crate) fn render_content(
         .sense(egui::Sense::hover())
         .show(ctx, |ui| {
             let content_theme = active_theme(ui.ctx());
-            ui.painter().rect_filled(content_rect, 0.0, content_theme.bg_panel);
+            ui.painter()
+                .rect_filled(content_rect, 0.0, content_theme.bg_panel);
 
             ui.set_min_size(content_rect.size());
             ui.set_max_size(content_rect.size());

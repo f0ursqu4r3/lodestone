@@ -475,7 +475,12 @@ mod tests {
             let dg = t.text_primary.g() as f64 - t.bg_base.g() as f64;
             let db = t.text_primary.b() as f64 - t.bg_base.b() as f64;
             let diff = (dr * dr + dg * dg + db * db).sqrt();
-            assert!(diff > 100.0, "{:?} has insufficient text contrast: {}", id, diff);
+            assert!(
+                diff > 100.0,
+                "{:?} has insufficient text contrast: {}",
+                id,
+                diff
+            );
         }
     }
 

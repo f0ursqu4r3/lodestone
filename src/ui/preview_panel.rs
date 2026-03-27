@@ -10,9 +10,7 @@ use crate::ui::theme::active_theme;
 // ── Zoom levels ──────────────────────────────────────────────────────────────
 
 /// Discrete zoom levels used for scroll-wheel stepping.
-const ZOOM_LEVELS: &[f32] = &[
-    0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0,
-];
+const ZOOM_LEVELS: &[f32] = &[0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0];
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 4.0;
 
@@ -542,8 +540,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                     );
 
                     let diff = cursor_pos - new_screen;
-                    let pixels_per_canvas =
-                        (base_rect.width() * new_zoom) / preview_width as f32;
+                    let pixels_per_canvas = (base_rect.width() * new_zoom) / preview_width as f32;
                     view.pan_offset.x += diff.x / pixels_per_canvas;
                     view.pan_offset.y += diff.y / pixels_per_canvas;
                 } else {
@@ -714,7 +711,6 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                 state.settings.general.guide_color,
             );
         }
-
     }
 
     // ── Overlays ──
@@ -739,7 +735,12 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
         // Glow shadow (larger rect behind)
         let glow_expand = 3.0;
         let glow_rect = badge_rect.expand(glow_expand);
-        let red_glow = egui::Color32::from_rgba_premultiplied(theme.danger.r(), theme.danger.g(), theme.danger.b(), 0x40);
+        let red_glow = egui::Color32::from_rgba_premultiplied(
+            theme.danger.r(),
+            theme.danger.g(),
+            theme.danger.b(),
+            0x40,
+        );
         painter.rect_filled(glow_rect, theme.radius_sm, red_glow);
 
         // Badge background

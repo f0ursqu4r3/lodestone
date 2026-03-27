@@ -98,11 +98,7 @@ pub fn toggle_switch(ui: &mut Ui, on: &mut bool) -> bool {
         let anim_id = response.id.with("toggle_anim");
         let t = ui.ctx().animate_bool_with_time(anim_id, *on, 0.15);
 
-        let bg_color = if *on {
-            theme.accent
-        } else {
-            theme.bg_elevated
-        };
+        let bg_color = if *on { theme.accent } else { theme.bg_elevated };
 
         let knob_radius = 7.0;
         let knob_x = egui::lerp(

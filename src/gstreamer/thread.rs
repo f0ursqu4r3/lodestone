@@ -190,7 +190,13 @@ impl GstThread {
     /// Follows the same pattern as [`add_display_capture_source`]: start SCK capture,
     /// build an appsrc pipeline, spawn a pump thread, and store the handle.
     #[cfg(target_os = "macos")]
-    fn start_sck_window_capture(&mut self, source_id: SourceId, window_id: u32, width: u32, height: u32) {
+    fn start_sck_window_capture(
+        &mut self,
+        source_id: SourceId,
+        window_id: u32,
+        width: u32,
+        height: u32,
+    ) {
         use super::capture::build_display_capture_pipeline;
         use super::screencapturekit;
 
@@ -277,7 +283,11 @@ impl GstThread {
 
     /// Handle a window target change detected by the WindowWatcher.
     #[cfg(target_os = "macos")]
-    fn handle_window_target_change(&mut self, source_id: SourceId, new_target: Option<(u32, u32, u32)>) {
+    fn handle_window_target_change(
+        &mut self,
+        source_id: SourceId,
+        new_target: Option<(u32, u32, u32)>,
+    ) {
         match new_target {
             Some((wid, width, height)) => {
                 // Try to update the existing SCK stream in-place first.

@@ -491,8 +491,11 @@ fn draw_source_row(
                 (acc.b() as f32 * alpha) as u8,
                 (255.0 * alpha) as u8,
             );
-            ui.painter()
-                .rect_filled(paint_rect, CornerRadius::same(theme.radius_sm as u8), flash_color);
+            ui.painter().rect_filled(
+                paint_rect,
+                CornerRadius::same(theme.radius_sm as u8),
+                flash_color,
+            );
             ui.ctx().request_repaint();
         } else {
             state.flash_source_id = None;
@@ -523,7 +526,11 @@ fn draw_source_row(
         egui::pos2(cursor_x + icon_size / 2.0, center_y),
         vec2(icon_size, icon_size),
     );
-    painter.rect_filled(icon_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
+    painter.rect_filled(
+        icon_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        theme.bg_elevated,
+    );
     painter.text(
         icon_rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -682,9 +689,7 @@ fn start_capture_from_properties(
         SourceProperties::Window { mode, .. } => {
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
-                config: CaptureSourceConfig::Window {
-                    mode: mode.clone(),
-                },
+                config: CaptureSourceConfig::Window { mode: mode.clone() },
             });
             state.capture_active = true;
         }

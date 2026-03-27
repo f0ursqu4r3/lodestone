@@ -70,7 +70,11 @@ impl Widget for StyledButton<'_> {
 
             let (fill, text_color, stroke) = match self.variant {
                 ButtonVariant::Primary => {
-                    let fill = if is_hovered { theme.accent_hover } else { theme.accent };
+                    let fill = if is_hovered {
+                        theme.accent_hover
+                    } else {
+                        theme.accent
+                    };
                     (fill, Color32::WHITE, Stroke::NONE)
                 }
                 ButtonVariant::Danger => {
@@ -113,7 +117,8 @@ impl Widget for StyledButton<'_> {
 
             // Border (Ghost hover)
             if stroke != Stroke::NONE {
-                ui.painter().rect_stroke(rect, radius, stroke, StrokeKind::Outside);
+                ui.painter()
+                    .rect_stroke(rect, radius, stroke, StrokeKind::Outside);
             }
 
             // Text

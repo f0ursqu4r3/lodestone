@@ -86,7 +86,11 @@ impl WindowWatcher {
             .map(|w| (w.window_id, w.bounds.2 as u32, w.bounds.3 as u32))
     }
 
-    fn find_app_window(&self, bundle_id: &str, pinned_title: Option<&str>) -> Option<(u32, u32, u32)> {
+    fn find_app_window(
+        &self,
+        bundle_id: &str,
+        pinned_title: Option<&str>,
+    ) -> Option<(u32, u32, u32)> {
         let app = self.cached_apps.iter().find(|a| a.bundle_id == bundle_id)?;
         if app.windows.is_empty() {
             return None;

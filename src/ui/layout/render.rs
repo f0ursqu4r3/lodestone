@@ -226,7 +226,8 @@ pub fn render_layout(
                 .map(|g| g.active_tab_entry().panel_type.display_name())
                 .unwrap_or("Group");
             let font = egui::FontId::proportional(13.0);
-            let galley = ghost_painter.layout_no_wrap(group_name.to_string(), font, drag_theme.text_primary);
+            let galley =
+                ghost_painter.layout_no_wrap(group_name.to_string(), font, drag_theme.text_primary);
             let text_rect =
                 egui::Rect::from_min_size(pointer_pos + egui::vec2(12.0, -8.0), galley.size())
                     .expand(4.0);
@@ -235,7 +236,11 @@ pub fn render_layout(
                 4.0,
                 egui::Color32::from_rgba_premultiplied(0x1e, 0x1e, 0x2e, 0xd0),
             );
-            ghost_painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, drag_theme.text_primary);
+            ghost_painter.galley(
+                text_rect.min + egui::vec2(4.0, 4.0),
+                galley,
+                drag_theme.text_primary,
+            );
 
             // Show drop zone overlays on all groups (excluding the dragged group)
             let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;
@@ -317,7 +322,11 @@ fn render_drag_overlay(
             4.0,
             egui::Color32::from_rgba_premultiplied(0x1e, 0x1e, 0x2e, 0xd0),
         );
-        painter.galley(text_rect.min + egui::vec2(4.0, 4.0), galley, overlay_theme.text_primary);
+        painter.galley(
+            text_rect.min + egui::vec2(4.0, 4.0),
+            galley,
+            overlay_theme.text_primary,
+        );
 
         // Drop zone overlays on grid groups
         let mut hovered_group: Option<(GroupId, DropZone, egui::Rect)> = None;

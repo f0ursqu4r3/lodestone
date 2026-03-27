@@ -81,23 +81,17 @@ pub fn drag_input_u32(
 /// `hex` is an optional override hex string (e.g. `"#ff8800"`). When `None`,
 /// `default_color` is used as the displayed color. Returns `true` if the value
 /// changed.
-pub fn color_picker(
-    ui: &mut Ui,
-    hex: &mut Option<String>,
-    default_color: Color32,
-) -> bool {
+pub fn color_picker(ui: &mut Ui, hex: &mut Option<String>, default_color: Color32) -> bool {
     let theme = active_theme(ui.ctx());
     let mut changed = false;
 
-    let effective_color = hex
-        .as_deref()
-        .and_then(parse_hex)
-        .unwrap_or(default_color);
+    let effective_color = hex.as_deref().and_then(parse_hex).unwrap_or(default_color);
 
     ui.horizontal(|ui| {
         // Color swatch
         let (rect, _) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::hover());
-        ui.painter().rect_filled(rect, theme.radius_sm, effective_color);
+        ui.painter()
+            .rect_filled(rect, theme.radius_sm, effective_color);
         ui.painter().rect_stroke(
             rect,
             theme.radius_sm,
@@ -120,12 +114,7 @@ pub fn color_picker(
 
         // Reset button
         if ui
-            .add(
-                egui::Button::new(
-                    RichText::new("Reset").color(theme.text_muted),
-                )
-                .frame(false),
-            )
+            .add(egui::Button::new(RichText::new("Reset").color(theme.text_muted)).frame(false))
             .clicked()
         {
             *hex = None;

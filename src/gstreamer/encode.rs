@@ -437,10 +437,7 @@ mod tests {
     #[test]
     fn make_encoder_creates_element_for_available_type() {
         gstreamer::init().unwrap();
-        let encoder = super::make_encoder(
-            crate::gstreamer::EncoderType::H264x264,
-            4500,
-        );
+        let encoder = super::make_encoder(crate::gstreamer::EncoderType::H264x264, 4500);
         assert!(encoder.is_ok(), "x264enc should be available");
     }
 

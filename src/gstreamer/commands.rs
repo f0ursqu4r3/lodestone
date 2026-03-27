@@ -158,7 +158,13 @@ impl EncoderType {
     }
 
     pub fn all() -> &'static [EncoderType] {
-        &[Self::H264VideoToolbox, Self::H264Nvenc, Self::H264Amf, Self::H264Qsv, Self::H264x264]
+        &[
+            Self::H264VideoToolbox,
+            Self::H264Nvenc,
+            Self::H264Amf,
+            Self::H264Qsv,
+            Self::H264x264,
+        ]
     }
 }
 
@@ -393,7 +399,10 @@ mod tests {
 
     #[test]
     fn encoder_type_display_name() {
-        assert_eq!(EncoderType::H264VideoToolbox.display_name(), "VideoToolbox (Hardware)");
+        assert_eq!(
+            EncoderType::H264VideoToolbox.display_name(),
+            "VideoToolbox (Hardware)"
+        );
         assert_eq!(EncoderType::H264x264.display_name(), "x264 (Software)");
     }
 

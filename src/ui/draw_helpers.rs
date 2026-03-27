@@ -39,7 +39,11 @@ pub fn draw_segmented_buttons(
 
     // Draw shared background.
     let painter = ui.painter_at(seg_rect);
-    painter.rect_filled(seg_rect, CornerRadius::same(theme.radius_sm as u8), theme.bg_elevated);
+    painter.rect_filled(
+        seg_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        theme.bg_elevated,
+    );
 
     // Draw each button.
     for (i, (icon, tooltip, active)) in buttons.iter().enumerate() {
@@ -64,11 +68,19 @@ pub fn draw_segmented_buttons(
                 theme.accent_dim,
             );
         } else if response.hovered() {
-            painter.rect_filled(btn_rect, CornerRadius::same(theme.radius_sm as u8), theme.border);
+            painter.rect_filled(
+                btn_rect,
+                CornerRadius::same(theme.radius_sm as u8),
+                theme.border,
+            );
         }
 
         // Icon.
-        let icon_color = if *active { theme.text_primary } else { theme.text_muted };
+        let icon_color = if *active {
+            theme.text_primary
+        } else {
+            theme.text_muted
+        };
         painter.text(
             btn_rect.center(),
             egui::Align2::CENTER_CENTER,

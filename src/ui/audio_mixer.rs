@@ -33,7 +33,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
             );
         } else {
             ui.vertical(|ui| {
-                ui.label(egui::RichText::new("SYSTEM").size(9.0).color(theme.text_muted));
+                ui.label(
+                    egui::RichText::new("SYSTEM")
+                        .size(9.0)
+                        .color(theme.text_muted),
+                );
                 ui.add_space(10.0);
                 ui.label(
                     egui::RichText::new("Install\nBlackHole\nfor system\naudio")
@@ -97,7 +101,8 @@ fn draw_channel_strip(
             if peak_db > -6.0 {
                 let glow_rect = rect.expand(2.0);
                 let glow_color = theme.danger.gamma_multiply(0.3);
-                ui.painter().rect_filled(glow_rect, theme.radius_md, glow_color);
+                ui.painter()
+                    .rect_filled(glow_rect, theme.radius_md, glow_color);
                 // Re-draw background on top of glow
                 ui.painter().rect(
                     rect,

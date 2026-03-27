@@ -185,7 +185,14 @@ fn edge_positions(r: Rect) -> [Pos2; 4] {
 }
 
 /// Draw transform handles with the given opacity (1.0 = normal, 0.3 = dimmed for locked sources).
-fn draw_handles(painter: &egui::Painter, screen_rect: Rect, rotation_deg: f32, opacity: f32, text_primary: egui::Color32, bg_base: egui::Color32) {
+fn draw_handles(
+    painter: &egui::Painter,
+    screen_rect: Rect,
+    rotation_deg: f32,
+    opacity: f32,
+    text_primary: egui::Color32,
+    bg_base: egui::Color32,
+) {
     use egui::Color32;
     let fg = Color32::from_rgba_unmultiplied(
         text_primary.r(),
@@ -845,9 +852,23 @@ pub fn draw_transform_handles(
                 .map(|ss| ss.resolve_locked())
                 .unwrap_or(false);
             if sel_locked {
-                draw_handles(ui.painter(), r, t.rotation, 0.3, theme.text_primary, theme.bg_base);
+                draw_handles(
+                    ui.painter(),
+                    r,
+                    t.rotation,
+                    0.3,
+                    theme.text_primary,
+                    theme.bg_base,
+                );
             } else {
-                draw_handles(ui.painter(), r, t.rotation, 1.0, theme.text_primary, theme.bg_base);
+                draw_handles(
+                    ui.painter(),
+                    r,
+                    t.rotation,
+                    1.0,
+                    theme.text_primary,
+                    theme.bg_base,
+                );
             }
         } else {
             // Non-primary selected: just the outline.

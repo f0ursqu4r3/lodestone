@@ -5,11 +5,11 @@
 
 use egui::{self, Color32, RichText, Sense, Vec2};
 
-use crate::scene::SceneId;
 use crate::gstreamer::EncoderConfig;
 use crate::renderer::compositor::parse_resolution;
+use crate::scene::SceneId;
 use crate::state::{AppState, RecordingStatus, StreamStatus};
-use crate::ui::theme::{active_theme, BTN_PADDING, BTN_PILL_PADDING};
+use crate::ui::theme::{BTN_PADDING, BTN_PILL_PADDING, active_theme};
 
 /// Draw the toolbar. Returns `true` if the settings button was clicked.
 pub fn draw(ctx: &egui::Context, state: &mut AppState) -> bool {
@@ -89,8 +89,10 @@ fn divider(ui: &mut egui::Ui) {
     let theme = active_theme(ui.ctx());
     let height = 20.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, height), Sense::hover());
-    ui.painter()
-        .line_segment([rect.center_top(), rect.center_bottom()], (1.0, theme.border));
+    ui.painter().line_segment(
+        [rect.center_top(), rect.center_bottom()],
+        (1.0, theme.border),
+    );
 }
 
 /// Scene quick-switcher: shows only pinned scenes as pill-style buttons.
@@ -120,7 +122,11 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
 
     for (id, name) in &pinned_scenes {
         let is_active = active_id == Some(*id);
-        let fill = if is_active { theme.bg_elevated } else { theme.bg_base };
+        let fill = if is_active {
+            theme.bg_elevated
+        } else {
+            theme.bg_base
+        };
         let text_color = if is_active {
             theme.text_primary
         } else {
@@ -212,9 +218,9 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopStream);
             state.stream_status = StreamStatus::Offline;
         } else if let Some(error_msg) = validate_stream_settings(state) {
-            state.active_errors.push(crate::gstreamer::GstError::EncodeFailure {
-                message: error_msg,
-            });
+            state
+                .active_errors
+                .push(crate::gstreamer::GstError::EncodeFailure { message: error_msg });
         } else {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StartStream {
                 destination: state.settings.stream.destination.clone(),
@@ -365,7 +371,8 @@ fn validate_stream_settings(state: &AppState) -> Option<String> {
 /// Build an [`EncoderConfig`] for streaming from the current app settings.
 fn stream_encoder_config(state: &AppState) -> EncoderConfig {
     let (width, height) = parse_resolution(&state.settings.video.output_resolution);
-    let bitrate = if state.settings.stream.quality_preset == crate::gstreamer::QualityPreset::Custom {
+    let bitrate = if state.settings.stream.quality_preset == crate::gstreamer::QualityPreset::Custom
+    {
         state.settings.stream.bitrate_kbps
     } else {
         state.settings.stream.quality_preset.bitrate_kbps()
@@ -382,7 +389,8 @@ fn stream_encoder_config(state: &AppState) -> EncoderConfig {
 /// Build an [`EncoderConfig`] for recording from the current app settings.
 fn record_encoder_config(state: &AppState) -> EncoderConfig {
     let (width, height) = parse_resolution(&state.settings.video.output_resolution);
-    let bitrate = if state.settings.record.quality_preset == crate::gstreamer::QualityPreset::Custom {
+    let bitrate = if state.settings.record.quality_preset == crate::gstreamer::QualityPreset::Custom
+    {
         state.settings.record.bitrate_kbps
     } else {
         state.settings.record.quality_preset.bitrate_kbps()

@@ -48,10 +48,7 @@ pub(super) fn draw(
                                 "Custom RTMP",
                             )
                             .clicked()
-                            && !matches!(
-                                settings.destination,
-                                StreamDestination::CustomRtmp { .. }
-                            )
+                            && !matches!(settings.destination, StreamDestination::CustomRtmp { .. })
                         {
                             settings.destination =
                                 StreamDestination::CustomRtmp { url: String::new() };

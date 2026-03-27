@@ -61,7 +61,9 @@ pub(super) fn draw(
 
     layout::section(ui, "RESOLUTION", |ui| {
         let base_options = build_resolution_options(detected_resolution, false);
-        let is_custom_base = !base_options.iter().any(|o| o.value == settings.base_resolution);
+        let is_custom_base = !base_options
+            .iter()
+            .any(|o| o.value == settings.base_resolution);
         let base_display_text = if is_custom_base {
             format!("Custom ({})", settings.base_resolution)
         } else {
@@ -162,9 +164,7 @@ pub(super) fn draw(
                                 )
                                 .changed();
                         }
-                        if ui
-                            .selectable_label(is_custom_output, "Custom...")
-                            .clicked()
+                        if ui.selectable_label(is_custom_output, "Custom...").clicked()
                             && !is_custom_output
                         {
                             settings.output_resolution = "custom".to_string();
@@ -187,9 +187,8 @@ pub(super) fn draw(
             ui.horizontal(|ui| {
                 ui.label("");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let (mut w, mut h) = crate::renderer::compositor::parse_resolution(
-                        &settings.output_resolution,
-                    );
+                    let (mut w, mut h) =
+                        crate::renderer::compositor::parse_resolution(&settings.output_resolution);
                     let w_changed = ui
                         .add(egui::DragValue::new(&mut w).range(2..=7680).suffix("w"))
                         .changed();
@@ -242,11 +241,7 @@ pub(super) fn draw(
                         let mut c = false;
                         for cs in &["sRGB", "Rec. 709", "Rec. 2100 (PQ)"] {
                             c |= ui
-                                .selectable_value(
-                                    &mut settings.color_space,
-                                    cs.to_string(),
-                                    *cs,
-                                )
+                                .selectable_value(&mut settings.color_space, cs.to_string(), *cs)
                                 .changed();
                         }
                         c

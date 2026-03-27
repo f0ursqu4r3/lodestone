@@ -175,14 +175,14 @@ impl GstThread {
         self.watched_windows.insert(source_id, watched);
 
         self.window_watcher.force_refresh();
-        let initial_window_id = self.window_watcher.resolve_target(&mode);
+        let resolved = self.window_watcher.resolve_target(&mode);
 
-        let Some(window_id) = initial_window_id else {
+        let Some((window_id, width, height)) = resolved else {
             log::info!("No window found for source {source_id:?}, watcher will retry");
             return;
         };
 
-        self.start_sck_window_capture(source_id, window_id);
+        self.start_sck_window_capture(source_id, window_id, width, height);
     }
 
     /// Start a ScreenCaptureKit-based window capture for the given window ID.
@@ -190,12 +190,13 @@ impl GstThread {
     /// Follows the same pattern as [`add_display_capture_source`]: start SCK capture,
     /// build an appsrc pipeline, spawn a pump thread, and store the handle.
     #[cfg(target_os = "macos")]
-    fn start_sck_window_capture(&mut self, source_id: SourceId, window_id: u32) {
+    fn start_sck_window_capture(&mut self, source_id: SourceId, window_id: u32, width: u32, height: u32) {
         use super::capture::build_display_capture_pipeline;
         use super::screencapturekit;
 
-        let width = 1920u32;
-        let height = 1080u32;
+        // Use actual window dimensions, with a minimum of 1px
+        let width = width.max(1);
+        let height = height.max(1);
         let fps = 30u32;
 
         let (sck_handle, frame_rx) =
@@ -276,9 +277,9 @@ impl GstThread {
 
     /// Handle a window target change detected by the WindowWatcher.
     #[cfg(target_os = "macos")]
-    fn handle_window_target_change(&mut self, source_id: SourceId, new_window_id: Option<u32>) {
-        match new_window_id {
-            Some(wid) => {
+    fn handle_window_target_change(&mut self, source_id: SourceId, new_target: Option<(u32, u32, u32)>) {
+        match new_target {
+            Some((wid, width, height)) => {
                 // Try to update the existing SCK stream in-place first.
                 if let Some(capture) = self.captures.get_mut(&source_id)
                     && let Some(ref mut sck_handle) = capture.sck_handle
@@ -298,7 +299,7 @@ impl GstThread {
                 }
                 // Fall back: tear down and rebuild.
                 self.remove_capture_source(source_id);
-                self.start_sck_window_capture(source_id, wid);
+                self.start_sck_window_capture(source_id, wid, width, height);
             }
             None => {
                 log::info!("Target window gone for {source_id:?}, holding last frame");
@@ -1083,8 +1084,8 @@ impl GstThread {
             #[cfg(target_os = "macos")]
             {
                 let changes = self.window_watcher.poll(&self.watched_windows);
-                for (source_id, new_window_id) in changes {
-                    self.handle_window_target_change(source_id, new_window_id);
+                for (source_id, new_target) in changes {
+                    self.handle_window_target_change(source_id, new_target);
                 }
             }
 

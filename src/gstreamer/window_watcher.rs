@@ -36,11 +36,11 @@ impl WindowWatcher {
     }
 
     /// Called each iteration of the GStreamer thread poll loop.
-    /// Returns (source_id, new_window_id) pairs for changed targets.
+    /// Returns (source_id, new_window_id, width, height) tuples for changed targets.
     pub fn poll(
         &mut self,
         watched: &HashMap<SourceId, WatchedSource>,
-    ) -> Vec<(SourceId, Option<u32>)> {
+    ) -> Vec<(SourceId, Option<(u32, u32, u32)>)> {
         if self.last_poll.elapsed() < POLL_INTERVAL || watched.is_empty() {
             return Vec::new();
         }
@@ -51,7 +51,8 @@ impl WindowWatcher {
         let mut changes = Vec::new();
         for (source_id, source) in watched {
             let resolved = self.resolve_target(&source.mode);
-            if resolved != source.current_window_id {
+            let resolved_id = resolved.map(|(id, _, _)| id);
+            if resolved_id != source.current_window_id {
                 changes.push((*source_id, resolved));
             }
         }
@@ -65,8 +66,8 @@ impl WindowWatcher {
         self.last_poll = Instant::now();
     }
 
-    /// Resolve the best window ID for the given capture mode.
-    pub fn resolve_target(&self, mode: &WindowCaptureMode) -> Option<u32> {
+    /// Resolve the best window ID and its dimensions for the given capture mode.
+    pub fn resolve_target(&self, mode: &WindowCaptureMode) -> Option<(u32, u32, u32)> {
         match mode {
             WindowCaptureMode::AnyFullscreen => self.find_fullscreen_window(),
             WindowCaptureMode::Application {
@@ -77,15 +78,15 @@ impl WindowWatcher {
         }
     }
 
-    fn find_fullscreen_window(&self) -> Option<u32> {
+    fn find_fullscreen_window(&self) -> Option<(u32, u32, u32)> {
         self.cached_apps
             .iter()
             .flat_map(|app| &app.windows)
             .find(|w| w.is_fullscreen && w.is_on_screen)
-            .map(|w| w.window_id)
+            .map(|w| (w.window_id, w.bounds.2 as u32, w.bounds.3 as u32))
     }
 
-    fn find_app_window(&self, bundle_id: &str, pinned_title: Option<&str>) -> Option<u32> {
+    fn find_app_window(&self, bundle_id: &str, pinned_title: Option<&str>) -> Option<(u32, u32, u32)> {
         let app = self.cached_apps.iter().find(|a| a.bundle_id == bundle_id)?;
         if app.windows.is_empty() {
             return None;
@@ -93,13 +94,13 @@ impl WindowWatcher {
         if let Some(title) = pinned_title
             && let Some(win) = app.windows.iter().find(|w| w.title.contains(title))
         {
-            return Some(win.window_id);
+            return Some((win.window_id, win.bounds.2 as u32, win.bounds.3 as u32));
         }
         app.windows
             .iter()
             .find(|w| w.is_on_screen)
             .or(app.windows.first())
-            .map(|w| w.window_id)
+            .map(|w| (w.window_id, w.bounds.2 as u32, w.bounds.3 as u32))
     }
 
     fn refresh_display_bounds(&mut self) {

@@ -103,8 +103,8 @@ impl GstThread {
 
         // Window capture uses a dedicated appsrc pipeline + grab thread.
         #[cfg(target_os = "macos")]
-        if let CaptureSourceConfig::Window { window_id } = config {
-            self.add_window_capture_source(source_id, *window_id);
+        if let CaptureSourceConfig::Window { .. } = config {
+            // TODO(Task 6): pass mode to window watcher instead of raw window_id
             return;
         }
 

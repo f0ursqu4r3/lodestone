@@ -838,11 +838,11 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                         });
                         state.capture_active = true;
                     }
-                    crate::scene::SourceProperties::Window { window_id, .. } if *window_id != 0 => {
+                    crate::scene::SourceProperties::Window { mode, .. } => {
                         let _ = cmd_tx.try_send(crate::gstreamer::GstCommand::AddCaptureSource {
                             source_id: src_id,
                             config: crate::gstreamer::CaptureSourceConfig::Window {
-                                window_id: *window_id,
+                                mode: mode.clone(),
                             },
                         });
                         state.capture_active = true;

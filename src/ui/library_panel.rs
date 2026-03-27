@@ -294,9 +294,8 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
             (
                 format!("Window {}", count + 1),
                 SourceProperties::Window {
-                    window_id: 0,
-                    window_title: String::new(),
-                    owner_name: String::new(),
+                    mode: crate::scene::WindowCaptureMode::AnyFullscreen,
+                    current_window_id: None,
                 },
             )
         }

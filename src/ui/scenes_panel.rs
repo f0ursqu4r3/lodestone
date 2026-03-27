@@ -443,11 +443,11 @@ fn apply_scene_diff(
                         },
                     });
                 }
-                crate::scene::SourceProperties::Window { window_id, .. } => {
+                crate::scene::SourceProperties::Window { mode, .. } => {
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
                         config: CaptureSourceConfig::Window {
-                            window_id: *window_id,
+                            mode: mode.clone(),
                         },
                     });
                 }
@@ -561,11 +561,11 @@ pub(crate) fn send_capture_for_scene(
                     });
                     any_started = true;
                 }
-                crate::scene::SourceProperties::Window { window_id, .. } => {
+                crate::scene::SourceProperties::Window { mode, .. } => {
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
                         config: CaptureSourceConfig::Window {
-                            window_id: *window_id,
+                            mode: mode.clone(),
                         },
                     });
                     any_started = true;

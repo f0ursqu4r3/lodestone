@@ -558,84 +558,10 @@ fn draw_source_properties(
             }
         }
         SourceType::Window => {
-            section_label(ui, "SOURCE");
-            ui.add_space(4.0);
-
-            // Auto-refresh window list if empty.
-            if state.available_windows.is_empty() {
-                state.available_windows = crate::gstreamer::devices::enumerate_windows();
-            }
-
-            // Clone to avoid borrow conflicts.
-            let windows = state.available_windows.clone();
-            let cmd_tx = state.command_tx.clone();
-
-            let source = &mut state.library[lib_idx];
-            let SourceProperties::Window {
-                ref mut window_id,
-                ref mut window_title,
-                ref mut owner_name,
-            } = source.properties
-            else {
+            // TODO(Task 8): rewrite with new WindowCaptureMode UI
+            let SourceProperties::Window { .. } = state.library[lib_idx].properties else {
                 return changed;
             };
-
-            let prev_window_id = *window_id;
-            let selected_label = if owner_name.is_empty() && window_title.is_empty() {
-                "Select a window...".to_string()
-            } else {
-                format!("{owner_name} \u{2014} {window_title}")
-            };
-
-            ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt(
-                    egui::Id::new("props_window_combo").with(selected_id.0),
-                )
-                .selected_text(&selected_label)
-                .width(ui.available_width() - 32.0)
-                .show_ui(ui, |ui| {
-                    for win in &windows {
-                        let label = format!("{} \u{2014} {}", win.owner_name, win.title);
-                        if ui
-                            .selectable_label(*window_id == win.window_id, &label)
-                            .clicked()
-                        {
-                            *window_id = win.window_id;
-                            *window_title = win.title.clone();
-                            *owner_name = win.owner_name.clone();
-                        }
-                    }
-                });
-
-                // Refresh button to re-enumerate windows.
-                if ui
-                    .button(
-                        egui::RichText::new(egui_phosphor::regular::ARROW_CLOCKWISE)
-                            .size(14.0)
-                            .color(theme.text_secondary),
-                    )
-                    .on_hover_text("Refresh window list")
-                    .clicked()
-                {
-                    state.available_windows = crate::gstreamer::devices::enumerate_windows();
-                }
-            });
-
-            if *window_id != prev_window_id && *window_id != 0 {
-                // Stop old capture, start new one.
-                if let Some(ref tx) = cmd_tx {
-                    let _ = tx.try_send(GstCommand::RemoveCaptureSource {
-                        source_id: selected_id,
-                    });
-                    let _ = tx.try_send(GstCommand::AddCaptureSource {
-                        source_id: selected_id,
-                        config: CaptureSourceConfig::Window {
-                            window_id: *window_id,
-                        },
-                    });
-                }
-                changed = true;
-            }
         }
         SourceType::Camera => {
             section_label(ui, "SOURCE");

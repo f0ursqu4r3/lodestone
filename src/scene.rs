@@ -149,6 +149,20 @@ pub enum AudioInput {
     },
 }
 
+/// How the window source selects its capture target.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum WindowCaptureMode {
+    /// Track a specific application by bundle ID.
+    Application {
+        bundle_id: String,
+        app_name: String,
+        /// Pin to a specific window by title substring (None = track frontmost).
+        pinned_title: Option<String>,
+    },
+    /// Automatically capture whatever application is fullscreen.
+    AnyFullscreen,
+}
+
 /// Type-specific source configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SourceProperties {
@@ -156,9 +170,10 @@ pub enum SourceProperties {
         screen_index: u32,
     },
     Window {
-        window_id: u32,
-        window_title: String,
-        owner_name: String,
+        mode: WindowCaptureMode,
+        /// Runtime-only: the currently tracked window ID. Resolved by WindowWatcher.
+        #[serde(skip)]
+        current_window_id: Option<u32>,
     },
     Camera {
         device_index: u32,

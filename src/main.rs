@@ -568,12 +568,12 @@ impl ApplicationHandler for AppManager {
                                     });
                                 }
                             }
-                            crate::scene::SourceProperties::Window { window_id, .. } => {
+                            crate::scene::SourceProperties::Window { mode, .. } => {
                                 if let Some(ref tx) = state.command_tx {
                                     let _ = tx.try_send(gstreamer::GstCommand::AddCaptureSource {
                                         source_id: src_id,
                                         config: gstreamer::CaptureSourceConfig::Window {
-                                            window_id: *window_id,
+                                            mode: mode.clone(),
                                         },
                                     });
                                 }

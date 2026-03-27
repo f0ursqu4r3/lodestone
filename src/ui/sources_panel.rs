@@ -679,14 +679,8 @@ fn start_capture_from_properties(
             });
             state.capture_active = true;
         }
-        SourceProperties::Window { window_id, .. } if *window_id != 0 => {
-            let _ = tx.try_send(GstCommand::AddCaptureSource {
-                source_id,
-                config: CaptureSourceConfig::Window {
-                    window_id: *window_id,
-                },
-            });
-            state.capture_active = true;
+        SourceProperties::Window { .. } => {
+            // TODO(Task 9): implement with new WindowCaptureMode / WindowWatcher
         }
         SourceProperties::Camera { device_index, .. } => {
             let _ = tx.try_send(GstCommand::AddCaptureSource {

@@ -101,7 +101,7 @@ pub enum CaptureSourceConfig {
         exclude_self: bool,
     },
     Window {
-        window_id: u32,
+        mode: crate::scene::WindowCaptureMode,
     },
     Camera {
         device_index: u32,

@@ -30,10 +30,9 @@ mod native {
     };
     use objc2::rc::Retained;
     use objc2_app_kit::{
-        NSColor, NSCursor, NSEvent, NSPanel, NSScreen, NSView,
-        NSWindowStyleMask,
+        NSApplication, NSColor, NSCursor, NSEvent, NSPanel, NSScreen, NSView, NSWindowStyleMask,
     };
-    use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
+    use objc2_foundation::{MainThreadMarker, NSDate, NSPoint, NSRect, NSSize};
     use std::cell::RefCell;
 
     /// Highlight state for the window currently under the cursor.
@@ -265,32 +264,41 @@ mod native {
         // Install event monitors (both local and global for multi-monitor support).
         install_event_monitors(mtm);
 
-        // Poll until a result is set by the event monitors.
-        // Use CFRunLoopRunInMode to process events without blocking forever.
-        let run_loop_mode = unsafe { core_foundation::runloop::kCFRunLoopDefaultMode };
+        // Custom event loop: pump NSApplication events manually.
+        // This correctly processes mouse, keyboard, and system events across all monitors.
+        let app = NSApplication::sharedApplication(mtm);
+        let all_mask = objc2_app_kit::NSEventMask::Any;
+        let run_loop_mode = unsafe { objc2_foundation::NSDefaultRunLoopMode };
+
         loop {
-            // Process pending events for a short interval.
-            unsafe {
-                core_foundation::runloop::CFRunLoopRunInMode(
+            // Drain all pending events.
+            loop {
+                let event = app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                    all_mask,
+                    Some(&NSDate::distantPast()), // don't block, return immediately if empty
                     run_loop_mode,
-                    0.016, // ~60fps
-                    true as u8,
+                    true,
                 );
+                match event {
+                    Some(e) => app.sendEvent(&e),
+                    None => break,
+                }
             }
 
-            // Also poll mouse position on each tick to handle cases where
-            // the global monitor doesn't fire mouseMoved (e.g., mouse already
-            // over another monitor when picker opens).
+            // Poll mouse position each tick and update the highlight.
             let mouse_loc = NSEvent::mouseLocation();
             let highlight = window_under_cursor(mouse_loc);
             update_highlight_view(&highlight);
             PICKER_HIGHLIGHT.with(|h| *h.borrow_mut() = highlight);
 
-            // Check if we have a result.
+            // Check if a result was set by the event monitors.
             let done = PICKER_RESULT.with(|r| r.borrow().is_some());
             if done {
                 break;
             }
+
+            // Sleep briefly to avoid busy-looping.
+            std::thread::sleep(std::time::Duration::from_millis(16));
         }
 
         // Restore cursor.

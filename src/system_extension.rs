@@ -54,7 +54,10 @@ impl OSSystemExtensionRequest {
         queue: *const std::ffi::c_void,
     ) -> *mut AnyObject {
         let cls = Self::class();
-        unsafe { msg_send![cls, activationRequestForExtension: identifier, queue: queue] }
+        // Cast dispatch_queue_t to &AnyObject — msg_send! checks type encodings
+        // and expects '@' (object) for the queue parameter, not '^v' (void pointer).
+        let queue_obj: &AnyObject = unsafe { &*(queue as *const AnyObject) };
+        unsafe { msg_send![cls, activationRequestForExtension: identifier, queue: queue_obj] }
     }
 }
 

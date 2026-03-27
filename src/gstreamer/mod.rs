@@ -9,6 +9,8 @@ pub mod screencapturekit;
 pub mod thread;
 pub mod types;
 #[cfg(target_os = "macos")]
+pub mod window_watcher;
+#[cfg(target_os = "macos")]
 pub mod virtual_camera;
 
 #[allow(unused_imports)]

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.lodestone.camera-extension</string>
+    <string>com.lodestone.app.camera-extension</string>
     <key>CFBundleName</key>
     <string>LodestoneCamera</string>
     <key>CFBundleDisplayName</key>
@@ -29,6 +29,6 @@
         <string>$(PRODUCT_MODULE_NAME).LodestoneProvider</string>
     </dict>
     <key>CMIOExtensionMachServiceName</key>
-    <string>com.lodestone.camera-extension</string>
+    <string>com.lodestone.app.camera-extension</string>
 </dict>
 </plist>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.kdougan.lodestone.app.camera-extension</string>
+    <key>CFBundleName</key>
+    <string>LodestoneCamera</string>
+    <key>CFBundleDisplayName</key>
+    <string>Lodestone Virtual Camera</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+    <key>CFBundleExecutable</key>
+    <string>LodestoneCamera</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.cmio.extension-point</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>$(PRODUCT_MODULE_NAME).LodestoneProvider</string>
+    </dict>
+    <key>CMIOExtensionMachServiceName</key>
+    <string>com.kdougan.lodestone.app.camera-extension</string>
+</dict>
+</plist>

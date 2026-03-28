@@ -1,19 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ─── Configuration ────────────────────────────────────────────────────────────
-
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_MODE="release"
 SIGN_IDENTITY="Apple Development"
 
-# ─── Argument parsing ─────────────────────────────────────────────────────────
-
 for arg in "$@"; do
     case "$arg" in
-        --debug)
-            BUILD_MODE="debug"
-            ;;
+        --debug) BUILD_MODE="debug" ;;
         *)
             echo "Unknown argument: $arg" >&2
             echo "Usage: $0 [--debug]" >&2
@@ -22,15 +16,20 @@ for arg in "$@"; do
     esac
 done
 
+XCODE_CONFIG="Release"
+if [[ "$BUILD_MODE" == "debug" ]]; then
+    XCODE_CONFIG="Debug"
+fi
+
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
 RUST_BINARY="${REPO_ROOT}/target/${BUILD_MODE}/lodestone"
-DAL_PLUGIN_SRC="${REPO_ROOT}/target/${BUILD_MODE}/LodestoneCamera.plugin"
+EXT_SRC="${REPO_ROOT}/target/xcode-build/Build/Products/${XCODE_CONFIG}/LodestoneCamera.systemextension"
 APP_ENTITLEMENTS="${REPO_ROOT}/Lodestone.entitlements"
+EXT_ENTITLEMENTS="${REPO_ROOT}/lodestone-camera-extension/LodestoneCamera-signing.entitlements"
 APP_BUNDLE="${REPO_ROOT}/Lodestone.app"
-DAL_INSTALL_DEST="/Library/CoreMediaIO/Plug-Ins/DAL/LodestoneCamera.plugin"
 
-# ─── Pre-flight checks ────────────────────────────────────────────────────────
+# ─── Pre-flight checks ───────────────────────────────────────────────────────
 
 if [[ ! -f "$RUST_BINARY" ]]; then
     echo "error: Rust binary not found at: $RUST_BINARY" >&2
@@ -38,14 +37,9 @@ if [[ ! -f "$RUST_BINARY" ]]; then
     exit 1
 fi
 
-if [[ ! -d "$DAL_PLUGIN_SRC" ]]; then
-    echo "error: DAL plugin not found at: $DAL_PLUGIN_SRC" >&2
-    echo "       Run 'cargo build$([ "$BUILD_MODE" = "release" ] && echo " --release" || echo "")' first." >&2
-    exit 1
-fi
-
-if [[ ! -f "$APP_ENTITLEMENTS" ]]; then
-    echo "error: App entitlements not found at: $APP_ENTITLEMENTS" >&2
+if [[ ! -d "$EXT_SRC" ]]; then
+    echo "error: Camera extension not found at: $EXT_SRC" >&2
+    echo "       Run 'cargo build' (build.rs should trigger xcodebuild)." >&2
     exit 1
 fi
 
@@ -55,13 +49,14 @@ echo "Building ${BUILD_MODE} app bundle..."
 
 rm -rf "$APP_BUNDLE"
 
-# ─── Create bundle structure ──────────────────────────────────────────────────
+# ─── Create bundle structure ─────────────────────────────────────────────────
 
 mkdir -p \
     "${APP_BUNDLE}/Contents/MacOS" \
-    "${APP_BUNDLE}/Contents/Resources"
+    "${APP_BUNDLE}/Contents/Resources" \
+    "${APP_BUNDLE}/Contents/Library/SystemExtensions"
 
-# ─── Generate Info.plist ──────────────────────────────────────────────────────
+# ─── Generate Info.plist ─────────────────────────────────────────────────────
 
 cat > "${APP_BUNDLE}/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -69,8 +64,10 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.lodestone.app</string>
+    <string>com.kdougan.lodestone.app</string>
     <key>CFBundleName</key>
+    <string>Lodestone</string>
+    <key>CFBundleDisplayName</key>
     <string>Lodestone</string>
     <key>CFBundleExecutable</key>
     <string>lodestone</string>
@@ -88,27 +85,37 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<'PLIST'
     <string>Lodestone needs camera access to capture video for streaming and recording.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Lodestone needs microphone access to capture audio for streaming and recording.</string>
+    <key>NSSystemExtensionUsageDescription</key>
+    <string>Lodestone installs a virtual camera so other apps can use your composited output.</string>
 </dict>
 </plist>
 PLIST
 
-# ─── Copy binary ──────────────────────────────────────────────────────────────
+# ─── Copy binary ─────────────────────────────────────────────────────────────
 
 echo "Copying binary..."
 cp "$RUST_BINARY" "${APP_BUNDLE}/Contents/MacOS/lodestone"
 
-# ─── Sign app bundle ──────────────────────────────────────────────────────────
+# ─── Copy system extension ───────────────────────────────────────────────────
+
+echo "Copying system extension..."
+cp -R "$EXT_SRC" "${APP_BUNDLE}/Contents/Library/SystemExtensions/"
+
+# ─── Sign — inner bundle first, then outer app ───────────────────────────────
+
+echo "Signing system extension..."
+codesign --force --sign "$SIGN_IDENTITY" \
+    --entitlements "$EXT_ENTITLEMENTS" \
+    --options runtime --timestamp \
+    "${APP_BUNDLE}/Contents/Library/SystemExtensions/LodestoneCamera.systemextension"
 
 echo "Signing app bundle..."
-codesign \
-    --force \
-    --sign "$SIGN_IDENTITY" \
+codesign --force --sign "$SIGN_IDENTITY" \
     --entitlements "$APP_ENTITLEMENTS" \
-    --options runtime \
-    --timestamp \
+    --options runtime --timestamp \
     "$APP_BUNDLE"
 
-# ─── Verify ───────────────────────────────────────────────────────────────────
+# ─── Verify ──────────────────────────────────────────────────────────────────
 
 echo "Verifying signatures..."
 codesign --verify --deep --strict "$APP_BUNDLE"
@@ -116,28 +123,3 @@ codesign --verify --deep --strict "$APP_BUNDLE"
 echo ""
 echo "Done: ${APP_BUNDLE}"
 echo "Build mode: ${BUILD_MODE}"
-
-# ─── DAL plugin install ───────────────────────────────────────────────────────
-
-echo ""
-echo "Checking DAL plugin installation..."
-
-NEEDS_INSTALL=false
-
-if [[ ! -d "$DAL_INSTALL_DEST" ]]; then
-    echo "DAL plugin not installed — installing..."
-    NEEDS_INSTALL=true
-elif ! diff -r "$DAL_INSTALL_DEST" "$DAL_PLUGIN_SRC" > /dev/null 2>&1; then
-    echo "DAL plugin differs from installed version — updating..."
-    NEEDS_INSTALL=true
-else
-    echo "DAL plugin is up to date."
-fi
-
-if [[ "$NEEDS_INSTALL" == "true" ]]; then
-    sudo cp -R "$DAL_PLUGIN_SRC" "/Library/CoreMediaIO/Plug-Ins/DAL/"
-    echo "DAL plugin installed to: $DAL_INSTALL_DEST"
-    echo ""
-    echo "NOTE: Restart any apps that use cameras (e.g. Zoom, Teams, OBS) for the"
-    echo "      virtual camera to become available."
-fi

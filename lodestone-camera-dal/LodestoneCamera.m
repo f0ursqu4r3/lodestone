@@ -20,7 +20,7 @@
 // MARK: - Constants
 // ---------------------------------------------------------------------------
 
-static NSString *const kAppGroupSuite = @"group.com.lodestone.app";
+static NSString *const kAppGroupSuite = @"group.com.kdougan.lodestone.app";
 static NSString *const kSurfaceIDKey  = @"virtualCameraSurfaceID";
 static NSString *const kWidthKey      = @"virtualCameraWidth";
 static NSString *const kHeightKey     = @"virtualCameraHeight";

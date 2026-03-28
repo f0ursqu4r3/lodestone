@@ -5,6 +5,8 @@ mod renderer;
 mod scene;
 mod settings;
 mod state;
+#[cfg(target_os = "macos")]
+mod system_extension;
 mod text_source;
 mod ui;
 mod window;
@@ -1603,6 +1605,9 @@ mod tests {
 fn main() -> Result<()> {
     env_logger::init();
     log::info!("Lodestone starting");
+
+    #[cfg(target_os = "macos")]
+    system_extension::activate_camera_extension();
 
     text_source::init_font_system();
     let event_loop = EventLoop::new()?;

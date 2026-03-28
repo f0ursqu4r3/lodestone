@@ -1,50 +1,41 @@
 use std::process::Command;
 
 fn main() {
-    // Only run on macOS
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if target_os != "macos" {
         return;
     }
 
-    println!("cargo:rerun-if-changed=lodestone-camera-dal/LodestoneCamera.m");
-    println!("cargo:rerun-if-changed=lodestone-camera-dal/Info.plist");
+    // Re-run when Swift sources or project config change
+    println!("cargo:rerun-if-changed=lodestone-camera-extension/Sources/main.swift");
+    println!("cargo:rerun-if-changed=lodestone-camera-extension/Sources/Provider.swift");
+    println!("cargo:rerun-if-changed=lodestone-camera-extension/Sources/Device.swift");
+    println!("cargo:rerun-if-changed=lodestone-camera-extension/Sources/Stream.swift");
+    println!("cargo:rerun-if-changed=lodestone-camera-extension/Info.plist");
+    println!("cargo:rerun-if-changed=lodestone-camera-extension/LodestoneCamera.entitlements");
+    println!("cargo:rerun-if-changed=lodestone-camera-extension/LodestoneCamera.xcodeproj/project.pbxproj");
 
+    // Link SystemExtensions framework for activation code
+    println!("cargo:rustc-link-lib=framework=SystemExtensions");
+
+    // Map Cargo profile to Xcode configuration
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
+    let xcode_config = if profile == "release" { "Release" } else { "Debug" };
 
-    // Build the plugin bundle directory structure.
-    let bundle_macos = format!("target/{}/LodestoneCamera.plugin/Contents/MacOS", profile);
-    std::fs::create_dir_all(&bundle_macos).expect("failed to create plugin bundle MacOS dir");
-
-    // Copy Info.plist into the bundle.
-    let plist_dest = format!("target/{}/LodestoneCamera.plugin/Contents/Info.plist", profile);
-    std::fs::copy("lodestone-camera-dal/Info.plist", &plist_dest)
-        .expect("failed to copy Info.plist into plugin bundle");
-
-    // Compile the DAL plugin dylib via clang.
-    let dylib_dest = format!(
-        "target/{}/LodestoneCamera.plugin/Contents/MacOS/LodestoneCamera",
-        profile
-    );
-
-    let status = Command::new("clang")
+    let status = Command::new("xcodebuild")
         .args([
-            "-dynamiclib",
-            "-fobjc-arc",
-            "-o",
-            &dylib_dest,
-            "lodestone-camera-dal/LodestoneCamera.m",
-            "-framework", "CoreMediaIO",
-            "-framework", "CoreMedia",
-            "-framework", "CoreVideo",
-            "-framework", "IOSurface",
-            "-framework", "Foundation",
-            "-framework", "CoreFoundation",
+            "-project", "lodestone-camera-extension/LodestoneCamera.xcodeproj",
+            "-scheme", "LodestoneCamera",
+            "-configuration", xcode_config,
+            "-derivedDataPath", "target/xcode-build",
+            "-allowProvisioningUpdates",
+            "-quiet",
+            "build",
         ])
         .status()
-        .expect("failed to launch clang");
+        .expect("failed to run xcodebuild — is Xcode installed?");
 
     if !status.success() {
-        panic!("build.rs: clang failed with exit status: {}", status);
+        panic!("xcodebuild failed with status: {}", status);
     }
 }

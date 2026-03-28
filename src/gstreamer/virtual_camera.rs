@@ -25,7 +25,7 @@ use objc2_io_surface::{
 use super::types::RgbaFrame;
 
 /// App Group suite name shared between the main app and the camera extension.
-const APP_GROUP_SUITE: &str = "group.com.lodestone.app";
+const APP_GROUP_SUITE: &str = "group.com.kdougan.lodestone.app";
 
 /// UserDefaults key for the IOSurface ID.
 const UD_KEY_SURFACE_ID: &str = "virtualCameraSurfaceID";

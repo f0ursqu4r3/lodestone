@@ -22,15 +22,13 @@ for arg in "$@"; do
     esac
 done
 
-XCODE_CONFIG="$(tr '[:lower:]' '[:upper:]' <<< "${BUILD_MODE:0:1}")${BUILD_MODE:1}"  # Capitalize: debug → Debug
-
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
 RUST_BINARY="${REPO_ROOT}/target/${BUILD_MODE}/lodestone"
-EXT_SRC="${REPO_ROOT}/target/xcode-build/Build/Products/${XCODE_CONFIG}/LodestoneCamera.appex"
+DAL_PLUGIN_SRC="${REPO_ROOT}/target/${BUILD_MODE}/LodestoneCamera.plugin"
 APP_ENTITLEMENTS="${REPO_ROOT}/Lodestone.entitlements"
-EXT_ENTITLEMENTS="${REPO_ROOT}/lodestone-camera-extension/LodestoneCamera.entitlements"
 APP_BUNDLE="${REPO_ROOT}/Lodestone.app"
+DAL_INSTALL_DEST="/Library/CoreMediaIO/Plug-Ins/DAL/LodestoneCamera.plugin"
 
 # ─── Pre-flight checks ────────────────────────────────────────────────────────
 
@@ -40,19 +38,14 @@ if [[ ! -f "$RUST_BINARY" ]]; then
     exit 1
 fi
 
-if [[ ! -d "$EXT_SRC" ]]; then
-    echo "error: Camera extension not found at: $EXT_SRC" >&2
-    echo "       Run 'cargo build$([ "$BUILD_MODE" = "release" ] && echo " --release" || echo "")' (which builds the Xcode extension) first." >&2
+if [[ ! -d "$DAL_PLUGIN_SRC" ]]; then
+    echo "error: DAL plugin not found at: $DAL_PLUGIN_SRC" >&2
+    echo "       Run 'cargo build$([ "$BUILD_MODE" = "release" ] && echo " --release" || echo "")' first." >&2
     exit 1
 fi
 
 if [[ ! -f "$APP_ENTITLEMENTS" ]]; then
     echo "error: App entitlements not found at: $APP_ENTITLEMENTS" >&2
-    exit 1
-fi
-
-if [[ ! -f "$EXT_ENTITLEMENTS" ]]; then
-    echo "error: Extension entitlements not found at: $EXT_ENTITLEMENTS" >&2
     exit 1
 fi
 
@@ -66,8 +59,7 @@ rm -rf "$APP_BUNDLE"
 
 mkdir -p \
     "${APP_BUNDLE}/Contents/MacOS" \
-    "${APP_BUNDLE}/Contents/Resources" \
-    "${APP_BUNDLE}/Contents/PlugIns"
+    "${APP_BUNDLE}/Contents/Resources"
 
 # ─── Generate Info.plist ──────────────────────────────────────────────────────
 
@@ -100,26 +92,12 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# ─── Copy binary and extension ────────────────────────────────────────────────
+# ─── Copy binary ──────────────────────────────────────────────────────────────
 
 echo "Copying binary..."
 cp "$RUST_BINARY" "${APP_BUNDLE}/Contents/MacOS/lodestone"
 
-echo "Copying camera extension..."
-cp -R "$EXT_SRC" "${APP_BUNDLE}/Contents/PlugIns/"
-
-# ─── Sign — inner bundle first, then outer app ────────────────────────────────
-
-EXT_DEST="${APP_BUNDLE}/Contents/PlugIns/LodestoneCamera.appex"
-
-echo "Signing extension bundle..."
-codesign \
-    --force \
-    --sign "$SIGN_IDENTITY" \
-    --entitlements "$EXT_ENTITLEMENTS" \
-    --options runtime \
-    --timestamp \
-    "$EXT_DEST"
+# ─── Sign app bundle ──────────────────────────────────────────────────────────
 
 echo "Signing app bundle..."
 codesign \
@@ -138,3 +116,28 @@ codesign --verify --deep --strict "$APP_BUNDLE"
 echo ""
 echo "Done: ${APP_BUNDLE}"
 echo "Build mode: ${BUILD_MODE}"
+
+# ─── DAL plugin install ───────────────────────────────────────────────────────
+
+echo ""
+echo "Checking DAL plugin installation..."
+
+NEEDS_INSTALL=false
+
+if [[ ! -d "$DAL_INSTALL_DEST" ]]; then
+    echo "DAL plugin not installed — installing..."
+    NEEDS_INSTALL=true
+elif ! diff -r "$DAL_INSTALL_DEST" "$DAL_PLUGIN_SRC" > /dev/null 2>&1; then
+    echo "DAL plugin differs from installed version — updating..."
+    NEEDS_INSTALL=true
+else
+    echo "DAL plugin is up to date."
+fi
+
+if [[ "$NEEDS_INSTALL" == "true" ]]; then
+    sudo cp -R "$DAL_PLUGIN_SRC" "/Library/CoreMediaIO/Plug-Ins/DAL/"
+    echo "DAL plugin installed to: $DAL_INSTALL_DEST"
+    echo ""
+    echo "NOTE: Restart any apps that use cameras (e.g. Zoom, Teams, OBS) for the"
+    echo "      virtual camera to become available."
+fi

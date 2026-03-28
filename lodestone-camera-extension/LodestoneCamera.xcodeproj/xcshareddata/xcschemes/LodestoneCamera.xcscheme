@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A1B2C3D4E5F60070000001"
-               BuildableName = "LodestoneCamera.systemextension"
+               BuildableName = "LodestoneCamera.appex"
                BlueprintName = "LodestoneCamera"
                ReferencedContainer = "container:LodestoneCamera.xcodeproj">
             </BuildableReference>

@@ -18,9 +18,6 @@ fn main() {
         "cargo:rerun-if-changed=lodestone-camera-extension/LodestoneCamera.xcodeproj/project.pbxproj"
     );
 
-    // Link SystemExtensions framework (needed for system extension activation)
-    println!("cargo:rustc-link-lib=framework=SystemExtensions");
-
     // Verify we have a full Xcode.app, not just CommandLineTools
     let xcode_select = Command::new("xcode-select")
         .arg("-p")

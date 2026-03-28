@@ -14,6 +14,11 @@
     <string>1.0</string>
     <key>CFBundlePackageType</key>
     <string>XPC!</string>
+    <key>EXAppExtensionAttributes</key>
+    <dict>
+        <key>EXExtensionPointIdentifier</key>
+        <string>com.apple.cmio.extension-point</string>
+    </dict>
     <key>CFBundleExecutable</key>
     <string>LodestoneCamera</string>
     <key>NSExtension</key>

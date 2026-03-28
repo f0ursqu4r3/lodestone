@@ -28,7 +28,7 @@
 		A1B2C3D4E5F60020000004 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		A1B2C3D4E5F60030000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D4E5F60030000002 /* LodestoneCamera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LodestoneCamera.entitlements; sourceTree = "<group>"; };
-		A1B2C3D4E5F60040000001 /* LodestoneCamera.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = LodestoneCamera.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F60040000001 /* LodestoneCamera.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LodestoneCamera.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,7 +82,7 @@
 		A1B2C3D4E5F60060000004 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A1B2C3D4E5F60040000001 /* LodestoneCamera.systemextension */,
+				A1B2C3D4E5F60040000001 /* LodestoneCamera.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -103,8 +103,8 @@
 			);
 			name = LodestoneCamera;
 			productName = LodestoneCamera;
-			productReference = A1B2C3D4E5F60040000001 /* LodestoneCamera.systemextension */;
-			productType = "com.apple.product-type.system-extension";
+			productReference = A1B2C3D4E5F60040000001 /* LodestoneCamera.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 

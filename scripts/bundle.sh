@@ -27,7 +27,7 @@ XCODE_CONFIG="$(tr '[:lower:]' '[:upper:]' <<< "${BUILD_MODE:0:1}")${BUILD_MODE:
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
 RUST_BINARY="${REPO_ROOT}/target/${BUILD_MODE}/lodestone"
-EXT_SRC="${REPO_ROOT}/target/xcode-build/Build/Products/${XCODE_CONFIG}/LodestoneCamera.systemextension"
+EXT_SRC="${REPO_ROOT}/target/xcode-build/Build/Products/${XCODE_CONFIG}/LodestoneCamera.appex"
 APP_ENTITLEMENTS="${REPO_ROOT}/Lodestone.entitlements"
 EXT_ENTITLEMENTS="${REPO_ROOT}/lodestone-camera-extension/LodestoneCamera.entitlements"
 APP_BUNDLE="${REPO_ROOT}/Lodestone.app"
@@ -67,7 +67,7 @@ rm -rf "$APP_BUNDLE"
 mkdir -p \
     "${APP_BUNDLE}/Contents/MacOS" \
     "${APP_BUNDLE}/Contents/Resources" \
-    "${APP_BUNDLE}/Contents/Library/SystemExtensions"
+    "${APP_BUNDLE}/Contents/PlugIns"
 
 # ─── Generate Info.plist ──────────────────────────────────────────────────────
 
@@ -96,8 +96,6 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" <<'PLIST'
     <string>Lodestone needs camera access to capture video for streaming and recording.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Lodestone needs microphone access to capture audio for streaming and recording.</string>
-    <key>NSSystemExtensionUsageDescription</key>
-    <string>Lodestone installs a virtual camera extension to provide a virtual camera source for other applications.</string>
 </dict>
 </plist>
 PLIST
@@ -107,12 +105,12 @@ PLIST
 echo "Copying binary..."
 cp "$RUST_BINARY" "${APP_BUNDLE}/Contents/MacOS/lodestone"
 
-echo "Copying system extension..."
-cp -R "$EXT_SRC" "${APP_BUNDLE}/Contents/Library/SystemExtensions/"
+echo "Copying camera extension..."
+cp -R "$EXT_SRC" "${APP_BUNDLE}/Contents/PlugIns/"
 
 # ─── Sign — inner bundle first, then outer app ────────────────────────────────
 
-EXT_DEST="${APP_BUNDLE}/Contents/Library/SystemExtensions/LodestoneCamera.systemextension"
+EXT_DEST="${APP_BUNDLE}/Contents/PlugIns/LodestoneCamera.appex"
 
 echo "Signing extension bundle..."
 codesign \

@@ -147,7 +147,7 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
         // Check if the surface ID changed (Lodestone may have restarted)
         lookupSurface()
 
-        let pixelBuffer: CVPixelBuffer
+        let pixelBuffer: CVPixelBuffer?
 
         if let surface = surface {
             // Wrap the IOSurface directly into a CVPixelBuffer (zero-copy)
@@ -172,11 +172,12 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
             pixelBuffer = createBlackFrame()
         }
 
+        guard let pixelBuffer else { return }
         deliverFrame(pixelBuffer: pixelBuffer)
     }
 
     /// Create a black CVPixelBuffer (used when Lodestone isn't running).
-    private func createBlackFrame() -> CVPixelBuffer {
+    private func createBlackFrame() -> CVPixelBuffer? {
         var pb: CVPixelBuffer?
         CVPixelBufferCreate(
             kCFAllocatorDefault,
@@ -190,7 +191,7 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
         )
 
         guard let pixelBuffer = pb else {
-            fatalError("Failed to create black pixel buffer")
+            return nil
         }
 
         CVPixelBufferLockBaseAddress(pixelBuffer, [])

@@ -110,9 +110,9 @@ codesign --force --sign "$SIGN_IDENTITY" \
     "${APP_BUNDLE}/Contents/Library/SystemExtensions/LodestoneCamera.systemextension"
 
 echo "Signing app bundle..."
-codesign --force --sign "$SIGN_IDENTITY" \
+codesign --force --deep --sign "$SIGN_IDENTITY" \
     --entitlements "$APP_ENTITLEMENTS" \
-    --options runtime --timestamp \
+    --timestamp \
     "$APP_BUNDLE"
 
 # ─── Verify ──────────────────────────────────────────────────────────────────

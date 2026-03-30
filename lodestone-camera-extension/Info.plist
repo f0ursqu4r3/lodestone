@@ -25,7 +25,7 @@
     <key>CMIOExtension</key>
     <dict>
         <key>CMIOExtensionMachServiceName</key>
-        <string>$(TeamIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+        <string>group.com.kdougan.lodestone.app.camera-extension</string>
     </dict>
 </dict>
 </plist>

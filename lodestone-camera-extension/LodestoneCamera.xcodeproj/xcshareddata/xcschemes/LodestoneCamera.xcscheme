@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1500"
+   LastUpgradeVersion = "2640"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -14,9 +14,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "A1B2C3D4E5F60070000001"
-               BuildableName = "LodestoneCamera.systemextension"
-               BlueprintName = "LodestoneCamera"
+               BlueprintIdentifier = "9770FF982F7B050300CAB6F7"
+               BuildableName = "LodestoneHost.app"
+               BlueprintName = "LodestoneHost"
                ReferencedContainer = "container:LodestoneCamera.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -59,9 +59,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "A1B2C3D4E5F60070000001"
-            BuildableName = "LodestoneCamera.systemextension"
-            BlueprintName = "LodestoneCamera"
+            BlueprintIdentifier = "9770FF982F7B050300CAB6F7"
+            BuildableName = "LodestoneHost.app"
+            BlueprintName = "LodestoneHost"
             ReferencedContainer = "container:LodestoneCamera.xcodeproj">
          </BuildableReference>
       </MacroExpansion>

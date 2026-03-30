@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		9770FFA52F7B0DCB00CAB6F7 /* LodestoneCamera.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60040000001 /* LodestoneCamera.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		9770FFA52F7B0DCB00CAB6F7 /* com.kdougan.lodestone.app.camera-extension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60040000001 /* com.kdougan.lodestone.app.camera-extension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A1B2C3D4E5F60001000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60010000001 /* main.swift */; };
 		A1B2C3D4E5F60001000002 /* Provider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60010000002 /* Provider.swift */; };
 		A1B2C3D4E5F60001000003 /* Device.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60010000003 /* Device.swift */; };
@@ -35,7 +35,7 @@
 			dstPath = "$(SYSTEM_EXTENSIONS_FOLDER_PATH)";
 			dstSubfolderSpec = 16;
 			files = (
-				9770FFA52F7B0DCB00CAB6F7 /* LodestoneCamera.systemextension in Embed System Extensions */,
+				9770FFA52F7B0DCB00CAB6F7 /* com.kdougan.lodestone.app.camera-extension.systemextension in Embed System Extensions */,
 			);
 			name = "Embed System Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -54,7 +54,7 @@
 		A1B2C3D4E5F60020000004 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		A1B2C3D4E5F60030000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D4E5F60030000002 /* LodestoneCamera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LodestoneCamera.entitlements; sourceTree = "<group>"; };
-		A1B2C3D4E5F60040000001 /* LodestoneCamera.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = LodestoneCamera.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F60040000001 /* com.kdougan.lodestone.app.camera-extension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = "com.kdougan.lodestone.app.camera-extension.systemextension"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -120,7 +120,7 @@
 		A1B2C3D4E5F60060000004 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A1B2C3D4E5F60040000001 /* LodestoneCamera.systemextension */,
+				A1B2C3D4E5F60040000001 /* com.kdougan.lodestone.app.camera-extension.systemextension */,
 				9770FF992F7B050300CAB6F7 /* LodestoneHost.app */,
 			);
 			name = Products;
@@ -166,7 +166,7 @@
 			);
 			name = LodestoneCamera;
 			productName = LodestoneCamera;
-			productReference = A1B2C3D4E5F60040000001 /* LodestoneCamera.systemextension */;
+			productReference = A1B2C3D4E5F60040000001 /* com.kdougan.lodestone.app.camera-extension.systemextension */;
 			productType = "com.apple.product-type.system-extension";
 		};
 /* End PBXNativeTarget section */
@@ -177,7 +177,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2640;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					9770FF982F7B050300CAB6F7 = {
 						CreatedOnToolsVersion = 26.4;
@@ -253,7 +253,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GNM2RZ7D52;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -292,7 +292,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GNM2RZ7D52;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -354,7 +354,9 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = GNM2RZ7D52;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -376,6 +378,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -414,7 +417,9 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = GNM2RZ7D52;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -428,6 +433,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
@@ -440,7 +446,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GNM2RZ7D52;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
@@ -450,6 +457,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.kdougan.lodestone.app.camera-extension";
 				PRODUCT_MODULE_NAME = LodestoneCamera;
 				PRODUCT_NAME = "$(PRODUCT_BUNDLE_IDENTIFIER)";
+				REGISTER_APP_GROUPS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				SYSTEM_EXTENSION_API_VERSION = 1.0;
@@ -463,7 +471,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GNM2RZ7D52;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
@@ -473,6 +482,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.kdougan.lodestone.app.camera-extension";
 				PRODUCT_MODULE_NAME = LodestoneCamera;
 				PRODUCT_NAME = "$(PRODUCT_BUNDLE_IDENTIFIER)";
+				REGISTER_APP_GROUPS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				SYSTEM_EXTENSION_API_VERSION = 1.0;

@@ -121,27 +121,106 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // ── Apply deferred action ──
     match pending_action {
         Some(SceneAction::Switch(new_id)) => {
-            let old_scene = state
-                .active_scene_id
-                .and_then(|id| state.scenes.iter().find(|s| s.id == id))
-                .cloned();
-            let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
+            // Don't switch to the same scene.
+            if state.active_scene_id == Some(new_id) {
+                // No-op
+            } else if state.studio_mode {
+                // In Studio Mode, clicking a scene sets it as preview.
+                let old_preview = state.preview_scene_id;
+                state.preview_scene_id = Some(new_id);
 
-            state.active_scene_id = Some(new_id);
-            state.deselect_all();
+                // Start sources for the preview scene.
+                let old_preview_scene = old_preview
+                    .and_then(|id| state.scenes.iter().find(|s| s.id == id))
+                    .cloned();
+                let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
 
-            apply_scene_diff(
-                &cmd_tx,
-                &state.library,
-                old_scene.as_ref(),
-                new_scene.as_ref(),
-                state.settings.general.exclude_self_from_capture,
-            );
+                apply_scene_diff(
+                    &cmd_tx,
+                    &state.library,
+                    old_preview_scene.as_ref(),
+                    new_scene.as_ref(),
+                    state.settings.general.exclude_self_from_capture,
+                );
+                state.mark_dirty();
+            } else {
+                // Normal mode: resolve transition and start it.
+                let target_scene = state.scenes.iter().find(|s| s.id == new_id);
+                let (transition_type, duration) = target_scene
+                    .map(|s| {
+                        crate::transition::resolve_transition(
+                            &state.settings.transitions,
+                            &s.transition_override,
+                        )
+                    })
+                    .unwrap_or((
+                        crate::transition::TransitionType::Fade,
+                        std::time::Duration::from_millis(300),
+                    ));
 
-            if let Some(ref scene) = new_scene {
-                state.capture_active = !scene.sources.is_empty();
+                match transition_type {
+                    crate::transition::TransitionType::Cut => {
+                        // Instant switch — same as before.
+                        let old_scene = state
+                            .active_scene_id
+                            .and_then(|id| state.scenes.iter().find(|s| s.id == id))
+                            .cloned();
+                        let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
+
+                        state.active_scene_id = Some(new_id);
+                        state.deselect_all();
+
+                        apply_scene_diff(
+                            &cmd_tx,
+                            &state.library,
+                            old_scene.as_ref(),
+                            new_scene.as_ref(),
+                            state.settings.general.exclude_self_from_capture,
+                        );
+
+                        if let Some(ref scene) = new_scene {
+                            state.capture_active = !scene.sources.is_empty();
+                        }
+                        state.mark_dirty();
+                    }
+                    crate::transition::TransitionType::Fade => {
+                        if let Some(from_scene_id) = state.active_scene_id {
+                            // Start incoming scene sources without removing outgoing.
+                            let old_scene =
+                                state.scenes.iter().find(|s| s.id == from_scene_id).cloned();
+                            let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
+
+                            if let Some(ref new_s) = new_scene {
+                                for &src_id in &new_s.source_ids() {
+                                    let already_running = old_scene
+                                        .as_ref()
+                                        .map(|s| s.source_ids().contains(&src_id))
+                                        .unwrap_or(false);
+                                    if !already_running {
+                                        start_capture_source(
+                                            &cmd_tx,
+                                            &state.library,
+                                            src_id,
+                                            state.settings.general.exclude_self_from_capture,
+                                        );
+                                    }
+                                }
+                            }
+
+                            state.active_transition =
+                                Some(crate::transition::TransitionState {
+                                    from_scene: from_scene_id,
+                                    to_scene: new_id,
+                                    transition_type,
+                                    started_at: std::time::Instant::now(),
+                                    duration,
+                                });
+                            state.deselect_all();
+                            state.mark_dirty();
+                        }
+                    }
+                }
             }
-            state.mark_dirty();
         }
         Some(SceneAction::Delete(del_id)) => {
             delete_scene_by_id(state, &cmd_tx, del_id);
@@ -502,6 +581,65 @@ fn apply_scene_diff(
                 _ => {}
             }
         }
+    }
+}
+
+/// Start a single capture source by ID without stopping anything.
+fn start_capture_source(
+    cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
+    library: &[crate::scene::LibrarySource],
+    source_id: SourceId,
+    exclude_self: bool,
+) {
+    let Some(tx) = cmd_tx else { return };
+    let Some(source) = library.iter().find(|s| s.id == source_id) else {
+        return;
+    };
+
+    match &source.properties {
+        crate::scene::SourceProperties::Display { screen_index } => {
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id,
+                config: CaptureSourceConfig::Screen {
+                    screen_index: *screen_index,
+                    exclude_self,
+                },
+            });
+        }
+        crate::scene::SourceProperties::Window { mode, .. } => {
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id,
+                config: CaptureSourceConfig::Window { mode: mode.clone() },
+            });
+        }
+        crate::scene::SourceProperties::Camera { device_index, .. } => {
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id,
+                config: CaptureSourceConfig::Camera {
+                    device_index: *device_index,
+                },
+            });
+        }
+        crate::scene::SourceProperties::Audio { input } => {
+            let config = match input {
+                crate::scene::AudioInput::Device { device_uid, .. } => {
+                    CaptureSourceConfig::AudioDevice {
+                        device_uid: device_uid.clone(),
+                    }
+                }
+                crate::scene::AudioInput::File { path, looping } => {
+                    CaptureSourceConfig::AudioFile {
+                        path: path.clone(),
+                        looping: *looping,
+                    }
+                }
+            };
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id,
+                config,
+            });
+        }
+        _ => {} // Image, Text, Color, Browser: no capture pipeline.
     }
 }
 

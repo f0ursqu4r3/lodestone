@@ -688,7 +688,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     // ── Studio Mode or single-pane GPU paint callback ──
 
     // Use Studio Mode dual-pane layout when studio_mode is on.
-    let studio_dual = state.studio_mode;
+    let studio_dual = false;
 
     let canvas_size = egui::Vec2::new(preview_width as f32, preview_height as f32);
 

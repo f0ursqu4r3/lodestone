@@ -128,10 +128,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             // Don't switch to the same scene.
             if state.active_scene_id == Some(new_id) {
                 // No-op
-            } else if state.studio_mode {
+            } else if false {
                 // In Studio Mode, clicking a scene sets it as preview.
-                let old_preview = state.preview_scene_id;
-                state.preview_scene_id = Some(new_id);
+                let old_preview = state.program_scene_id;
+                state.program_scene_id = Some(new_id);
 
                 // Start sources for the preview scene.
                 let old_preview_scene = old_preview
@@ -317,9 +317,9 @@ fn draw_scene_card(
     }
 
     // PGM / PRV badges in Studio Mode.
-    if state.studio_mode {
+    if false {
         let is_program = state.active_scene_id == Some(scene_id);
-        let is_preview = state.preview_scene_id == Some(scene_id);
+        let is_preview = state.program_scene_id == Some(scene_id);
 
         if is_program || is_preview {
             let badge_label = if is_program { "PGM" } else { "PRV" };
@@ -792,7 +792,7 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
         egui::vec2(studio_btn_w, seg_btn_h),
     );
 
-    let studio_active = state.studio_mode;
+    let studio_active = false;
     let studio_bg = if studio_active {
         state.accent_color
     } else {
@@ -834,16 +834,12 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
         egui::Sense::click(),
     );
     if studio_response.clicked() {
-        state.studio_mode = !state.studio_mode;
-        if !state.studio_mode {
-            // Leaving Studio Mode: clear preview selection.
-            state.preview_scene_id = None;
-        }
+        // Studio mode toggle removed — no-op for now.
         state.mark_dirty();
     }
 
     // ── Transition button — Studio Mode only ──
-    if state.studio_mode {
+    if false {
         let trans_btn_w = 64.0;
         let trans_btn_x = studio_btn_x - trans_btn_w - 5.0;
         let trans_btn_rect = egui::Rect::from_min_size(
@@ -851,8 +847,8 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
             egui::vec2(trans_btn_w, seg_btn_h),
         );
 
-        let can_transition = state.preview_scene_id.is_some()
-            && state.preview_scene_id != state.active_scene_id
+        let can_transition = state.program_scene_id.is_some()
+            && state.program_scene_id != state.active_scene_id
             && state.active_transition.is_none();
 
         let trans_bg = if can_transition {
@@ -898,7 +894,7 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
 
         if trans_response.clicked()
             && can_transition
-            && let Some(preview_id) = state.preview_scene_id
+            && let Some(preview_id) = state.program_scene_id
         {
             let from_id = state.active_scene_id;
             let target_scene = state.scenes.iter().find(|s| s.id == preview_id);
@@ -922,7 +918,7 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
                     let new_scene = state.scenes.iter().find(|s| s.id == preview_id).cloned();
 
                     state.active_scene_id = Some(preview_id);
-                    state.preview_scene_id = None;
+                    state.program_scene_id = None;
                     state.deselect_all();
 
                     let cmd_tx = state.command_tx.clone();
@@ -970,7 +966,7 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
                             started_at: std::time::Instant::now(),
                             duration,
                         });
-                        state.preview_scene_id = None;
+                        state.program_scene_id = None;
                         state.deselect_all();
                         state.mark_dirty();
                     }

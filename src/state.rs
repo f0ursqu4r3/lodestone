@@ -181,10 +181,9 @@ pub struct AppState {
     pub window_picker_running: bool,
     /// Result from the window picker overlay, consumed by the properties panel.
     pub window_picker_result: Option<crate::ui::window_picker::PickerResult>,
-    /// Whether Studio Mode is active (dual preview/program layout).
-    pub studio_mode: bool,
-    /// In Studio Mode, the scene loaded in the Preview pane. None = no scene selected.
-    pub preview_scene_id: Option<SceneId>,
+    /// The scene currently going to stream/record/vcam.
+    /// Initialized to active_scene_id on first scene creation.
+    pub program_scene_id: Option<SceneId>,
     /// In-progress transition state. None = no transition active.
     pub active_transition: Option<crate::transition::TransitionState>,
 }
@@ -238,8 +237,7 @@ impl Default for AppState {
             window_picker_active: false,
             window_picker_running: false,
             window_picker_result: None,
-            studio_mode: false,
-            preview_scene_id: None,
+            program_scene_id: None,
             active_transition: None,
         }
     }

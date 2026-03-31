@@ -1072,12 +1072,7 @@ impl ApplicationHandler for AppManager {
                         .map(|w| w.egui_ctx.wants_keyboard_input())
                         .unwrap_or(false);
                     if !egui_wants_input {
-                        let mut app_state = self.state.lock().unwrap();
-                        app_state.studio_mode = !app_state.studio_mode;
-                        if !app_state.studio_mode {
-                            app_state.preview_scene_id = None;
-                        }
-                        app_state.mark_dirty();
+                        // Studio mode toggle removed — no-op for now.
                         return;
                     }
                 }
@@ -1092,8 +1087,8 @@ impl ApplicationHandler for AppManager {
                         .unwrap_or(false);
                     if !egui_wants_input {
                         let mut app_state = self.state.lock().unwrap();
-                        if app_state.studio_mode
-                            && let Some(preview_id) = app_state.preview_scene_id
+                        if false
+                            && let Some(preview_id) = app_state.program_scene_id
                         {
                             let from_id = app_state.active_scene_id;
                             let exclude_self = app_state.settings.general.exclude_self_from_capture;
@@ -1112,7 +1107,7 @@ impl ApplicationHandler for AppManager {
                                 .cloned();
 
                             app_state.active_scene_id = Some(preview_id);
-                            app_state.preview_scene_id = None;
+                            app_state.program_scene_id = None;
                             app_state.deselect_all();
 
                             crate::ui::scenes_panel::apply_scene_diff(
@@ -1141,11 +1136,11 @@ impl ApplicationHandler for AppManager {
                         .unwrap_or(false);
                     if !egui_wants_input {
                         let mut app_state = self.state.lock().unwrap();
-                        if app_state.studio_mode {
-                            let can_transition = app_state.preview_scene_id.is_some()
-                                && app_state.preview_scene_id != app_state.active_scene_id
+                        if false {
+                            let can_transition = app_state.program_scene_id.is_some()
+                                && app_state.program_scene_id != app_state.active_scene_id
                                 && app_state.active_transition.is_none();
-                            if can_transition && let Some(preview_id) = app_state.preview_scene_id {
+                            if can_transition && let Some(preview_id) = app_state.program_scene_id {
                                 let from_id = app_state.active_scene_id;
                                 let exclude_self =
                                     app_state.settings.general.exclude_self_from_capture;
@@ -1179,7 +1174,7 @@ impl ApplicationHandler for AppManager {
                                             .cloned();
 
                                         app_state.active_scene_id = Some(preview_id);
-                                        app_state.preview_scene_id = None;
+                                        app_state.program_scene_id = None;
                                         app_state.deselect_all();
 
                                         crate::ui::scenes_panel::apply_scene_diff(
@@ -1232,7 +1227,7 @@ impl ApplicationHandler for AppManager {
                                                     started_at: std::time::Instant::now(),
                                                     duration,
                                                 });
-                                            app_state.preview_scene_id = None;
+                                            app_state.program_scene_id = None;
                                             app_state.deselect_all();
                                             app_state.mark_dirty();
                                         }
@@ -1271,11 +1266,11 @@ impl ApplicationHandler for AppManager {
                         let target_id = app_state.scenes.get(scene_index).map(|s| s.id);
 
                         if let Some(new_id) = target_id {
-                            if app_state.studio_mode {
+                            if false {
                                 // Studio Mode: set the selected scene as preview.
                                 if app_state.active_scene_id != Some(new_id) {
-                                    let old_preview = app_state.preview_scene_id;
-                                    app_state.preview_scene_id = Some(new_id);
+                                    let old_preview = app_state.program_scene_id;
+                                    app_state.program_scene_id = Some(new_id);
 
                                     let exclude_self =
                                         app_state.settings.general.exclude_self_from_capture;
@@ -1709,7 +1704,7 @@ impl ApplicationHandler for AppManager {
         // Compose active scene sources onto the canvas, with optional transition blending.
         if let Some(ref mut gpu) = self.gpu {
             // Read transition state and determine which scenes to compose.
-            let (active_scene_id, transition_info, is_encoding, studio_mode) = {
+            let (active_scene_id, transition_info, is_encoding) = {
                 let app_state = self.state.lock().expect("lock AppState");
                 let active = app_state.active_scene_id;
                 let trans = app_state.active_transition.as_ref().map(|t| {
@@ -1727,8 +1722,7 @@ impl ApplicationHandler for AppManager {
                         crate::state::RecordingStatus::Recording { .. }
                     )
                     || app_state.virtual_camera_active;
-                let sm = app_state.studio_mode;
-                (active, trans, encoding, sm)
+                (active, trans, encoding)
             };
 
             if let Some(active_scene_id) = active_scene_id {
@@ -1828,37 +1822,32 @@ impl ApplicationHandler for AppManager {
                     app_state.active_scene_id = Some(to_scene);
                     app_state.active_transition = None;
 
-                    if !studio_mode {
-                        // Deallocate secondary canvas when not in Studio Mode.
-                        gpu.secondary_canvas = None;
+                    // Deallocate secondary canvas after transition completes.
+                    gpu.secondary_canvas = None;
 
-                        // Send RemoveCaptureSource for sources exclusive to the old scene.
-                        let new_source_ids: Vec<crate::scene::SourceId> = app_state
-                            .scenes
-                            .iter()
-                            .find(|s| s.id == to_scene)
-                            .map(|s| s.source_ids())
-                            .unwrap_or_default();
-                        let old_source_ids: Vec<crate::scene::SourceId> = app_state
-                            .scenes
-                            .iter()
-                            .find(|s| s.id == program_scene_id)
-                            .map(|s| s.source_ids())
-                            .unwrap_or_default();
-                        if let Some(ref channels) = self.gst_channels {
-                            for old_id in &old_source_ids {
-                                if !new_source_ids.contains(old_id) {
-                                    let _ = channels.command_tx.try_send(
-                                        crate::gstreamer::GstCommand::RemoveCaptureSource {
-                                            source_id: *old_id,
-                                        },
-                                    );
-                                }
+                    // Send RemoveCaptureSource for sources exclusive to the old scene.
+                    let new_source_ids: Vec<crate::scene::SourceId> = app_state
+                        .scenes
+                        .iter()
+                        .find(|s| s.id == to_scene)
+                        .map(|s| s.source_ids())
+                        .unwrap_or_default();
+                    let old_source_ids: Vec<crate::scene::SourceId> = app_state
+                        .scenes
+                        .iter()
+                        .find(|s| s.id == program_scene_id)
+                        .map(|s| s.source_ids())
+                        .unwrap_or_default();
+                    if let Some(ref channels) = self.gst_channels {
+                        for old_id in &old_source_ids {
+                            if !new_source_ids.contains(old_id) {
+                                let _ = channels.command_tx.try_send(
+                                    crate::gstreamer::GstCommand::RemoveCaptureSource {
+                                        source_id: *old_id,
+                                    },
+                                );
                             }
                         }
-                    } else {
-                        // In Studio Mode, reset preview_scene_id.
-                        app_state.preview_scene_id = None;
                     }
                 }
             }

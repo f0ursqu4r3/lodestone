@@ -2,8 +2,11 @@ import CoreMediaIO
 import CoreVideo
 import Foundation
 import IOKit.audio
+import IOSurface
 
 /// Virtual camera device that owns the pixel buffer pool and frame timer.
+/// Reads composited frames from a shared IOSurface published by Lodestone,
+/// falling back to black frames when Lodestone isn't running.
 class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
 
     private(set) var device: CMIOExtensionDevice!
@@ -20,6 +23,12 @@ class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
     private let frameWidth: Int32 = 1920
     private let frameHeight: Int32 = 1080
     private let frameRate: Int = 30
+
+    // IOSurface shared from the main Lodestone app
+    private static let appGroupID = "group.com.kdougan.lodestone.app"
+    private static let surfaceIDKey = "virtualCameraSurfaceID"
+    private var sharedSurface: IOSurface?
+    private var currentSurfaceID: IOSurfaceID = 0
 
     override init() {
         super.init()
@@ -117,12 +126,39 @@ class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
             streamingCounter = 0
             timer?.cancel()
             timer = nil
+            sharedSurface = nil
+            currentSurfaceID = 0
         }
     }
 
+    // MARK: - Frame Production
+
     private func onTimerTick() {
+        // Check if Lodestone published a new IOSurface
+        lookupSharedSurface()
+
         var err: OSStatus = 0
 
+        if let surface = sharedSurface {
+            // Wrap the shared IOSurface directly into a CVPixelBuffer (zero-copy)
+            var pb: Unmanaged<CVPixelBuffer>?
+            err = CVPixelBufferCreateWithIOSurface(
+                kCFAllocatorDefault,
+                surface,
+                [
+                    kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+                    kCVPixelBufferWidthKey: frameWidth,
+                    kCVPixelBufferHeightKey: frameHeight,
+                ] as CFDictionary,
+                &pb
+            )
+            if err == 0, let pb = pb {
+                deliverPixelBuffer(pb.takeRetainedValue())
+                return
+            }
+        }
+
+        // Fallback: deliver a black frame from the pool
         var pixelBuffer: CVPixelBuffer?
         err = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
             kCFAllocatorDefault, bufferPool, bufferAuxAttributes, &pixelBuffer)
@@ -132,14 +168,17 @@ class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
         let bufferPtr = CVPixelBufferGetBaseAddress(pixelBuffer)!
         let height = CVPixelBufferGetHeight(pixelBuffer)
         let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        // Black frame
         memset(bufferPtr, 0, rowBytes * height)
         CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
 
+        deliverPixelBuffer(pixelBuffer)
+    }
+
+    private func deliverPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
         var sbuf: CMSampleBuffer!
         var timingInfo = CMSampleTimingInfo()
         timingInfo.presentationTimeStamp = CMClockGetTime(CMClockGetHostTimeClock())
-        err = CMSampleBufferCreateForImageBuffer(
+        let err = CMSampleBufferCreateForImageBuffer(
             allocator: kCFAllocatorDefault,
             imageBuffer: pixelBuffer,
             dataReady: true,
@@ -155,6 +194,25 @@ class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
                 discontinuity: [],
                 hostTimeInNanoseconds: UInt64(timingInfo.presentationTimeStamp.seconds * Double(NSEC_PER_SEC))
             )
+        }
+    }
+
+    // MARK: - IOSurface Lookup
+
+    /// Read the IOSurface ID from UserDefaults and look up the shared surface.
+    private func lookupSharedSurface() {
+        let defaults = UserDefaults(suiteName: LodestoneDevice.appGroupID)
+        let storedID = UInt32(defaults?.integer(forKey: LodestoneDevice.surfaceIDKey) ?? 0)
+
+        guard storedID != 0 else {
+            sharedSurface = nil
+            currentSurfaceID = 0
+            return
+        }
+
+        if storedID != currentSurfaceID {
+            sharedSurface = IOSurfaceLookup(storedID)
+            currentSurfaceID = storedID
         }
     }
 }

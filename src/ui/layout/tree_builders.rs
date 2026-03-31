@@ -69,7 +69,9 @@ impl DockLayout {
         let scenes_gid = scenes_group.id;
         layout.groups.insert(scenes_gid, scenes_group);
 
-        let preview_group = Group::new(PanelType::Preview);
+        let mut preview_group = Group::new(PanelType::Preview);
+        preview_group.add_tab(PanelType::Live);
+        preview_group.active_tab = 0; // Preview tab active by default
         let preview_gid = preview_group.id;
         layout.groups.insert(preview_gid, preview_group);
 

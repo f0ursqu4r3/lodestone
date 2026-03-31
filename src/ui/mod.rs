@@ -5,6 +5,7 @@ pub mod widgets;
 pub mod audio_mixer;
 pub mod layout;
 pub mod library_panel;
+pub mod live_panel;
 pub mod preview_panel;
 pub mod properties_panel;
 pub mod scenes_panel;
@@ -21,6 +22,7 @@ use layout::{PanelId, PanelType};
 pub fn draw_panel(panel_type: PanelType, ui: &mut egui::Ui, state: &mut AppState, id: PanelId) {
     match panel_type {
         PanelType::Preview => preview_panel::draw(ui, state, id),
+        PanelType::Live => live_panel::draw(ui, state, id),
         PanelType::SceneEditor => {
             // Legacy: render sources panel as fallback for saved layouts
             sources_panel::draw(ui, state, id);

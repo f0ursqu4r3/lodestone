@@ -13,6 +13,7 @@ pub(crate) const DEFAULT_FLOAT_SIZE: egui::Vec2 = egui::vec2(400.0, 300.0);
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum PanelType {
     Preview,
+    Live,
     SceneEditor, // kept for backward compat with saved layouts
     AudioMixer,
     StreamControls,
@@ -26,6 +27,7 @@ impl PanelType {
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::Preview => "Preview",
+            Self::Live => "Live",
             Self::SceneEditor => "Sources", // Legacy compat — renders as Sources panel
             Self::AudioMixer => "Audio",
             Self::StreamControls => "Stream Controls",
@@ -403,16 +405,17 @@ mod tests {
     }
 
     #[test]
-    fn default_layout_has_5_groups_6_panels() {
+    fn default_layout_has_5_groups_7_panels() {
         let layout = DockLayout::default_layout();
         assert_eq!(layout.groups.len(), 5);
         let all_panels = layout.collect_all_panels();
-        assert_eq!(all_panels.len(), 6);
+        assert_eq!(all_panels.len(), 7);
         let types: Vec<PanelType> = all_panels.iter().map(|(_, t)| *t).collect();
         assert!(types.contains(&PanelType::Sources));
         assert!(types.contains(&PanelType::Library));
         assert!(types.contains(&PanelType::Scenes));
         assert!(types.contains(&PanelType::Preview));
+        assert!(types.contains(&PanelType::Live));
         assert!(types.contains(&PanelType::Properties));
         assert!(types.contains(&PanelType::AudioMixer));
     }

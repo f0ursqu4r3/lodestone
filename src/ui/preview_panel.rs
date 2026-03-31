@@ -48,18 +48,6 @@ impl Default for PreviewViewState {
 pub struct PreviewResources {
     pub pipeline: Arc<wgpu::RenderPipeline>,
     pub bind_group: Arc<wgpu::BindGroup>,
-    /// Bind group for the secondary canvas (Studio Mode / transition preview).
-    /// None when secondary canvas is not allocated.
-    pub secondary_bind_group: Option<Arc<wgpu::BindGroup>>,
-}
-
-/// Which canvas bind group a preview callback should sample.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum CanvasTarget {
-    /// Primary canvas — live program output.
-    Primary,
-    /// Secondary canvas — Studio Mode preview scene.
-    Secondary,
 }
 
 /// Lightweight struct emitted per preview panel per frame.
@@ -68,8 +56,6 @@ enum CanvasTarget {
 struct PreviewCallback {
     /// The zoomed preview rect in logical points (may extend beyond the window).
     zoomed_rect: egui::Rect,
-    /// Which canvas to sample.
-    target: CanvasTarget,
 }
 
 impl CallbackTrait for PreviewCallback {
@@ -83,15 +69,7 @@ impl CallbackTrait for PreviewCallback {
             return;
         };
 
-        let bind_group = match self.target {
-            CanvasTarget::Primary => &resources.bind_group,
-            CanvasTarget::Secondary => {
-                let Some(ref bg) = resources.secondary_bind_group else {
-                    return;
-                };
-                bg
-            }
-        };
+        let bind_group = &resources.bind_group;
 
         // Set scissor to the clip rect (panel bounds) so nothing draws outside.
         let clip = info.clip_rect_in_pixels();
@@ -685,105 +663,20 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     // Store view state back for next frame
     ui.ctx().data_mut(|d| d.insert_temp(view_id, view.clone()));
 
-    // ── Studio Mode or single-pane GPU paint callback ──
-
-    // Use Studio Mode dual-pane layout when studio_mode is on.
-    let studio_dual = false;
+    // ── GPU paint callback ──
 
     let canvas_size = egui::Vec2::new(preview_width as f32, preview_height as f32);
 
-    if studio_dual {
-        // Split panel into left (Preview) and right (Program) panes.
-        let gap = 6.0;
-        let half_w = (panel_rect.width() - gap) / 2.0;
-
-        let left_rect =
-            egui::Rect::from_min_size(panel_rect.min, egui::vec2(half_w, panel_rect.height()));
-        let right_rect = egui::Rect::from_min_size(
-            egui::pos2(panel_rect.min.x + half_w + gap, panel_rect.min.y),
-            egui::vec2(panel_rect.width() - half_w - gap, panel_rect.height()),
-        );
-
-        // Left pane — Preview (secondary canvas, upcoming scene)
-        let left_zoomed = letterboxed_rect(left_rect, preview_width, preview_height);
-        ui.painter_at(left_rect).add(Callback::new_paint_callback(
-            left_rect,
-            PreviewCallback {
-                zoomed_rect: left_zoomed,
-                target: CanvasTarget::Secondary,
-            },
-        ));
-
-        // Right pane — Program (primary canvas, live output)
-        let right_zoomed = letterboxed_rect(right_rect, preview_width, preview_height);
-        ui.painter_at(right_rect).add(Callback::new_paint_callback(
-            right_rect,
-            PreviewCallback {
-                zoomed_rect: right_zoomed,
-                target: CanvasTarget::Primary,
-            },
-        ));
-
-        // ── Pane labels ──
-        let label_font = egui::FontId::new(9.0, egui::FontFamily::Proportional);
-        let label_pad = egui::vec2(5.0, 3.0);
-        let label_painter = ui.painter_at(panel_rect);
-
-        // "PREVIEW" label — green, top-left of left pane
-        {
-            let preview_color = egui::Color32::from_rgb(80, 200, 120);
-            let galley = label_painter.layout_no_wrap(
-                "PREVIEW".to_string(),
-                label_font.clone(),
-                preview_color,
-            );
-            let bg_size = galley.size() + label_pad * 2.0;
-            let bg_pos = left_rect.left_top() + egui::vec2(6.0, 6.0);
-            let bg_rect = egui::Rect::from_min_size(bg_pos, bg_size);
-            let bg = egui::Color32::from_rgba_premultiplied(0, 0, 0, 160);
-            label_painter.rect_filled(bg_rect, 3.0, bg);
-            label_painter.galley(bg_pos + label_pad, galley, preview_color);
-        }
-
-        // "PROGRAM" label — red, top-left of right pane
-        {
-            let program_color = egui::Color32::from_rgb(220, 80, 80);
-            let galley =
-                label_painter.layout_no_wrap("PROGRAM".to_string(), label_font, program_color);
-            let bg_size = galley.size() + label_pad * 2.0;
-            let bg_pos = right_rect.left_top() + egui::vec2(6.0, 6.0);
-            let bg_rect = egui::Rect::from_min_size(bg_pos, bg_size);
-            let bg = egui::Color32::from_rgba_premultiplied(0, 0, 0, 160);
-            label_painter.rect_filled(bg_rect, 3.0, bg);
-            label_painter.galley(bg_pos + label_pad, galley, program_color);
-        }
-
-        // ── Transition progress bar on Program pane ──
-        if let Some(ref trans) = state.active_transition {
-            let progress = trans.progress();
-            let bar_h = 3.0;
-            let bar_w = right_zoomed.width() * progress;
-            let bar_rect = egui::Rect::from_min_size(
-                egui::pos2(right_zoomed.min.x, right_zoomed.max.y - bar_h),
-                egui::vec2(bar_w, bar_h),
-            );
-            let accent = egui::Color32::from_rgb(224, 175, 104);
-            label_painter.rect_filled(bar_rect, 0.0, accent);
-            ui.ctx().request_repaint();
-        }
-    } else {
-        // Single-pane: render the primary canvas with zoom/pan.
-        // Pass panel_rect as the callback rect (so egui doesn't clamp the viewport
-        // when the zoomed rect extends beyond the window). The actual viewport is
-        // set manually inside PreviewCallback::paint() using the zoomed_rect.
-        ui.painter_at(panel_rect).add(Callback::new_paint_callback(
-            panel_rect,
-            PreviewCallback {
-                zoomed_rect: preview_rect,
-                target: CanvasTarget::Primary,
-            },
-        ));
-    }
+    // Single-pane: render the primary canvas with zoom/pan.
+    // Pass panel_rect as the callback rect (so egui doesn't clamp the viewport
+    // when the zoomed rect extends beyond the window). The actual viewport is
+    // set manually inside PreviewCallback::paint() using the zoomed_rect.
+    ui.painter_at(panel_rect).add(Callback::new_paint_callback(
+        panel_rect,
+        PreviewCallback {
+            zoomed_rect: preview_rect,
+        },
+    ));
 
     // ── Grid / Thirds / Safe Zones ──
     // Rendered after the preview texture but before transform handles and overlays.

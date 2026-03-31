@@ -548,10 +548,6 @@ impl ApplicationHandler for AppManager {
         let preview_resources = PreviewResources {
             pipeline: gpu.compositor.canvas_pipeline(),
             bind_group: gpu.compositor.canvas_bind_group(),
-            secondary_bind_group: gpu
-                .secondary_canvas
-                .as_ref()
-                .map(|sc| Arc::clone(&sc.bind_group)),
         };
 
         // Try to load saved layout; fall back to default.
@@ -1691,10 +1687,6 @@ impl ApplicationHandler for AppManager {
                     let new_resources = PreviewResources {
                         pipeline: gpu.compositor.canvas_pipeline(),
                         bind_group: gpu.compositor.canvas_bind_group(),
-                        secondary_bind_group: gpu
-                            .secondary_canvas
-                            .as_ref()
-                            .map(|sc| Arc::clone(&sc.bind_group)),
                     };
                     win.egui_renderer.callback_resources.insert(new_resources);
                 }
@@ -1852,17 +1844,13 @@ impl ApplicationHandler for AppManager {
                 }
             }
 
-            // Update preview resources to reflect current secondary canvas state.
+            // Update preview resources to reflect current canvas state.
             if let Some(main_id) = self.main_window_id
                 && let Some(win) = self.windows.get_mut(&main_id)
             {
                 let new_resources = PreviewResources {
                     pipeline: gpu.compositor.canvas_pipeline(),
                     bind_group: gpu.compositor.canvas_bind_group(),
-                    secondary_bind_group: gpu
-                        .secondary_canvas
-                        .as_ref()
-                        .map(|sc| Arc::clone(&sc.bind_group)),
                 };
                 win.egui_renderer.callback_resources.insert(new_resources);
             }
@@ -1986,10 +1974,6 @@ impl ApplicationHandler for AppManager {
                 let preview_resources = PreviewResources {
                     pipeline: gpu.compositor.canvas_pipeline(),
                     bind_group: gpu.compositor.canvas_bind_group(),
-                    secondary_bind_group: gpu
-                        .secondary_canvas
-                        .as_ref()
-                        .map(|sc| Arc::clone(&sc.bind_group)),
                 };
                 let win_state =
                     WindowState::new(window, gpu, layout, false, Some(preview_resources))

@@ -24,9 +24,8 @@ class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
     private let frameHeight: Int32 = 1080
     private let frameRate: Int = 30
 
-    // IOSurface shared from the main Lodestone app
-    private static let appGroupID = "group.com.kdougan.lodestone.app"
-    private static let surfaceIDKey = "virtualCameraSurfaceID"
+    // IOSurface shared from the main Lodestone app via /tmp file
+    private static let sharedFilePath = "/Library/Application Support/Lodestone/vcam_surface"
     private var sharedSurface: IOSurface?
     private var currentSurfaceID: IOSurfaceID = 0
 
@@ -199,12 +198,16 @@ class LodestoneDevice: NSObject, CMIOExtensionDeviceSource {
 
     // MARK: - IOSurface Lookup
 
-    /// Read the IOSurface ID from UserDefaults and look up the shared surface.
+    /// Read the IOSurface ID from the shared file and look up the surface.
     private func lookupSharedSurface() {
-        let defaults = UserDefaults(suiteName: LodestoneDevice.appGroupID)
-        let storedID = UInt32(defaults?.integer(forKey: LodestoneDevice.surfaceIDKey) ?? 0)
+        guard let contents = try? String(contentsOfFile: LodestoneDevice.sharedFilePath, encoding: .utf8) else {
+            sharedSurface = nil
+            currentSurfaceID = 0
+            return
+        }
 
-        guard storedID != 0 else {
+        let lines = contents.split(separator: "\n")
+        guard let first = lines.first, let storedID = UInt32(first), storedID != 0 else {
             sharedSurface = nil
             currentSurfaceID = 0
             return

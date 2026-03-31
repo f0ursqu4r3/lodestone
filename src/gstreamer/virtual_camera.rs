@@ -20,6 +20,7 @@ use objc2_io_surface::{
     IOSurface, IOSurfaceLockOptions, IOSurfacePropertyKey, IOSurfacePropertyKeyAllocSize,
     IOSurfacePropertyKeyBytesPerElement, IOSurfacePropertyKeyBytesPerRow,
     IOSurfacePropertyKeyHeight, IOSurfacePropertyKeyPixelFormat, IOSurfacePropertyKeyWidth,
+    kIOSurfaceIsGlobal,
 };
 
 use super::types::RgbaFrame;
@@ -36,6 +37,11 @@ const UD_KEY_HEIGHT: &str = "virtualCameraHeight";
 
 /// BGRA pixel format as a 32-bit FourCC code (`'BGRA'`).
 const PIXEL_FORMAT_BGRA: u32 = 0x42475241;
+
+/// Shared file path for cross-user surface ID communication.
+/// The camera extension runs under _cmiodalassistants and cannot
+/// read App Group UserDefaults from the current user's container.
+const SHARED_FILE_PATH: &str = "/Library/Application Support/Lodestone/vcam_surface";
 
 /// Handle to a running virtual camera session.
 ///
@@ -65,6 +71,7 @@ pub fn start_virtual_camera(width: u32, height: u32, fps: u32) -> Result<Virtual
     let alloc_size = bytes_per_row * height as usize;
 
     // Build the properties dictionary for IOSurface creation.
+    #[allow(deprecated)] // kIOSurfaceIsGlobal is deprecated but required for cross-process lookup
     let surface = unsafe {
         let keys: &[&IOSurfacePropertyKey] = &[
             IOSurfacePropertyKeyWidth,
@@ -73,6 +80,8 @@ pub fn start_virtual_camera(width: u32, height: u32, fps: u32) -> Result<Virtual
             IOSurfacePropertyKeyBytesPerRow,
             IOSurfacePropertyKeyAllocSize,
             IOSurfacePropertyKeyPixelFormat,
+            // Cast CFString to IOSurfacePropertyKey (same underlying type)
+            &*(kIOSurfaceIsGlobal as *const _ as *const IOSurfacePropertyKey),
         ];
 
         let v_width = NSNumber::numberWithUnsignedInt(width as c_uint);
@@ -81,8 +90,9 @@ pub fn start_virtual_camera(width: u32, height: u32, fps: u32) -> Result<Virtual
         let v_bpr = NSNumber::numberWithUnsignedInt(bytes_per_row as c_uint);
         let v_alloc = NSNumber::numberWithUnsignedInt(alloc_size as c_uint);
         let v_pixel_fmt = NSNumber::numberWithUnsignedInt(PIXEL_FORMAT_BGRA as c_uint);
+        let v_true = objc2_foundation::NSNumber::numberWithBool(true);
 
-        let values: &[&AnyObject] = &[&v_width, &v_height, &v_bpe, &v_bpr, &v_alloc, &v_pixel_fmt];
+        let values: &[&AnyObject] = &[&v_width, &v_height, &v_bpe, &v_bpr, &v_alloc, &v_pixel_fmt, &v_true];
 
         let props: Retained<NSDictionary<IOSurfacePropertyKey, AnyObject>> =
             NSDictionary::from_slices(keys, values);
@@ -189,7 +199,8 @@ pub fn stop_virtual_camera(handle: VirtualCameraHandle) -> Result<()> {
     Ok(())
 }
 
-/// Publish the IOSurface ID and dimensions to App Group UserDefaults.
+/// Publish the IOSurface ID and dimensions to App Group UserDefaults
+/// and a shared file (for cross-user access by the camera extension).
 fn publish_to_user_defaults(surface_id: u32, width: u32, height: u32) -> Result<()> {
     let defaults = user_defaults()?;
     let key_id = NSString::from_str(UD_KEY_SURFACE_ID);
@@ -200,8 +211,14 @@ fn publish_to_user_defaults(surface_id: u32, width: u32, height: u32) -> Result<
     defaults.setInteger_forKey(width as isize, &key_w);
     defaults.setInteger_forKey(height as isize, &key_h);
 
+    // Also write to a file that the camera extension can read
+    // (extension runs under _cmiodalassistants, different App Group container)
+    let contents = format!("{surface_id}\n{width}\n{height}\n");
+    let _ = std::fs::write(SHARED_FILE_PATH, &contents);
+
     log::debug!(
-        "Published virtual camera to UserDefaults: surfaceID={}, {}x{}",
+        "Published virtual camera to UserDefaults + {}: surfaceID={}, {}x{}",
+        SHARED_FILE_PATH,
         surface_id,
         width,
         height,
@@ -209,7 +226,7 @@ fn publish_to_user_defaults(surface_id: u32, width: u32, height: u32) -> Result<
     Ok(())
 }
 
-/// Clear all virtual camera keys from App Group UserDefaults.
+/// Clear all virtual camera keys from App Group UserDefaults and shared file.
 fn clear_user_defaults() -> Result<()> {
     let defaults = user_defaults()?;
     let key_id = NSString::from_str(UD_KEY_SURFACE_ID);
@@ -219,6 +236,8 @@ fn clear_user_defaults() -> Result<()> {
     defaults.setInteger_forKey(0, &key_id);
     defaults.setInteger_forKey(0, &key_w);
     defaults.setInteger_forKey(0, &key_h);
+
+    let _ = std::fs::remove_file(SHARED_FILE_PATH);
 
     log::debug!("Cleared virtual camera UserDefaults entries");
     Ok(())

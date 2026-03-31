@@ -7,6 +7,7 @@
 use crate::gstreamer::{CaptureSourceConfig, GstCommand};
 use crate::scene::{Scene, SceneId, SourceId};
 use crate::state::AppState;
+use crate::transition::TransitionType;
 use crate::ui::layout::tree::PanelId;
 use crate::ui::theme::active_theme;
 use egui::{CornerRadius, Pos2, Rect, Sense, Stroke, vec2};
@@ -481,6 +482,127 @@ fn draw_scene_card(
             });
             ui.close();
         }
+
+        ui.separator();
+
+        ui.menu_button("Transition Override", |ui| {
+            // Read current override values for this scene.
+            let (current_type, current_duration_ms) = state
+                .scenes
+                .iter()
+                .find(|s| s.id == scene_id)
+                .map(|s| {
+                    (
+                        s.transition_override.transition_type,
+                        s.transition_override.duration_ms,
+                    )
+                })
+                .unwrap_or((None, None));
+
+            // --- Type selector ---
+            ui.label("Type");
+
+            let type_label = match current_type {
+                None => "Default",
+                Some(TransitionType::Fade) => "Fade",
+                Some(TransitionType::Cut) => "Cut",
+            };
+
+            egui::ComboBox::from_id_salt(egui::Id::new(("scene_tx_type", scene_id.0)))
+                .selected_text(type_label)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(current_type.is_none(), "Default")
+                        .clicked()
+                    {
+                        if let Some(scene) =
+                            state.scenes.iter_mut().find(|s| s.id == scene_id)
+                        {
+                            scene.transition_override.transition_type = None;
+                        }
+                        state.mark_dirty();
+                    }
+                    if ui
+                        .selectable_label(
+                            current_type == Some(TransitionType::Fade),
+                            "Fade",
+                        )
+                        .clicked()
+                    {
+                        if let Some(scene) =
+                            state.scenes.iter_mut().find(|s| s.id == scene_id)
+                        {
+                            scene.transition_override.transition_type =
+                                Some(TransitionType::Fade);
+                        }
+                        state.mark_dirty();
+                    }
+                    if ui
+                        .selectable_label(
+                            current_type == Some(TransitionType::Cut),
+                            "Cut",
+                        )
+                        .clicked()
+                    {
+                        if let Some(scene) =
+                            state.scenes.iter_mut().find(|s| s.id == scene_id)
+                        {
+                            scene.transition_override.transition_type =
+                                Some(TransitionType::Cut);
+                        }
+                        state.mark_dirty();
+                    }
+                });
+
+            ui.add_space(4.0);
+
+            // --- Duration input ---
+            ui.label("Duration (ms)");
+
+            // We store the draft string in egui temp storage so the field is
+            // editable without losing focus. Keyed per-scene.
+            let dur_key = egui::Id::new(("scene_tx_dur", scene_id.0));
+
+            // On first open, initialise the draft from the scene override.
+            let mut dur_str: String = ui.data_mut(|d| {
+                if let Some(s) = d.get_temp::<String>(dur_key) {
+                    s
+                } else {
+                    let init = current_duration_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default();
+                    d.insert_temp(dur_key, init.clone());
+                    init
+                }
+            });
+
+            let resp = ui.add(
+                egui::TextEdit::singleline(&mut dur_str)
+                    .desired_width(72.0)
+                    .hint_text("Default"),
+            );
+
+            if resp.changed() {
+                // Persist the draft while editing.
+                ui.data_mut(|d| d.insert_temp(dur_key, dur_str.clone()));
+
+                // Commit immediately: empty → None, valid number → Some.
+                if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                    scene.transition_override.duration_ms = if dur_str.trim().is_empty() {
+                        None
+                    } else {
+                        dur_str.trim().parse::<u32>().ok()
+                    };
+                }
+                state.mark_dirty();
+            }
+
+            // When the menu is about to close (lost focus), clear the draft so
+            // it re-initialises from the stored value next time.
+            if resp.lost_focus() {
+                ui.data_mut(|d| d.remove::<String>(dur_key));
+            }
+        });
     });
 
     // Check for a delete that was set via temp storage from the context menu.
@@ -935,7 +1057,7 @@ fn draw_add_card(
 }
 
 /// Send `AddCaptureSource` / `RemoveCaptureSource` commands for the delta between two scenes.
-fn apply_scene_diff(
+pub fn apply_scene_diff(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     library: &[crate::scene::LibrarySource],
     old_scene: Option<&Scene>,
@@ -1011,7 +1133,7 @@ fn apply_scene_diff(
 }
 
 /// Start a single capture source by ID without stopping anything.
-fn start_capture_source(
+pub fn start_capture_source(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     library: &[crate::scene::LibrarySource],
     source_id: SourceId,

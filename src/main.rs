@@ -35,6 +35,17 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
+/// Runtime state for an active GIF animation.
+struct AnimationState {
+    frames: Vec<crate::gstreamer::RgbaFrame>,
+    delays: Vec<std::time::Duration>,
+    current_frame: usize,
+    frame_started_at: std::time::Instant,
+    loop_mode: crate::scene::LoopMode,
+    loops_completed: u32,
+    finished: bool,
+}
+
 /// Resolve sources for any scene by ID, applying per-scene overrides.
 ///
 /// Returns an empty vec if the scene is not found.
@@ -206,6 +217,7 @@ struct AppManager {
     focused_window_id: Option<WindowId>,
     settings_window_id: Option<WindowId>,
     pending_settings_window: bool,
+    gif_animations: std::collections::HashMap<crate::scene::SourceId, AnimationState>,
 }
 
 impl AppManager {
@@ -300,6 +312,7 @@ impl AppManager {
             focused_window_id: None,
             settings_window_id: None,
             pending_settings_window: false,
+            gif_animations: std::collections::HashMap::new(),
         }
     }
 
@@ -1606,6 +1619,73 @@ impl ApplicationHandler for AppManager {
                         gpu.compositor.compositor_sampler(),
                     );
                 }
+            }
+        }
+
+        // Advance GIF animations.
+        let mut gif_uploads: Vec<(crate::scene::SourceId, usize)> = Vec::new();
+        let mut any_gif_active = false;
+
+        for (source_id, anim) in self.gif_animations.iter_mut() {
+            if anim.finished {
+                continue;
+            }
+            any_gif_active = true;
+            if anim.frame_started_at.elapsed() >= anim.delays[anim.current_frame] {
+                anim.current_frame += 1;
+                if anim.current_frame >= anim.frames.len() {
+                    anim.loops_completed += 1;
+                    match anim.loop_mode {
+                        crate::scene::LoopMode::Infinite => anim.current_frame = 0,
+                        crate::scene::LoopMode::Once => {
+                            anim.current_frame = anim.frames.len() - 1;
+                            anim.finished = true;
+                            continue;
+                        }
+                        crate::scene::LoopMode::Count(n) => {
+                            if anim.loops_completed >= n {
+                                anim.current_frame = anim.frames.len() - 1;
+                                anim.finished = true;
+                                continue;
+                            }
+                            anim.current_frame = 0;
+                        }
+                    }
+                }
+                anim.frame_started_at = std::time::Instant::now();
+                gif_uploads.push((*source_id, anim.current_frame));
+            }
+        }
+
+        // Upload GIF frames to compositor.
+        if !gif_uploads.is_empty() {
+            if let Some(ref mut gpu) = self.gpu {
+                for (source_id, frame_idx) in &gif_uploads {
+                    if let Some(anim) = self.gif_animations.get(source_id) {
+                        let frame = &anim.frames[*frame_idx];
+                        gpu.compositor
+                            .upload_frame(&gpu.device, &gpu.queue, *source_id, frame);
+                        if let Some(ref mut secondary) = gpu.secondary_canvas {
+                            secondary.upload_frame(
+                                &gpu.device,
+                                &gpu.queue,
+                                *source_id,
+                                frame,
+                                gpu.compositor.texture_bind_group_layout(),
+                                gpu.compositor.uniform_bind_group_layout(),
+                                gpu.compositor.compositor_sampler(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        if any_gif_active {
+            if let Some(main_id) = self.main_window_id
+                && let Some(win) = self.windows.get(&main_id)
+            {
+                win.window.request_redraw();
             }
         }
 

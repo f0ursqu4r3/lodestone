@@ -25,6 +25,7 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
     private let frameRate: Double
 
     private var formatDescription: CMFormatDescription?
+    private var blackPixelBuffer: CVPixelBuffer?
 
     override init() {
         let defaults = UserDefaults(suiteName: LodestoneStream.appGroupID)
@@ -46,6 +47,25 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
         formatDescription = fmtDesc
 
         super.init()
+
+        // Pre-allocate a black pixel buffer for idle frames
+        var pb: CVPixelBuffer?
+        CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            Int(frameWidth),
+            Int(frameHeight),
+            kCVPixelFormatType_32BGRA,
+            nil,
+            &pb
+        )
+        if let pb {
+            CVPixelBufferLockBaseAddress(pb, [])
+            if let base = CVPixelBufferGetBaseAddress(pb) {
+                memset(base, 0, CVPixelBufferGetDataSize(pb))
+            }
+            CVPixelBufferUnlockBaseAddress(pb, [])
+        }
+        blackPixelBuffer = pb
 
         stream = CMIOExtensionStream(
             localizedName: "Lodestone Virtual Camera",
@@ -144,13 +164,11 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
 
     /// Called each frame. Reads from the IOSurface or delivers a black frame.
     private func onTimerTick() {
-        // Check if the surface ID changed (Lodestone may have restarted)
         lookupSurface()
 
         let pixelBuffer: CVPixelBuffer?
 
         if let surface = surface {
-            // Wrap the IOSurface directly into a CVPixelBuffer (zero-copy)
             var pb: Unmanaged<CVPixelBuffer>?
             let status = CVPixelBufferCreateWithIOSurface(
                 kCFAllocatorDefault,
@@ -176,32 +194,9 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
         deliverFrame(pixelBuffer: pixelBuffer)
     }
 
-    /// Create a black CVPixelBuffer (used when Lodestone isn't running).
+    /// Return the pre-allocated black pixel buffer.
     private func createBlackFrame() -> CVPixelBuffer? {
-        var pb: CVPixelBuffer?
-        CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            Int(frameWidth),
-            Int(frameHeight),
-            kCVPixelFormatType_32BGRA,
-            [
-                kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary
-            ] as CFDictionary,
-            &pb
-        )
-
-        guard let pixelBuffer = pb else {
-            return nil
-        }
-
-        CVPixelBufferLockBaseAddress(pixelBuffer, [])
-        if let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) {
-            let size = CVPixelBufferGetDataSize(pixelBuffer)
-            memset(baseAddress, 0, size)
-        }
-        CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-
-        return pixelBuffer
+        return blackPixelBuffer
     }
 
     /// Wrap the pixel buffer in a CMSampleBuffer and send it to the stream.
@@ -235,15 +230,11 @@ class LodestoneStream: NSObject, CMIOExtensionStreamSource {
 
         guard let buffer = sampleBuffer else { return }
 
-        do {
-            try stream.send(
-                buffer,
-                discontinuity: [],
-                hostTimeInNanoseconds: UInt64(now.seconds * Double(NSEC_PER_SEC))
-            )
-        } catch {
-            // Frame delivery failed — likely no active consumers
-        }
+        try? stream.send(
+            buffer,
+            discontinuity: [],
+            hostTimeInNanoseconds: UInt64(now.seconds * Double(NSEC_PER_SEC))
+        )
 
         sequenceNumber += 1
     }

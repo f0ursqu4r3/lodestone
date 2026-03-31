@@ -1622,6 +1622,39 @@ impl ApplicationHandler for AppManager {
             }
         }
 
+        // Consume pending GIF animations and loop mode updates from UI.
+        {
+            let mut app_state = self.state.lock().expect("lock AppState");
+            for (source_id, animation, loop_mode) in app_state.pending_gif_animations.drain(..) {
+                self.gif_animations.insert(
+                    source_id,
+                    AnimationState {
+                        frames: animation.frames,
+                        delays: animation.delays,
+                        current_frame: 0,
+                        frame_started_at: std::time::Instant::now(),
+                        loop_mode,
+                        loops_completed: 0,
+                        finished: false,
+                    },
+                );
+            }
+            for (source_id, new_mode) in app_state.pending_loop_mode_updates.drain(..) {
+                if let Some(anim) = self.gif_animations.get_mut(&source_id) {
+                    anim.loop_mode = new_mode;
+                    anim.finished = false;
+                    anim.loops_completed = 0;
+                }
+            }
+        }
+
+        // Remove animations for deleted sources.
+        {
+            let app_state = self.state.lock().expect("lock AppState");
+            self.gif_animations
+                .retain(|source_id, _| app_state.library.iter().any(|s| s.id == *source_id));
+        }
+
         // Advance GIF animations.
         let mut gif_uploads: Vec<(crate::scene::SourceId, usize)> = Vec::new();
         let mut any_gif_active = false;

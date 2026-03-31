@@ -17,6 +17,7 @@ pub enum ImageData {
 }
 
 /// Decoded animated GIF data.
+#[derive(Debug, Clone)]
 pub struct GifAnimation {
     /// Decoded RGBA frames in display order.
     pub frames: Vec<RgbaFrame>,

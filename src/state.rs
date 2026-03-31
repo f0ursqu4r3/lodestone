@@ -186,6 +186,11 @@ pub struct AppState {
     pub program_scene_id: Option<SceneId>,
     /// In-progress transition state. None = no transition active.
     pub active_transition: Option<crate::transition::TransitionState>,
+    /// Pending GIF animations to register, set by UI, consumed by render loop.
+    pub pending_gif_animations:
+        Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)>,
+    /// Pending loop mode updates for GIF animations.
+    pub pending_loop_mode_updates: Vec<(SourceId, crate::scene::LoopMode)>,
 }
 
 impl Default for AppState {
@@ -239,6 +244,8 @@ impl Default for AppState {
             window_picker_result: None,
             program_scene_id: None,
             active_transition: None,
+            pending_gif_animations: Vec::new(),
+            pending_loop_mode_updates: Vec::new(),
         }
     }
 }

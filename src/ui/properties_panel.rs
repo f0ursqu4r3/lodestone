@@ -1733,7 +1733,7 @@ pub fn generate_browser_placeholder(width: u32, height: u32) -> RgbaFrame {
 }
 
 /// Load an image from `path`, update the source properties/transform, and send the frame
-/// to the GStreamer thread via `LoadImageFrame`.
+/// to the GStreamer thread via `LoadImageFrame`. Handles both static images and animated GIFs.
 fn load_and_send_image(
     state: &mut AppState,
     source_idx: usize,
@@ -1741,22 +1741,46 @@ fn load_and_send_image(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     path: String,
 ) {
-    match crate::image_source::load_static_image(&path) {
-        Ok(frame) => {
+    match crate::image_source::load_image_source(&path) {
+        Ok(crate::image_source::ImageData::Static(frame)) => {
             let source = &mut state.library[source_idx];
-            // Update the stored path.
             if let SourceProperties::Image { path: ref mut p, .. } = source.properties {
                 *p = path;
             }
-            // Set transform and native size to the image's dimensions.
             let native = (frame.width as f32, frame.height as f32);
             source.transform.width = native.0;
             source.transform.height = native.1;
             source.native_size = native;
-            // Send the frame to GStreamer.
             if let Some(tx) = cmd_tx {
                 let _ = tx.try_send(GstCommand::LoadImageFrame { source_id, frame });
             }
+        }
+        Ok(crate::image_source::ImageData::Animated(animation)) => {
+            let source = &mut state.library[source_idx];
+            if let SourceProperties::Image { path: ref mut p, .. } = source.properties {
+                *p = path;
+            }
+            if let Some(first) = animation.frames.first() {
+                let native = (first.width as f32, first.height as f32);
+                source.transform.width = native.0;
+                source.transform.height = native.1;
+                source.native_size = native;
+                if let Some(tx) = cmd_tx {
+                    let _ = tx.try_send(GstCommand::LoadImageFrame {
+                        source_id,
+                        frame: first.clone(),
+                    });
+                }
+            }
+            let loop_mode =
+                if let SourceProperties::Image { loop_mode: Some(lm), .. } = &source.properties {
+                    *lm
+                } else {
+                    animation.embedded_loop_count
+                };
+            state
+                .pending_gif_animations
+                .push((source_id, animation, loop_mode));
         }
         Err(e) => {
             state.active_errors.push(GstError::CaptureFailure {

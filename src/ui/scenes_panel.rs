@@ -118,6 +118,9 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
         }
     });
 
+    // ── Transition bar ──
+    draw_transition_bar(ui, state, &theme);
+
     // ── Apply deferred action ──
     match pending_action {
         Some(SceneAction::Switch(new_id)) => {
@@ -313,6 +316,55 @@ fn draw_scene_card(
         }
     }
 
+    // PGM / PRV badges in Studio Mode.
+    if state.studio_mode {
+        let is_program = state.active_scene_id == Some(scene_id);
+        let is_preview = state.preview_scene_id == Some(scene_id);
+
+        if is_program || is_preview {
+            let badge_label = if is_program { "PGM" } else { "PRV" };
+            let badge_color = if is_program {
+                theme.danger
+            } else {
+                theme.success
+            };
+
+            // Measure text to size the pill.
+            let font_id = egui::FontId::proportional(8.0);
+            let text_galley = painter.layout_no_wrap(
+                badge_label.to_string(),
+                font_id.clone(),
+                egui::Color32::WHITE,
+            );
+            let text_w = text_galley.size().x;
+            let badge_w = text_w + 6.0;
+            let badge_h = 11.0;
+            let badge_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    thumb_rect.right() - badge_w - 4.0,
+                    thumb_rect.top() + 4.0,
+                ),
+                egui::vec2(badge_w, badge_h),
+            );
+
+            // Pill background.
+            painter.rect_filled(
+                badge_rect,
+                CornerRadius::same(theme.radius_lg as u8),
+                badge_color,
+            );
+
+            // Badge text.
+            painter.text(
+                badge_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                badge_label,
+                egui::FontId::proportional(8.0),
+                egui::Color32::WHITE,
+            );
+        }
+    }
+
     // Pin indicator (top-right of thumbnail).
     if is_pinned {
         painter.text(
@@ -445,6 +497,380 @@ fn draw_scene_card(
     }
 
     action
+}
+
+/// Draw the compact transition controls bar below the scene grid.
+///
+/// Contains: Fade/Cut segmented control, duration input, Studio Mode toggle,
+/// and (in Studio Mode) a Transition button that fires preview → program.
+fn draw_transition_bar(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    theme: &crate::ui::theme::Theme,
+) {
+    let bar_height = 30.0;
+    let padding = 4.0;
+    let available_width = ui.available_width();
+
+    let (bar_rect, _) = ui.allocate_exact_size(
+        egui::vec2(available_width, bar_height),
+        egui::Sense::hover(),
+    );
+
+    let painter = ui.painter_at(bar_rect);
+
+    // Thin separator at the top of the bar.
+    painter.line_segment(
+        [bar_rect.left_top(), bar_rect.right_top()],
+        egui::Stroke::new(1.0, theme.border),
+    );
+
+    // ── Segmented control: Fade | Cut ──
+    let seg_btn_w = 36.0;
+    let seg_btn_h = 20.0;
+    let seg_y = bar_rect.center().y - seg_btn_h / 2.0;
+    let seg_x = bar_rect.left() + padding;
+
+    let fade_rect = egui::Rect::from_min_size(
+        egui::pos2(seg_x, seg_y),
+        egui::vec2(seg_btn_w, seg_btn_h),
+    );
+    let cut_rect = egui::Rect::from_min_size(
+        egui::pos2(seg_x + seg_btn_w, seg_y),
+        egui::vec2(seg_btn_w, seg_btn_h),
+    );
+
+    let is_fade = state.settings.transitions.default_type == crate::transition::TransitionType::Fade;
+
+    // Combined pill background.
+    let combined_seg_rect = egui::Rect::from_min_max(fade_rect.min, cut_rect.max);
+    painter.rect_filled(
+        combined_seg_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        theme.bg_elevated,
+    );
+    painter.rect_stroke(
+        combined_seg_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        egui::Stroke::new(1.0, theme.border),
+        egui::StrokeKind::Outside,
+    );
+
+    // Active segment highlight.
+    let active_seg_rect = if is_fade { fade_rect } else { cut_rect };
+    painter.rect_filled(
+        active_seg_rect.shrink(1.0),
+        CornerRadius::same((theme.radius_sm - 1.0).max(0.0) as u8),
+        theme.bg_surface,
+    );
+
+    // Segment labels.
+    let fade_color = if is_fade { theme.text_primary } else { theme.text_muted };
+    let cut_color = if !is_fade { theme.text_primary } else { theme.text_muted };
+
+    painter.text(
+        fade_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "Fade",
+        egui::FontId::proportional(9.0),
+        fade_color,
+    );
+    painter.text(
+        cut_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "Cut",
+        egui::FontId::proportional(9.0),
+        cut_color,
+    );
+
+    // Hit-test segments.
+    let fade_response = ui.interact(
+        fade_rect,
+        egui::Id::new("transition_seg_fade"),
+        egui::Sense::click(),
+    );
+    let cut_response = ui.interact(
+        cut_rect,
+        egui::Id::new("transition_seg_cut"),
+        egui::Sense::click(),
+    );
+
+    if fade_response.clicked() {
+        state.settings.transitions.default_type = crate::transition::TransitionType::Fade;
+        state.mark_dirty();
+    }
+    if cut_response.clicked() {
+        state.settings.transitions.default_type = crate::transition::TransitionType::Cut;
+        state.mark_dirty();
+    }
+
+    // ── Duration input ──
+    let dur_x = seg_x + seg_btn_w * 2.0 + 6.0;
+    let dur_w = 46.0;
+    let dur_rect = egui::Rect::from_min_size(
+        egui::pos2(dur_x, seg_y),
+        egui::vec2(dur_w, seg_btn_h),
+    );
+
+    painter.rect_filled(
+        dur_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        theme.bg_elevated,
+    );
+    painter.rect_stroke(
+        dur_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        egui::Stroke::new(1.0, theme.border),
+        egui::StrokeKind::Outside,
+    );
+
+    // Duration TextEdit — edit as string, parse back to u32.
+    let dur_key = egui::Id::new("transition_dur_str");
+    let editing_key = egui::Id::new("transition_dur_editing");
+
+    let is_editing: bool = ui.data(|d| d.get_temp(editing_key).unwrap_or(false));
+    let mut dur_str: String = if is_editing {
+        ui.data(|d| {
+            d.get_temp::<String>(dur_key)
+                .unwrap_or_else(|| state.settings.transitions.default_duration_ms.to_string())
+        })
+    } else {
+        state.settings.transitions.default_duration_ms.to_string()
+    };
+
+    let text_edit_rect = dur_rect.shrink(2.0);
+    let mut child_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(text_edit_rect)
+            .layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight)),
+    );
+    let te = egui::TextEdit::singleline(&mut dur_str)
+        .desired_width(dur_w - 4.0)
+        .font(egui::FontId::proportional(9.0))
+        .horizontal_align(egui::Align::Center)
+        .frame(false)
+        .text_color(theme.text_primary);
+    let te_resp = child_ui.add(te);
+
+    if te_resp.gained_focus() {
+        ui.data_mut(|d| d.insert_temp(editing_key, true));
+    }
+    if te_resp.changed() {
+        ui.data_mut(|d| d.insert_temp(dur_key, dur_str.clone()));
+    }
+    if te_resp.lost_focus() {
+        ui.data_mut(|d| d.insert_temp(editing_key, false));
+        if let Ok(ms) = dur_str.trim().parse::<u32>() {
+            let clamped = ms.clamp(0, 30_000);
+            state.settings.transitions.default_duration_ms = clamped;
+            state.mark_dirty();
+        }
+        ui.data_mut(|d| d.remove::<String>(dur_key));
+    }
+
+    // "ms" suffix label to the right of the input.
+    let ms_label_x = dur_rect.right() + 3.0;
+    painter.text(
+        egui::pos2(ms_label_x, dur_rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        "ms",
+        egui::FontId::proportional(9.0),
+        theme.text_muted,
+    );
+
+    // ── Right-side controls ──
+    let right_edge = bar_rect.right() - padding;
+
+    // Studio Mode toggle button (right-aligned).
+    let studio_btn_w = 52.0;
+    let studio_btn_x = right_edge - studio_btn_w;
+    let studio_btn_rect = egui::Rect::from_min_size(
+        egui::pos2(studio_btn_x, seg_y),
+        egui::vec2(studio_btn_w, seg_btn_h),
+    );
+
+    let studio_active = state.studio_mode;
+    let studio_bg = if studio_active {
+        state.accent_color
+    } else {
+        theme.bg_elevated
+    };
+    let studio_text = if studio_active {
+        theme.bg_base
+    } else {
+        theme.text_muted
+    };
+    let studio_border = if studio_active {
+        state.accent_color
+    } else {
+        theme.border
+    };
+
+    painter.rect_filled(
+        studio_btn_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        studio_bg,
+    );
+    painter.rect_stroke(
+        studio_btn_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        egui::Stroke::new(1.0, studio_border),
+        egui::StrokeKind::Outside,
+    );
+    painter.text(
+        studio_btn_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "Studio",
+        egui::FontId::proportional(9.0),
+        studio_text,
+    );
+
+    let studio_response = ui.interact(
+        studio_btn_rect,
+        egui::Id::new("studio_mode_toggle"),
+        egui::Sense::click(),
+    );
+    if studio_response.clicked() {
+        state.studio_mode = !state.studio_mode;
+        if !state.studio_mode {
+            // Leaving Studio Mode: clear preview selection.
+            state.preview_scene_id = None;
+        }
+        state.mark_dirty();
+    }
+
+    // ── Transition button — Studio Mode only ──
+    if state.studio_mode {
+        let trans_btn_w = 64.0;
+        let trans_btn_x = studio_btn_x - trans_btn_w - 5.0;
+        let trans_btn_rect = egui::Rect::from_min_size(
+            egui::pos2(trans_btn_x, seg_y),
+            egui::vec2(trans_btn_w, seg_btn_h),
+        );
+
+        let can_transition = state.preview_scene_id.is_some()
+            && state.preview_scene_id != state.active_scene_id
+            && state.active_transition.is_none();
+
+        let trans_bg = if can_transition {
+            state.accent_color
+        } else {
+            theme.bg_elevated
+        };
+        let trans_text = if can_transition {
+            theme.bg_base
+        } else {
+            theme.text_muted
+        };
+        let trans_border = if can_transition {
+            state.accent_color
+        } else {
+            theme.border
+        };
+
+        painter.rect_filled(
+            trans_btn_rect,
+            CornerRadius::same(theme.radius_sm as u8),
+            trans_bg,
+        );
+        painter.rect_stroke(
+            trans_btn_rect,
+            CornerRadius::same(theme.radius_sm as u8),
+            egui::Stroke::new(1.0, trans_border),
+            egui::StrokeKind::Outside,
+        );
+        painter.text(
+            trans_btn_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Transition",
+            egui::FontId::proportional(9.0),
+            trans_text,
+        );
+
+        let trans_response = ui.interact(
+            trans_btn_rect,
+            egui::Id::new("studio_transition_btn"),
+            egui::Sense::click(),
+        );
+
+        if trans_response.clicked() && can_transition {
+            if let Some(preview_id) = state.preview_scene_id {
+                let from_id = state.active_scene_id;
+                let target_scene = state.scenes.iter().find(|s| s.id == preview_id);
+                let (transition_type, duration) = target_scene
+                    .map(|s| crate::transition::resolve_transition(
+                        &state.settings.transitions,
+                        &s.transition_override,
+                    ))
+                    .unwrap_or((
+                        crate::transition::TransitionType::Fade,
+                        std::time::Duration::from_millis(300),
+                    ));
+
+                match transition_type {
+                    crate::transition::TransitionType::Cut => {
+                        let old_scene = from_id
+                            .and_then(|id| state.scenes.iter().find(|s| s.id == id))
+                            .cloned();
+                        let new_scene = state.scenes.iter().find(|s| s.id == preview_id).cloned();
+
+                        state.active_scene_id = Some(preview_id);
+                        state.preview_scene_id = None;
+                        state.deselect_all();
+
+                        let cmd_tx = state.command_tx.clone();
+                        apply_scene_diff(
+                            &cmd_tx,
+                            &state.library,
+                            old_scene.as_ref(),
+                            new_scene.as_ref(),
+                            state.settings.general.exclude_self_from_capture,
+                        );
+
+                        if let Some(ref scene) = new_scene {
+                            state.capture_active = !scene.sources.is_empty();
+                        }
+                        state.mark_dirty();
+                    }
+                    crate::transition::TransitionType::Fade => {
+                        if let Some(from_scene_id) = from_id {
+                            let old_scene = state.scenes.iter().find(|s| s.id == from_scene_id).cloned();
+                            let new_scene = state.scenes.iter().find(|s| s.id == preview_id).cloned();
+
+                            if let Some(ref new_s) = new_scene {
+                                let cmd_tx = state.command_tx.clone();
+                                for &src_id in &new_s.source_ids() {
+                                    let already_running = old_scene
+                                        .as_ref()
+                                        .map(|s| s.source_ids().contains(&src_id))
+                                        .unwrap_or(false);
+                                    if !already_running {
+                                        start_capture_source(
+                                            &cmd_tx,
+                                            &state.library,
+                                            src_id,
+                                            state.settings.general.exclude_self_from_capture,
+                                        );
+                                    }
+                                }
+                            }
+
+                            state.active_transition = Some(crate::transition::TransitionState {
+                                from_scene: from_scene_id,
+                                to_scene: preview_id,
+                                transition_type,
+                                started_at: std::time::Instant::now(),
+                                duration,
+                            });
+                            state.preview_scene_id = None;
+                            state.deselect_all();
+                            state.mark_dirty();
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Draw the dashed-border "Add" card with a "+" icon and "Add" label.

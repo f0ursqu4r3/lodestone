@@ -1056,6 +1056,350 @@ impl ApplicationHandler for AppManager {
                     }
                 }
 
+                // ── Scene transition hotkeys ────────────────────────────────
+                // All of these are skipped when egui has keyboard focus
+                // (e.g. a text field is active).
+
+                // Ctrl+S / Cmd+S: Toggle Studio Mode.
+                // No existing Ctrl+S/Cmd+S usage in this handler, so no conflict.
+                if (self.modifiers.super_key() || ctrl) && !shift && *key_code == KeyCode::KeyS {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        app_state.studio_mode = !app_state.studio_mode;
+                        if !app_state.studio_mode {
+                            app_state.preview_scene_id = None;
+                        }
+                        app_state.mark_dirty();
+                        return;
+                    }
+                }
+
+                // Space: Quick cut — instantly switch preview → program (Studio Mode only).
+                // Cancels any in-flight transition.
+                if *key_code == KeyCode::Space {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        if app_state.studio_mode {
+                            if let Some(preview_id) = app_state.preview_scene_id {
+                                let from_id = app_state.active_scene_id;
+                                let exclude_self =
+                                    app_state.settings.general.exclude_self_from_capture;
+                                let cmd_tx = app_state.command_tx.clone();
+
+                                // Cancel any in-flight transition.
+                                app_state.active_transition = None;
+
+                                let old_scene = from_id
+                                    .and_then(|id| app_state.scenes.iter().find(|s| s.id == id))
+                                    .cloned();
+                                let new_scene = app_state
+                                    .scenes
+                                    .iter()
+                                    .find(|s| s.id == preview_id)
+                                    .cloned();
+
+                                app_state.active_scene_id = Some(preview_id);
+                                app_state.preview_scene_id = None;
+                                app_state.deselect_all();
+
+                                crate::ui::scenes_panel::apply_scene_diff(
+                                    &cmd_tx,
+                                    &app_state.library,
+                                    old_scene.as_ref(),
+                                    new_scene.as_ref(),
+                                    exclude_self,
+                                );
+                                if let Some(ref scene) = new_scene {
+                                    app_state.capture_active = !scene.sources.is_empty();
+                                }
+                                app_state.mark_dirty();
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                // Enter: Trigger transition — preview → program using configured
+                // transition type/duration (Studio Mode only).
+                if *key_code == KeyCode::Enter || *key_code == KeyCode::NumpadEnter {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        if app_state.studio_mode {
+                            let can_transition = app_state.preview_scene_id.is_some()
+                                && app_state.preview_scene_id != app_state.active_scene_id
+                                && app_state.active_transition.is_none();
+                            if can_transition {
+                                if let Some(preview_id) = app_state.preview_scene_id {
+                                    let from_id = app_state.active_scene_id;
+                                    let exclude_self =
+                                        app_state.settings.general.exclude_self_from_capture;
+                                    let cmd_tx = app_state.command_tx.clone();
+
+                                    let target_scene =
+                                        app_state.scenes.iter().find(|s| s.id == preview_id);
+                                    let (transition_type, duration) = target_scene
+                                        .map(|s| crate::transition::resolve_transition(
+                                            &app_state.settings.transitions,
+                                            &s.transition_override,
+                                        ))
+                                        .unwrap_or((
+                                            crate::transition::TransitionType::Fade,
+                                            std::time::Duration::from_millis(300),
+                                        ));
+
+                                    match transition_type {
+                                        crate::transition::TransitionType::Cut => {
+                                            let old_scene = from_id
+                                                .and_then(|id| {
+                                                    app_state.scenes.iter().find(|s| s.id == id)
+                                                })
+                                                .cloned();
+                                            let new_scene = app_state
+                                                .scenes
+                                                .iter()
+                                                .find(|s| s.id == preview_id)
+                                                .cloned();
+
+                                            app_state.active_scene_id = Some(preview_id);
+                                            app_state.preview_scene_id = None;
+                                            app_state.deselect_all();
+
+                                            crate::ui::scenes_panel::apply_scene_diff(
+                                                &cmd_tx,
+                                                &app_state.library,
+                                                old_scene.as_ref(),
+                                                new_scene.as_ref(),
+                                                exclude_self,
+                                            );
+                                            if let Some(ref scene) = new_scene {
+                                                app_state.capture_active =
+                                                    !scene.sources.is_empty();
+                                            }
+                                            app_state.mark_dirty();
+                                        }
+                                        crate::transition::TransitionType::Fade => {
+                                            if let Some(from_scene_id) = from_id {
+                                                let old_scene = app_state
+                                                    .scenes
+                                                    .iter()
+                                                    .find(|s| s.id == from_scene_id)
+                                                    .cloned();
+                                                let new_scene = app_state
+                                                    .scenes
+                                                    .iter()
+                                                    .find(|s| s.id == preview_id)
+                                                    .cloned();
+
+                                                if let Some(ref new_s) = new_scene {
+                                                    for &src_id in &new_s.source_ids() {
+                                                        let already_running = old_scene
+                                                            .as_ref()
+                                                            .map(|s| {
+                                                                s.source_ids().contains(&src_id)
+                                                            })
+                                                            .unwrap_or(false);
+                                                        if !already_running {
+                                                            crate::ui::scenes_panel::start_capture_source(
+                                                                &cmd_tx,
+                                                                &app_state.library,
+                                                                src_id,
+                                                                exclude_self,
+                                                            );
+                                                        }
+                                                    }
+                                                }
+
+                                                app_state.active_transition =
+                                                    Some(crate::transition::TransitionState {
+                                                        from_scene: from_scene_id,
+                                                        to_scene: preview_id,
+                                                        transition_type,
+                                                        started_at: std::time::Instant::now(),
+                                                        duration,
+                                                    });
+                                                app_state.preview_scene_id = None;
+                                                app_state.deselect_all();
+                                                app_state.mark_dirty();
+                                            }
+                                        }
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 1-9: Select scene by index.
+                // Studio Mode: sets preview scene.
+                // Normal Mode: triggers a scene switch (with transition).
+                let digit_opt: Option<usize> = match key_code {
+                    KeyCode::Digit1 if !self.modifiers.super_key() && !ctrl => Some(1),
+                    KeyCode::Digit2 if !self.modifiers.super_key() && !ctrl => Some(2),
+                    KeyCode::Digit3 if !self.modifiers.super_key() && !ctrl => Some(3),
+                    KeyCode::Digit4 if !self.modifiers.super_key() && !ctrl => Some(4),
+                    KeyCode::Digit5 if !self.modifiers.super_key() && !ctrl => Some(5),
+                    KeyCode::Digit6 if !self.modifiers.super_key() && !ctrl => Some(6),
+                    KeyCode::Digit7 if !self.modifiers.super_key() && !ctrl => Some(7),
+                    KeyCode::Digit8 if !self.modifiers.super_key() && !ctrl => Some(8),
+                    KeyCode::Digit9 if !self.modifiers.super_key() && !ctrl => Some(9),
+                    _ => None,
+                };
+                if let Some(digit) = digit_opt {
+                    let egui_wants_input = self
+                        .windows
+                        .get(&window_id)
+                        .map(|w| w.egui_ctx.wants_keyboard_input())
+                        .unwrap_or(false);
+                    if !egui_wants_input {
+                        let mut app_state = self.state.lock().unwrap();
+                        let scene_index = digit - 1; // 0-based
+                        let target_id = app_state
+                            .scenes
+                            .get(scene_index)
+                            .map(|s| s.id);
+
+                        if let Some(new_id) = target_id {
+                            if app_state.studio_mode {
+                                // Studio Mode: set the selected scene as preview.
+                                if app_state.active_scene_id != Some(new_id) {
+                                    let old_preview = app_state.preview_scene_id;
+                                    app_state.preview_scene_id = Some(new_id);
+
+                                    let exclude_self =
+                                        app_state.settings.general.exclude_self_from_capture;
+                                    let cmd_tx = app_state.command_tx.clone();
+                                    let old_preview_scene = old_preview
+                                        .and_then(|id| {
+                                            app_state.scenes.iter().find(|s| s.id == id)
+                                        })
+                                        .cloned();
+                                    let new_scene = app_state
+                                        .scenes
+                                        .iter()
+                                        .find(|s| s.id == new_id)
+                                        .cloned();
+
+                                    crate::ui::scenes_panel::apply_scene_diff(
+                                        &cmd_tx,
+                                        &app_state.library,
+                                        old_preview_scene.as_ref(),
+                                        new_scene.as_ref(),
+                                        exclude_self,
+                                    );
+                                    app_state.mark_dirty();
+                                }
+                            } else if app_state.active_scene_id != Some(new_id) {
+                                // Normal Mode: trigger a scene switch with transition.
+                                let from_id = app_state.active_scene_id;
+                                let exclude_self =
+                                    app_state.settings.general.exclude_self_from_capture;
+                                let cmd_tx = app_state.command_tx.clone();
+
+                                let target_scene =
+                                    app_state.scenes.iter().find(|s| s.id == new_id);
+                                let (transition_type, duration) = target_scene
+                                    .map(|s| crate::transition::resolve_transition(
+                                        &app_state.settings.transitions,
+                                        &s.transition_override,
+                                    ))
+                                    .unwrap_or((
+                                        crate::transition::TransitionType::Fade,
+                                        std::time::Duration::from_millis(300),
+                                    ));
+
+                                match transition_type {
+                                    crate::transition::TransitionType::Cut => {
+                                        let old_scene = from_id
+                                            .and_then(|id| {
+                                                app_state.scenes.iter().find(|s| s.id == id)
+                                            })
+                                            .cloned();
+                                        let new_scene = app_state
+                                            .scenes
+                                            .iter()
+                                            .find(|s| s.id == new_id)
+                                            .cloned();
+
+                                        app_state.active_scene_id = Some(new_id);
+                                        app_state.deselect_all();
+
+                                        crate::ui::scenes_panel::apply_scene_diff(
+                                            &cmd_tx,
+                                            &app_state.library,
+                                            old_scene.as_ref(),
+                                            new_scene.as_ref(),
+                                            exclude_self,
+                                        );
+                                        if let Some(ref scene) = new_scene {
+                                            app_state.capture_active = !scene.sources.is_empty();
+                                        }
+                                        app_state.mark_dirty();
+                                    }
+                                    crate::transition::TransitionType::Fade => {
+                                        if let Some(from_scene_id) = from_id {
+                                            let old_scene = app_state
+                                                .scenes
+                                                .iter()
+                                                .find(|s| s.id == from_scene_id)
+                                                .cloned();
+                                            let new_scene = app_state
+                                                .scenes
+                                                .iter()
+                                                .find(|s| s.id == new_id)
+                                                .cloned();
+
+                                            if let Some(ref new_s) = new_scene {
+                                                for &src_id in &new_s.source_ids() {
+                                                    let already_running = old_scene
+                                                        .as_ref()
+                                                        .map(|s| s.source_ids().contains(&src_id))
+                                                        .unwrap_or(false);
+                                                    if !already_running {
+                                                        crate::ui::scenes_panel::start_capture_source(
+                                                            &cmd_tx,
+                                                            &app_state.library,
+                                                            src_id,
+                                                            exclude_self,
+                                                        );
+                                                    }
+                                                }
+                                            }
+
+                                            app_state.active_transition =
+                                                Some(crate::transition::TransitionState {
+                                                    from_scene: from_scene_id,
+                                                    to_scene: new_id,
+                                                    transition_type,
+                                                    started_at: std::time::Instant::now(),
+                                                    duration,
+                                                });
+                                            app_state.deselect_all();
+                                            app_state.mark_dirty();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return;
+                    }
+                }
+
                 // DEL / Backspace deletes selected sources.
                 // Skip if egui has keyboard focus (text fields, rename, etc.).
                 if matches!(key_code, KeyCode::Delete | KeyCode::Backspace) {

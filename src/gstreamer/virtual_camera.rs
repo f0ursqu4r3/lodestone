@@ -51,6 +51,7 @@ pub struct VirtualCameraHandle {
     surface: Retained<IOSurface>,
     width: u32,
     height: u32,
+    pub mirror_horizontal: bool,
     #[allow(dead_code)]
     fps: u32,
     frame_counter: AtomicU64,
@@ -119,6 +120,7 @@ pub fn start_virtual_camera(width: u32, height: u32, fps: u32) -> Result<Virtual
         surface,
         width,
         height,
+        mirror_horizontal: true,
         fps,
         frame_counter: AtomicU64::new(0),
     })
@@ -151,6 +153,7 @@ pub fn write_frame(handle: &VirtualCameraHandle, frame: &RgbaFrame) -> Result<()
         let copy_height = frame.height.min(handle.height) as usize;
         let src_bpr = frame.width as usize * 4;
 
+        let mirror = handle.mirror_horizontal;
         for row in 0..copy_height {
             let src_row = frame.data.as_ptr().add(row * src_bpr) as *const u32;
             let dst_row = base.add(row * surface_bpr) as *mut u32;
@@ -161,7 +164,8 @@ pub fn write_frame(handle: &VirtualCameraHandle, frame: &RgbaFrame) -> Result<()
                 let r = rgba & 0xFF;
                 let b = (rgba >> 16) & 0xFF;
                 let bgra = (rgba & 0xFF00FF00) | (r << 16) | b;
-                *dst_row.add(col) = bgra;
+                let dst_col = if mirror { copy_width - 1 - col } else { col };
+                *dst_row.add(dst_col) = bgra;
             }
         }
     }

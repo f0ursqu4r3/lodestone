@@ -632,70 +632,7 @@ impl Compositor {
         encoder: &mut wgpu::CommandEncoder,
         sources: &[ResolvedSource],
     ) {
-        let cw = self.canvas_width as f32;
-        let ch = self.canvas_height as f32;
-
-        // Dedicated clear pass — always runs.
-        {
-            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("compositor_clear_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.canvas_view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-        }
-
-        // Draw each visible source with its own uniform buffer.
-        for source in sources {
-            let layer = match self.source_layers.get(&source.id) {
-                Some(l) => l,
-                None => continue,
-            };
-            if !source.visible {
-                continue;
-            }
-
-            // Write to per-source uniform buffer — avoids race with shared buffer.
-            let t = &source.transform;
-            let uniforms = SourceUniforms {
-                rect: [t.x / cw, t.y / ch, t.width / cw, t.height / ch],
-                opacity: source.opacity.clamp(0.0, 1.0),
-                _pad_align: [0.0; 3],
-                _padding: [0.0; 3],
-                _pad_end: 0.0,
-            };
-            queue.write_buffer(&layer.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
-
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("compositor_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.canvas_view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &layer.bind_group, &[]);
-            pass.set_bind_group(1, &layer.uniform_bind_group, &[]);
-            pass.draw(0..4, 0..1);
-        }
+        self.compose_to(queue, encoder, &self.canvas_view, &self.source_layers, sources);
     }
 
     /// Scale the canvas texture to the output texture via a fullscreen quad blit.
@@ -896,6 +833,109 @@ impl Compositor {
     /// Arc-wrapped canvas preview pipeline for the egui preview panel paint callback.
     pub fn canvas_pipeline(&self) -> Arc<wgpu::RenderPipeline> {
         Arc::clone(&self.canvas_pipeline)
+    }
+
+    /// Returns a reference to the texture bind group layout for creating new bind groups.
+    pub fn texture_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.texture_bind_group_layout
+    }
+
+    /// Returns a reference to the uniform bind group layout for creating per-source uniform bind groups.
+    pub fn uniform_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.uniform_bind_group_layout
+    }
+
+    /// Returns a reference to the compositor render pipeline (sources → canvas).
+    pub fn compositor_pipeline(&self) -> &wgpu::RenderPipeline {
+        &self.pipeline
+    }
+
+    /// Returns a reference to the sampler used for source textures.
+    pub fn compositor_sampler(&self) -> &wgpu::Sampler {
+        &self.sampler
+    }
+
+    /// Returns a reference to the preview sampler.
+    pub fn preview_sampler(&self) -> &wgpu::Sampler {
+        &self.preview_sampler
+    }
+
+    /// Returns a reference to the primary canvas texture view.
+    pub fn canvas_view(&self) -> &wgpu::TextureView {
+        &self.canvas_view
+    }
+
+    /// Compose sources onto an arbitrary target view using the given source layers.
+    pub fn compose_to(
+        &self,
+        queue: &Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target_view: &wgpu::TextureView,
+        source_layers: &HashMap<SourceId, SourceLayer>,
+        sources: &[ResolvedSource],
+    ) {
+        let cw = self.canvas_width as f32;
+        let ch = self.canvas_height as f32;
+
+        // Clear pass.
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("compositor_clear_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+
+        for source in sources {
+            let layer = match source_layers.get(&source.id) {
+                Some(l) => l,
+                None => continue,
+            };
+            if !source.visible {
+                continue;
+            }
+
+            let t = &source.transform;
+            let uniforms = SourceUniforms {
+                rect: [t.x / cw, t.y / ch, t.width / cw, t.height / ch],
+                opacity: source.opacity.clamp(0.0, 1.0),
+                _pad_align: [0.0; 3],
+                _padding: [0.0; 3],
+                _pad_end: 0.0,
+            };
+            queue.write_buffer(&layer.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("compositor_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &layer.bind_group, &[]);
+            pass.set_bind_group(1, &layer.uniform_bind_group, &[]);
+            pass.draw(0..4, 0..1);
+        }
     }
 }
 

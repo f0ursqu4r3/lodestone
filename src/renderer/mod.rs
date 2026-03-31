@@ -1,5 +1,6 @@
 pub mod compositor;
 pub mod pipelines;
+pub mod secondary_canvas;
 pub mod text;
 pub mod transition;
 

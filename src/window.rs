@@ -6,6 +6,7 @@ use winit::window::Window;
 use crate::renderer::SharedGpuState;
 use crate::state::AppState;
 use crate::ui::layout::tree::{DockLayout, GroupId, PanelId, PanelType};
+use crate::ui::live_panel::LiveResources;
 use crate::ui::preview_panel::PreviewResources;
 use crate::window_actions::apply_layout_actions;
 
@@ -41,6 +42,7 @@ impl WindowState {
         layout: DockLayout,
         is_main: bool,
         preview_resources: Option<PreviewResources>,
+        live_resources: Option<LiveResources>,
     ) -> Result<Self> {
         let surface = gpu.instance.create_surface(window)?;
 
@@ -64,6 +66,9 @@ impl WindowState {
         );
 
         if let Some(resources) = preview_resources {
+            egui_renderer.callback_resources.insert(resources);
+        }
+        if let Some(resources) = live_resources {
             egui_renderer.callback_resources.insert(resources);
         }
 

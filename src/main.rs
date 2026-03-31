@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use ui::layout::{
     DockLayout, PanelType, SplitDirection, deserialize_full_layout, serialize_full_layout,
 };
+use ui::live_panel::LiveResources;
 use ui::preview_panel::PreviewResources;
 use window::{DetachRequest, WindowState};
 use winit::{
@@ -549,10 +550,14 @@ impl ApplicationHandler for AppManager {
             pipeline: gpu.compositor.canvas_pipeline(),
             bind_group: gpu.compositor.canvas_bind_group(),
         };
+        let live_resources = LiveResources {
+            pipeline: gpu.compositor.canvas_pipeline(),
+            bind_group: gpu.compositor.canvas_bind_group(),
+        };
 
         // Try to load saved layout; fall back to default.
         let layout = Self::load_layout();
-        let win_state = WindowState::new(window, &gpu, layout, true, Some(preview_resources))
+        let win_state = WindowState::new(window, &gpu, layout, true, Some(preview_resources), Some(live_resources))
             .expect("create main window state");
 
         self.gpu = Some(gpu);
@@ -1680,7 +1685,7 @@ impl ApplicationHandler for AppManager {
                 || new_output != (gpu.compositor.output_width, gpu.compositor.output_height)
             {
                 gpu.compositor.resize(&gpu.device, new_base, new_output);
-                // Update preview resources — the canvas bind group changed.
+                // Update preview and live resources — the canvas bind group changed.
                 if let Some(main_id) = self.main_window_id
                     && let Some(win) = self.windows.get_mut(&main_id)
                 {
@@ -1689,6 +1694,11 @@ impl ApplicationHandler for AppManager {
                         bind_group: gpu.compositor.canvas_bind_group(),
                     };
                     win.egui_renderer.callback_resources.insert(new_resources);
+                    let new_live = LiveResources {
+                        pipeline: gpu.compositor.canvas_pipeline(),
+                        bind_group: gpu.compositor.canvas_bind_group(),
+                    };
+                    win.egui_renderer.callback_resources.insert(new_live);
                 }
             }
         }
@@ -1844,7 +1854,7 @@ impl ApplicationHandler for AppManager {
                 }
             }
 
-            // Update preview resources to reflect current canvas state.
+            // Update preview and live resources to reflect current canvas state.
             if let Some(main_id) = self.main_window_id
                 && let Some(win) = self.windows.get_mut(&main_id)
             {
@@ -1853,6 +1863,11 @@ impl ApplicationHandler for AppManager {
                     bind_group: gpu.compositor.canvas_bind_group(),
                 };
                 win.egui_renderer.callback_resources.insert(new_resources);
+                let new_live = LiveResources {
+                    pipeline: gpu.compositor.canvas_pipeline(),
+                    bind_group: gpu.compositor.canvas_bind_group(),
+                };
+                win.egui_renderer.callback_resources.insert(new_live);
             }
 
             // Request continuous redraws while a transition is in progress.
@@ -1920,7 +1935,7 @@ impl ApplicationHandler for AppManager {
 
                 // Settings window doesn't need a layout or preview — use a dummy single-panel layout
                 let layout = DockLayout::new_single(PanelType::Preview);
-                let win_state = WindowState::new(window, gpu, layout, false, None)
+                let win_state = WindowState::new(window, gpu, layout, false, None, None)
                     .expect("init settings window");
                 let window_id = window.id();
                 self.windows.insert(window_id, win_state);
@@ -1975,8 +1990,12 @@ impl ApplicationHandler for AppManager {
                     pipeline: gpu.compositor.canvas_pipeline(),
                     bind_group: gpu.compositor.canvas_bind_group(),
                 };
+                let live_resources = LiveResources {
+                    pipeline: gpu.compositor.canvas_pipeline(),
+                    bind_group: gpu.compositor.canvas_bind_group(),
+                };
                 let win_state =
-                    WindowState::new(window, gpu, layout, false, Some(preview_resources))
+                    WindowState::new(window, gpu, layout, false, Some(preview_resources), Some(live_resources))
                         .expect("init detached window");
                 self.windows.insert(window.id(), win_state);
             }

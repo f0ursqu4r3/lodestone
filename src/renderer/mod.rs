@@ -1,6 +1,7 @@
 pub mod compositor;
 pub mod pipelines;
 pub mod text;
+pub mod transition;
 
 use anyhow::Result;
 // Use wgpu re-exported from egui_wgpu (wgpu 27) so that we can share

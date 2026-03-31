@@ -27,6 +27,8 @@ pub struct AppSettings {
     pub advanced: AdvancedSettings,
     #[serde(default)]
     pub settings_window: SettingsWindowConfig,
+    #[serde(default)]
+    pub transitions: crate::transition::TransitionSettings,
 }
 
 /// UI panel visibility settings.

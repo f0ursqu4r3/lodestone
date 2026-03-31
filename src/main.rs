@@ -8,6 +8,7 @@ mod state;
 #[cfg(target_os = "macos")]
 mod system_extension;
 mod text_source;
+mod transition;
 mod ui;
 mod window;
 mod window_actions;
@@ -1548,6 +1549,7 @@ mod tests {
             name: "S".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            transition_override: Default::default(),
         };
         let (to_add, to_remove) = diff_scene_sources(None, Some(&scene));
         assert_eq!(to_add.len(), 2);
@@ -1561,6 +1563,7 @@ mod tests {
             name: "S".into(),
             sources: vec![SceneSource::new(SourceId(1))],
             pinned: false,
+            transition_override: Default::default(),
         };
         let (to_add, to_remove) = diff_scene_sources(Some(&scene), None);
         assert!(to_add.is_empty());
@@ -1574,12 +1577,14 @@ mod tests {
             name: "A".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            transition_override: Default::default(),
         };
         let new = Scene {
             id: SceneId(2),
             name: "B".into(),
             sources: vec![SceneSource::new(SourceId(2)), SceneSource::new(SourceId(3))],
             pinned: false,
+            transition_override: Default::default(),
         };
         let (to_add, to_remove) = diff_scene_sources(Some(&old), Some(&new));
         assert!(to_add.contains(&SourceId(3)));
@@ -1595,6 +1600,7 @@ mod tests {
             name: "A".into(),
             sources: vec![SceneSource::new(SourceId(1))],
             pinned: false,
+            transition_override: Default::default(),
         };
         let (to_add, to_remove) = diff_scene_sources(Some(&scene), Some(&scene));
         assert!(to_add.is_empty());

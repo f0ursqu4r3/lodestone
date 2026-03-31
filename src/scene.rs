@@ -17,6 +17,9 @@ pub struct Scene {
     /// Whether this scene is pinned to the toolbar for quick switching.
     #[serde(default)]
     pub pinned: bool,
+    /// Per-scene transition override (type + duration when transitioning INTO this scene).
+    #[serde(default)]
+    pub transition_override: crate::transition::SceneTransitionOverride,
 }
 
 /// Canonical definition of a source in the global library.
@@ -459,6 +462,7 @@ mod legacy {
                         .map(SceneSource::new)
                         .collect(),
                     pinned: false,
+                    transition_override: Default::default(),
                 })
                 .collect();
 
@@ -563,6 +567,7 @@ impl SceneCollection {
                 name: "Scene 1".to_string(),
                 sources: vec![SceneSource::new(source_id)],
                 pinned: true,
+                transition_override: Default::default(),
             }],
             library: vec![LibrarySource {
                 id: source_id,
@@ -804,6 +809,7 @@ mod tests {
                 SceneSource::new(SourceId(3)),
             ],
             pinned: false,
+            transition_override: Default::default(),
         };
         scene.move_source_up(SourceId(2));
         assert_eq!(
@@ -819,6 +825,7 @@ mod tests {
             name: "Test".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            transition_override: Default::default(),
         };
         scene.move_source_up(SourceId(1));
         assert_eq!(scene.source_ids(), vec![SourceId(1), SourceId(2)]);
@@ -835,6 +842,7 @@ mod tests {
                 SceneSource::new(SourceId(3)),
             ],
             pinned: false,
+            transition_override: Default::default(),
         };
         scene.move_source_down(SourceId(1));
         assert_eq!(
@@ -850,6 +858,7 @@ mod tests {
             name: "Test".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            transition_override: Default::default(),
         };
         scene.move_source_down(SourceId(2));
         assert_eq!(scene.source_ids(), vec![SourceId(1), SourceId(2)]);
@@ -865,6 +874,7 @@ mod tests {
                 SceneSource::new(SourceId(20)),
             ],
             pinned: false,
+            transition_override: Default::default(),
         };
         assert_eq!(scene.source_ids(), vec![SourceId(10), SourceId(20)]);
     }
@@ -876,6 +886,7 @@ mod tests {
             name: "Test".into(),
             sources: vec![SceneSource::new(SourceId(1)), SceneSource::new(SourceId(2))],
             pinned: false,
+            transition_override: Default::default(),
         };
         assert!(scene.find_source(SourceId(1)).is_some());
         assert!(scene.find_source(SourceId(99)).is_none());
@@ -888,6 +899,7 @@ mod tests {
             name: "Test".into(),
             sources: vec![SceneSource::new(SourceId(1))],
             pinned: false,
+            transition_override: Default::default(),
         };
         let ss = scene.find_source_mut(SourceId(1)).unwrap();
         ss.overrides.opacity = Some(0.5);

@@ -16,6 +16,8 @@ use objc2::AllocAnyThread;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_foundation::{NSDictionary, NSNumber, NSString, NSUserDefaults};
+#[allow(deprecated)]
+// kIOSurfaceIsGlobal is deprecated but required for cross-process surface lookup
 use objc2_io_surface::{
     IOSurface, IOSurfaceLockOptions, IOSurfacePropertyKey, IOSurfacePropertyKeyAllocSize,
     IOSurfacePropertyKeyBytesPerElement, IOSurfacePropertyKeyBytesPerRow,

@@ -1691,35 +1691,34 @@ impl ApplicationHandler for AppManager {
         }
 
         // Upload GIF frames to compositor.
-        if !gif_uploads.is_empty() {
-            if let Some(ref mut gpu) = self.gpu {
-                for (source_id, frame_idx) in &gif_uploads {
-                    if let Some(anim) = self.gif_animations.get(source_id) {
-                        let frame = &anim.frames[*frame_idx];
-                        gpu.compositor
-                            .upload_frame(&gpu.device, &gpu.queue, *source_id, frame);
-                        if let Some(ref mut secondary) = gpu.secondary_canvas {
-                            secondary.upload_frame(
-                                &gpu.device,
-                                &gpu.queue,
-                                *source_id,
-                                frame,
-                                gpu.compositor.texture_bind_group_layout(),
-                                gpu.compositor.uniform_bind_group_layout(),
-                                gpu.compositor.compositor_sampler(),
-                            );
-                        }
+        if !gif_uploads.is_empty()
+            && let Some(ref mut gpu) = self.gpu
+        {
+            for (source_id, frame_idx) in &gif_uploads {
+                if let Some(anim) = self.gif_animations.get(source_id) {
+                    let frame = &anim.frames[*frame_idx];
+                    gpu.compositor
+                        .upload_frame(&gpu.device, &gpu.queue, *source_id, frame);
+                    if let Some(ref mut secondary) = gpu.secondary_canvas {
+                        secondary.upload_frame(
+                            &gpu.device,
+                            &gpu.queue,
+                            *source_id,
+                            frame,
+                            gpu.compositor.texture_bind_group_layout(),
+                            gpu.compositor.uniform_bind_group_layout(),
+                            gpu.compositor.compositor_sampler(),
+                        );
                     }
                 }
             }
         }
 
-        if any_gif_active {
-            if let Some(main_id) = self.main_window_id
-                && let Some(win) = self.windows.get(&main_id)
-            {
-                win.window.request_redraw();
-            }
+        if any_gif_active
+            && let Some(main_id) = self.main_window_id
+            && let Some(win) = self.windows.get(&main_id)
+        {
+            win.window.request_redraw();
         }
 
         // Detect resolution changes from settings and resize compositor.

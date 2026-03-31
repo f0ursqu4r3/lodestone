@@ -187,8 +187,11 @@ pub struct AppState {
     /// In-progress transition state. None = no transition active.
     pub active_transition: Option<crate::transition::TransitionState>,
     /// Pending GIF animations to register, set by UI, consumed by render loop.
-    pub pending_gif_animations:
-        Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)>,
+    pub pending_gif_animations: Vec<(
+        SourceId,
+        crate::image_source::GifAnimation,
+        crate::scene::LoopMode,
+    )>,
     /// Pending loop mode updates for GIF animations.
     pub pending_loop_mode_updates: Vec<(SourceId, crate::scene::LoopMode)>,
 }

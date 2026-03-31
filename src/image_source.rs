@@ -45,7 +45,11 @@ pub fn load_image_source(path: &str) -> anyhow::Result<ImageData> {
         let width = img.width();
         let height = img.height();
         let data = img.into_raw();
-        Ok(ImageData::Static(RgbaFrame { data, width, height }))
+        Ok(ImageData::Static(RgbaFrame {
+            data,
+            width,
+            height,
+        }))
     }
 }
 
@@ -54,8 +58,7 @@ fn load_gif(path: &str) -> anyhow::Result<ImageData> {
     use std::fs::File;
     use std::io::BufReader;
 
-    let file =
-        File::open(path).with_context(|| format!("Failed to open GIF file: {path}"))?;
+    let file = File::open(path).with_context(|| format!("Failed to open GIF file: {path}"))?;
     let reader = BufReader::new(file);
     let decoder =
         GifDecoder::new(reader).with_context(|| format!("Failed to decode GIF: {path}"))?;
@@ -74,9 +77,17 @@ fn load_gif(path: &str) -> anyhow::Result<ImageData> {
                 let buf = f.into_buffer();
                 let width = buf.width();
                 let height = buf.height();
-                RgbaFrame { data: buf.into_raw(), width, height }
+                RgbaFrame {
+                    data: buf.into_raw(),
+                    width,
+                    height,
+                }
             })
-            .unwrap_or_else(|| RgbaFrame { data: vec![], width: 0, height: 0 });
+            .unwrap_or_else(|| RgbaFrame {
+                data: vec![],
+                width: 0,
+                height: 0,
+            });
         return Ok(ImageData::Static(frame));
     }
 
@@ -92,7 +103,11 @@ fn load_gif(path: &str) -> anyhow::Result<ImageData> {
         let buf = gif_frame.into_buffer();
         let width = buf.width();
         let height = buf.height();
-        frames.push(RgbaFrame { data: buf.into_raw(), width, height });
+        frames.push(RgbaFrame {
+            data: buf.into_raw(),
+            width,
+            height,
+        });
     }
 
     Ok(ImageData::Animated(GifAnimation {
@@ -102,19 +117,6 @@ fn load_gif(path: &str) -> anyhow::Result<ImageData> {
         // so we default to infinite looping (browsers also default to infinite).
         embedded_loop_count: LoopMode::Infinite,
     }))
-}
-
-/// Backwards-compatible wrapper — loads static images only.
-/// Used by callers that haven't been updated for animated GIF support yet.
-pub fn load_static_image(path: &str) -> anyhow::Result<RgbaFrame> {
-    match load_image_source(path)? {
-        ImageData::Static(frame) => Ok(frame),
-        ImageData::Animated(anim) => anim
-            .frames
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("GIF has no frames")),
-    }
 }
 
 #[cfg(test)]
@@ -140,14 +142,22 @@ mod tests {
 
     #[test]
     fn image_data_static_variant() {
-        let frame = RgbaFrame { data: vec![255, 0, 0, 255], width: 1, height: 1 };
+        let frame = RgbaFrame {
+            data: vec![255, 0, 0, 255],
+            width: 1,
+            height: 1,
+        };
         let data = ImageData::Static(frame);
         assert!(matches!(data, ImageData::Static(_)));
     }
 
     #[test]
     fn image_data_animated_variant() {
-        let frame = RgbaFrame { data: vec![255, 0, 0, 255], width: 1, height: 1 };
+        let frame = RgbaFrame {
+            data: vec![255, 0, 0, 255],
+            width: 1,
+            height: 1,
+        };
         let anim = GifAnimation {
             frames: vec![frame],
             delays: vec![Duration::from_millis(100)],
@@ -158,8 +168,42 @@ mod tests {
     }
 
     #[test]
-    fn load_static_image_nonexistent_returns_error() {
-        let result = load_static_image("/nonexistent/path.png");
-        assert!(result.is_err());
+    fn static_image_data_variant() {
+        let frame = RgbaFrame {
+            data: vec![0; 4],
+            width: 1,
+            height: 1,
+        };
+        let data = ImageData::Static(frame);
+        assert!(matches!(data, ImageData::Static(_)));
+    }
+
+    #[test]
+    fn animated_image_data_variant() {
+        let frames = vec![
+            RgbaFrame {
+                data: vec![0; 4],
+                width: 1,
+                height: 1,
+            },
+            RgbaFrame {
+                data: vec![255; 4],
+                width: 1,
+                height: 1,
+            },
+        ];
+        let delays = vec![Duration::from_millis(100), Duration::from_millis(200)];
+        let data = ImageData::Animated(GifAnimation {
+            frames,
+            delays,
+            embedded_loop_count: crate::scene::LoopMode::Infinite,
+        });
+        if let ImageData::Animated(ref anim) = data {
+            assert_eq!(anim.frames.len(), 2);
+            assert_eq!(anim.delays.len(), 2);
+            assert_eq!(anim.delays[0], Duration::from_millis(100));
+        } else {
+            panic!("Expected Animated variant");
+        }
     }
 }

@@ -502,13 +502,13 @@ fn draw_source_properties(
             let src_id = selected_id;
 
             // Snapshot the path for checks that happen outside the mutable borrow.
-            let image_path_snapshot =
-                if let SourceProperties::Image { ref path, .. } = state.library[lib_idx].properties
-                {
-                    path.clone()
-                } else {
-                    String::new()
-                };
+            let image_path_snapshot = if let SourceProperties::Image { ref path, .. } =
+                state.library[lib_idx].properties
+            {
+                path.clone()
+            } else {
+                String::new()
+            };
 
             let source = &mut state.library[lib_idx];
             if let SourceProperties::Image { ref mut path, .. } = source.properties {
@@ -574,120 +574,108 @@ fn draw_source_properties(
             // Re-use the snapshot taken before the mutable borrow above.
             let is_animated_gif = image_path_snapshot.to_lowercase().ends_with(".gif");
             if is_animated_gif {
-                    ui.add_space(8.0);
-                    let current_mode = if let SourceProperties::Image { loop_mode, .. } =
-                        &state.library[lib_idx].properties
-                    {
-                        loop_mode.unwrap_or(crate::scene::LoopMode::Infinite)
-                    } else {
-                        crate::scene::LoopMode::Infinite
-                    };
+                ui.add_space(8.0);
+                let current_mode = if let SourceProperties::Image { loop_mode, .. } =
+                    &state.library[lib_idx].properties
+                {
+                    loop_mode.unwrap_or(crate::scene::LoopMode::Infinite)
+                } else {
+                    crate::scene::LoopMode::Infinite
+                };
 
-                    let mode_label = match current_mode {
-                        crate::scene::LoopMode::Infinite => "Infinite",
-                        crate::scene::LoopMode::Once => "Once",
-                        crate::scene::LoopMode::Count(_) => "Count",
-                    };
+                let mode_label = match current_mode {
+                    crate::scene::LoopMode::Infinite => "Infinite",
+                    crate::scene::LoopMode::Once => "Once",
+                    crate::scene::LoopMode::Count(_) => "Count",
+                };
 
-                    ui.horizontal(|ui| {
-                        ui.label("Loop:");
+                ui.horizontal(|ui| {
+                    ui.label("Loop:");
 
-                        egui::ComboBox::from_id_salt("gif_loop_mode")
-                            .selected_text(mode_label)
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_label(
-                                        matches!(
-                                            current_mode,
-                                            crate::scene::LoopMode::Infinite
-                                        ),
-                                        "Infinite",
-                                    )
-                                    .clicked()
-                                {
-                                    if let SourceProperties::Image {
-                                        ref mut loop_mode, ..
-                                    } = state.library[lib_idx].properties
-                                    {
-                                        *loop_mode = Some(crate::scene::LoopMode::Infinite);
-                                    }
-                                    state
-                                        .pending_loop_mode_updates
-                                        .push((src_id, crate::scene::LoopMode::Infinite));
-                                    changed = true;
-                                }
-                                if ui
-                                    .selectable_label(
-                                        matches!(current_mode, crate::scene::LoopMode::Once),
-                                        "Once",
-                                    )
-                                    .clicked()
-                                {
-                                    if let SourceProperties::Image {
-                                        ref mut loop_mode, ..
-                                    } = state.library[lib_idx].properties
-                                    {
-                                        *loop_mode = Some(crate::scene::LoopMode::Once);
-                                    }
-                                    state
-                                        .pending_loop_mode_updates
-                                        .push((src_id, crate::scene::LoopMode::Once));
-                                    changed = true;
-                                }
-                                if ui
-                                    .selectable_label(
-                                        matches!(
-                                            current_mode,
-                                            crate::scene::LoopMode::Count(_)
-                                        ),
-                                        "Count",
-                                    )
-                                    .clicked()
-                                {
-                                    if !matches!(
-                                        current_mode,
-                                        crate::scene::LoopMode::Count(_)
-                                    ) {
-                                        if let SourceProperties::Image {
-                                            ref mut loop_mode, ..
-                                        } = state.library[lib_idx].properties
-                                        {
-                                            *loop_mode =
-                                                Some(crate::scene::LoopMode::Count(3));
-                                        }
-                                        state
-                                            .pending_loop_mode_updates
-                                            .push((src_id, crate::scene::LoopMode::Count(3)));
-                                    }
-                                    changed = true;
-                                }
-                            });
-
-                        if matches!(current_mode, crate::scene::LoopMode::Count(_)) {
-                            if let SourceProperties::Image { ref mut loop_mode, .. } =
-                                state.library[lib_idx].properties
-                                && let Some(crate::scene::LoopMode::Count(count)) = loop_mode
+                    egui::ComboBox::from_id_salt("gif_loop_mode")
+                        .selected_text(mode_label)
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(
+                                    matches!(current_mode, crate::scene::LoopMode::Infinite),
+                                    "Infinite",
+                                )
+                                .clicked()
                             {
-                                    let mut count_str = count.to_string();
-                                    let resp = ui.add(
-                                        egui::TextEdit::singleline(&mut count_str)
-                                            .desired_width(30.0)
-                                            .font(egui::FontId::proportional(12.0)),
-                                    );
-                                    if resp.changed() {
-                                        if let Ok(val) = count_str.parse::<u32>() {
-                                            *count = val.max(1);
-                                            state.pending_loop_mode_updates.push((
-                                                src_id,
-                                                crate::scene::LoopMode::Count(*count),
-                                            ));
-                                            changed = true;
-                                        }
-                                    }
+                                if let SourceProperties::Image {
+                                    ref mut loop_mode, ..
+                                } = state.library[lib_idx].properties
+                                {
+                                    *loop_mode = Some(crate::scene::LoopMode::Infinite);
                                 }
+                                state
+                                    .pending_loop_mode_updates
+                                    .push((src_id, crate::scene::LoopMode::Infinite));
+                                changed = true;
                             }
+                            if ui
+                                .selectable_label(
+                                    matches!(current_mode, crate::scene::LoopMode::Once),
+                                    "Once",
+                                )
+                                .clicked()
+                            {
+                                if let SourceProperties::Image {
+                                    ref mut loop_mode, ..
+                                } = state.library[lib_idx].properties
+                                {
+                                    *loop_mode = Some(crate::scene::LoopMode::Once);
+                                }
+                                state
+                                    .pending_loop_mode_updates
+                                    .push((src_id, crate::scene::LoopMode::Once));
+                                changed = true;
+                            }
+                            if ui
+                                .selectable_label(
+                                    matches!(current_mode, crate::scene::LoopMode::Count(_)),
+                                    "Count",
+                                )
+                                .clicked()
+                            {
+                                if !matches!(current_mode, crate::scene::LoopMode::Count(_)) {
+                                    if let SourceProperties::Image {
+                                        ref mut loop_mode, ..
+                                    } = state.library[lib_idx].properties
+                                    {
+                                        *loop_mode = Some(crate::scene::LoopMode::Count(3));
+                                    }
+                                    state
+                                        .pending_loop_mode_updates
+                                        .push((src_id, crate::scene::LoopMode::Count(3)));
+                                }
+                                changed = true;
+                            }
+                        });
+
+                    if matches!(current_mode, crate::scene::LoopMode::Count(_))
+                        && let SourceProperties::Image {
+                            ref mut loop_mode, ..
+                        } = state.library[lib_idx].properties
+                        && let Some(crate::scene::LoopMode::Count(count)) = loop_mode
+                    {
+                        let mut count_str = count.to_string();
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut count_str)
+                                .desired_width(30.0)
+                                .font(egui::FontId::proportional(12.0)),
+                        );
+                        if resp.changed()
+                            && let Ok(val) = count_str.parse::<u32>()
+                        {
+                            *count = val.max(1);
+                            state
+                                .pending_loop_mode_updates
+                                .push((src_id, crate::scene::LoopMode::Count(*count)));
+                            changed = true;
                         }
-                    });
+                    }
+                });
             }
         }
         SourceType::Window => {
@@ -911,17 +899,16 @@ fn draw_source_properties(
 
             if mode_changed {
                 // Update native_size and transform from the target window's bounds.
-                if let WindowCaptureMode::Application { ref bundle_id, .. } = new_mode {
-                    if let Some(app) = apps.iter().find(|a| a.bundle_id == *bundle_id) {
-                        if let Some(win) = app.windows.first() {
-                            let w = win.bounds.2 as f32;
-                            let h = win.bounds.3 as f32;
-                            let source = &mut state.library[lib_idx];
-                            source.native_size = (w, h);
-                            source.transform.width = w;
-                            source.transform.height = h;
-                        }
-                    }
+                if let WindowCaptureMode::Application { ref bundle_id, .. } = new_mode
+                    && let Some(app) = apps.iter().find(|a| a.bundle_id == *bundle_id)
+                    && let Some(win) = app.windows.first()
+                {
+                    let w = win.bounds.2 as f32;
+                    let h = win.bounds.3 as f32;
+                    let source = &mut state.library[lib_idx];
+                    source.native_size = (w, h);
+                    source.transform.width = w;
+                    source.transform.height = h;
                 }
                 if let Some(ref tx) = cmd_tx {
                     let _ = tx.try_send(GstCommand::RemoveCaptureSource {
@@ -1873,7 +1860,10 @@ fn load_and_send_image(
     match crate::image_source::load_image_source(&path) {
         Ok(crate::image_source::ImageData::Static(frame)) => {
             let source = &mut state.library[source_idx];
-            if let SourceProperties::Image { path: ref mut p, .. } = source.properties {
+            if let SourceProperties::Image {
+                path: ref mut p, ..
+            } = source.properties
+            {
                 *p = path;
             }
             let native = (frame.width as f32, frame.height as f32);
@@ -1886,7 +1876,10 @@ fn load_and_send_image(
         }
         Ok(crate::image_source::ImageData::Animated(animation)) => {
             let source = &mut state.library[source_idx];
-            if let SourceProperties::Image { path: ref mut p, .. } = source.properties {
+            if let SourceProperties::Image {
+                path: ref mut p, ..
+            } = source.properties
+            {
                 *p = path;
             }
             if let Some(first) = animation.frames.first() {
@@ -1901,12 +1894,15 @@ fn load_and_send_image(
                     });
                 }
             }
-            let loop_mode =
-                if let SourceProperties::Image { loop_mode: Some(lm), .. } = &source.properties {
-                    *lm
-                } else {
-                    animation.embedded_loop_count
-                };
+            let loop_mode = if let SourceProperties::Image {
+                loop_mode: Some(lm),
+                ..
+            } = &source.properties
+            {
+                *lm
+            } else {
+                animation.embedded_loop_count
+            };
             state
                 .pending_gif_animations
                 .push((source_id, animation, loop_mode));

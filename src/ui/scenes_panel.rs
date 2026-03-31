@@ -109,6 +109,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                                 transition_override: Default::default(),
                             });
                             state.active_scene_id = Some(new_id);
+                            // If this is the first scene, also set it as the program scene.
+                            if state.program_scene_id.is_none() {
+                                state.program_scene_id = Some(new_id);
+                            }
                             state.mark_dirty();
                         }
                     }
@@ -125,104 +129,58 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // ── Apply deferred action ──
     match pending_action {
         Some(SceneAction::Switch(new_id)) => {
-            // Don't switch to the same scene.
-            if state.active_scene_id == Some(new_id) {
-                // No-op
-            } else if false {
-                // In Studio Mode, clicking a scene sets it as preview.
-                let old_preview = state.program_scene_id;
-                state.program_scene_id = Some(new_id);
+            // Don't switch to the same editing scene.
+            if state.active_scene_id != Some(new_id) {
+                let old_active = state.active_scene_id;
+                let program_id = state.program_scene_id;
 
-                // Start sources for the preview scene.
-                let old_preview_scene = old_preview
+                let old_scene = old_active
                     .and_then(|id| state.scenes.iter().find(|s| s.id == id))
                     .cloned();
                 let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
 
+                // Collect source IDs that the program scene still needs, so we don't stop them.
+                let program_source_ids: std::collections::HashSet<SourceId> = program_id
+                    .and_then(|id| state.scenes.iter().find(|s| s.id == id))
+                    .map(|s| s.source_ids().into_iter().collect())
+                    .unwrap_or_default();
+
+                // Change the editing scene.
+                state.active_scene_id = Some(new_id);
+                state.deselect_all();
+
+                // Diff sources: stop sources no longer needed, start new ones.
+                // Then re-start any sources that were stopped but are needed by the program scene.
                 apply_scene_diff(
                     &cmd_tx,
                     &state.library,
-                    old_preview_scene.as_ref(),
+                    old_scene.as_ref(),
                     new_scene.as_ref(),
                     state.settings.general.exclude_self_from_capture,
                 );
-                state.mark_dirty();
-            } else {
-                // Normal mode: resolve transition and start it.
-                let target_scene = state.scenes.iter().find(|s| s.id == new_id);
-                let (transition_type, duration) = target_scene
-                    .map(|s| {
-                        crate::transition::resolve_transition(
-                            &state.settings.transitions,
-                            &s.transition_override,
-                        )
-                    })
-                    .unwrap_or((
-                        crate::transition::TransitionType::Fade,
-                        std::time::Duration::from_millis(300),
-                    ));
 
-                match transition_type {
-                    crate::transition::TransitionType::Cut => {
-                        // Instant switch — same as before.
-                        let old_scene = state
-                            .active_scene_id
-                            .and_then(|id| state.scenes.iter().find(|s| s.id == id))
-                            .cloned();
-                        let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
-
-                        state.active_scene_id = Some(new_id);
-                        state.deselect_all();
-
-                        apply_scene_diff(
+                // Re-start any sources that apply_scene_diff may have stopped but
+                // are still required by the live program scene.
+                let old_ids: std::collections::HashSet<SourceId> = old_scene
+                    .as_ref()
+                    .map(|s| s.source_ids().into_iter().collect())
+                    .unwrap_or_default();
+                let new_ids: std::collections::HashSet<SourceId> = new_scene
+                    .as_ref()
+                    .map(|s| s.source_ids().into_iter().collect())
+                    .unwrap_or_default();
+                for &src_id in old_ids.difference(&new_ids) {
+                    if program_source_ids.contains(&src_id) {
+                        start_capture_source(
                             &cmd_tx,
                             &state.library,
-                            old_scene.as_ref(),
-                            new_scene.as_ref(),
+                            src_id,
                             state.settings.general.exclude_self_from_capture,
                         );
-
-                        if let Some(ref scene) = new_scene {
-                            state.capture_active = !scene.sources.is_empty();
-                        }
-                        state.mark_dirty();
-                    }
-                    crate::transition::TransitionType::Fade => {
-                        if let Some(from_scene_id) = state.active_scene_id {
-                            // Start incoming scene sources without removing outgoing.
-                            let old_scene =
-                                state.scenes.iter().find(|s| s.id == from_scene_id).cloned();
-                            let new_scene = state.scenes.iter().find(|s| s.id == new_id).cloned();
-
-                            if let Some(ref new_s) = new_scene {
-                                for &src_id in &new_s.source_ids() {
-                                    let already_running = old_scene
-                                        .as_ref()
-                                        .map(|s| s.source_ids().contains(&src_id))
-                                        .unwrap_or(false);
-                                    if !already_running {
-                                        start_capture_source(
-                                            &cmd_tx,
-                                            &state.library,
-                                            src_id,
-                                            state.settings.general.exclude_self_from_capture,
-                                        );
-                                    }
-                                }
-                            }
-
-                            state.active_transition = Some(crate::transition::TransitionState {
-                                from_scene: from_scene_id,
-                                to_scene: new_id,
-                                transition_type,
-                                started_at: std::time::Instant::now(),
-                                duration,
-                            });
-                            state.deselect_all();
-                            state.mark_dirty();
-                        }
                     }
                 }
+
+                state.mark_dirty();
             }
         }
         Some(SceneAction::Delete(del_id)) => {
@@ -316,24 +274,27 @@ fn draw_scene_card(
         }
     }
 
-    // PGM / PRV badges in Studio Mode.
-    if false {
-        let is_program = state.active_scene_id == Some(scene_id);
-        let is_preview = state.program_scene_id == Some(scene_id);
+    // PGM / PRV badges.
+    // PGM (red) on the program scene. PRV (green) on the editing scene when it differs from program.
+    {
+        let is_program = state.program_scene_id == Some(scene_id);
+        let is_preview =
+            state.active_scene_id == Some(scene_id) && state.active_scene_id != state.program_scene_id;
 
-        if is_program || is_preview {
-            let badge_label = if is_program { "PGM" } else { "PRV" };
-            let badge_color = if is_program {
-                theme.danger
-            } else {
-                theme.success
-            };
+        // PGM takes priority when both match the same scene.
+        let (show_badge, badge_label, badge_color) = if is_program {
+            (true, "PGM", theme.danger)
+        } else if is_preview {
+            (true, "PRV", theme.success)
+        } else {
+            (false, "", theme.danger)
+        };
 
+        if show_badge {
             // Measure text to size the pill.
-            let font_id = egui::FontId::proportional(8.0);
             let text_galley = painter.layout_no_wrap(
                 badge_label.to_string(),
-                font_id.clone(),
+                egui::FontId::proportional(8.0),
                 egui::Color32::WHITE,
             );
             let text_w = text_galley.size().x;
@@ -784,120 +745,64 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
     // ── Right-side controls ──
     let right_edge = bar_rect.right() - padding;
 
-    // Studio Mode toggle button (right-aligned).
-    let studio_btn_w = 52.0;
-    let studio_btn_x = right_edge - studio_btn_w;
-    let studio_btn_rect = egui::Rect::from_min_size(
-        egui::pos2(studio_btn_x, seg_y),
-        egui::vec2(studio_btn_w, seg_btn_h),
+    // ── Transition button — always visible, enabled when active != program and no in-flight transition ──
+    let trans_btn_w = 64.0;
+    let trans_btn_x = right_edge - trans_btn_w;
+    let trans_btn_rect = egui::Rect::from_min_size(
+        egui::pos2(trans_btn_x, seg_y),
+        egui::vec2(trans_btn_w, seg_btn_h),
     );
 
-    let studio_active = false;
-    let studio_bg = if studio_active {
+    let can_transition = state.active_scene_id != state.program_scene_id
+        && state.active_scene_id.is_some()
+        && state.active_transition.is_none();
+
+    let trans_bg = if can_transition {
         state.accent_color
     } else {
         theme.bg_elevated
     };
-    let studio_text = if studio_active {
+    let trans_text = if can_transition {
         theme.bg_base
     } else {
         theme.text_muted
     };
-    let studio_border = if studio_active {
+    let trans_border = if can_transition {
         state.accent_color
     } else {
         theme.border
     };
 
     painter.rect_filled(
-        studio_btn_rect,
+        trans_btn_rect,
         CornerRadius::same(theme.radius_sm as u8),
-        studio_bg,
+        trans_bg,
     );
     painter.rect_stroke(
-        studio_btn_rect,
+        trans_btn_rect,
         CornerRadius::same(theme.radius_sm as u8),
-        egui::Stroke::new(1.0, studio_border),
+        egui::Stroke::new(1.0, trans_border),
         egui::StrokeKind::Outside,
     );
     painter.text(
-        studio_btn_rect.center(),
+        trans_btn_rect.center(),
         egui::Align2::CENTER_CENTER,
-        "Studio",
+        "Transition",
         egui::FontId::proportional(9.0),
-        studio_text,
+        trans_text,
     );
 
-    let studio_response = ui.interact(
-        studio_btn_rect,
-        egui::Id::new("studio_mode_toggle"),
+    let trans_response = ui.interact(
+        trans_btn_rect,
+        egui::Id::new("transition_btn"),
         egui::Sense::click(),
     );
-    if studio_response.clicked() {
-        // Studio mode toggle removed — no-op for now.
-        state.mark_dirty();
-    }
 
-    // ── Transition button — Studio Mode only ──
-    if false {
-        let trans_btn_w = 64.0;
-        let trans_btn_x = studio_btn_x - trans_btn_w - 5.0;
-        let trans_btn_rect = egui::Rect::from_min_size(
-            egui::pos2(trans_btn_x, seg_y),
-            egui::vec2(trans_btn_w, seg_btn_h),
-        );
-
-        let can_transition = state.program_scene_id.is_some()
-            && state.program_scene_id != state.active_scene_id
-            && state.active_transition.is_none();
-
-        let trans_bg = if can_transition {
-            state.accent_color
-        } else {
-            theme.bg_elevated
-        };
-        let trans_text = if can_transition {
-            theme.bg_base
-        } else {
-            theme.text_muted
-        };
-        let trans_border = if can_transition {
-            state.accent_color
-        } else {
-            theme.border
-        };
-
-        painter.rect_filled(
-            trans_btn_rect,
-            CornerRadius::same(theme.radius_sm as u8),
-            trans_bg,
-        );
-        painter.rect_stroke(
-            trans_btn_rect,
-            CornerRadius::same(theme.radius_sm as u8),
-            egui::Stroke::new(1.0, trans_border),
-            egui::StrokeKind::Outside,
-        );
-        painter.text(
-            trans_btn_rect.center(),
-            egui::Align2::CENTER_CENTER,
-            "Transition",
-            egui::FontId::proportional(9.0),
-            trans_text,
-        );
-
-        let trans_response = ui.interact(
-            trans_btn_rect,
-            egui::Id::new("studio_transition_btn"),
-            egui::Sense::click(),
-        );
-
-        if trans_response.clicked()
-            && can_transition
-            && let Some(preview_id) = state.program_scene_id
-        {
-            let from_id = state.active_scene_id;
-            let target_scene = state.scenes.iter().find(|s| s.id == preview_id);
+    // Transition: program_scene_id → active_scene_id.
+    if trans_response.clicked() && can_transition {
+        if let Some(to_id) = state.active_scene_id {
+            let from_id = state.program_scene_id;
+            let target_scene = state.scenes.iter().find(|s| s.id == to_id);
             let (transition_type, duration) = target_scene
                 .map(|s| {
                     crate::transition::resolve_transition(
@@ -915,10 +820,10 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
                     let old_scene = from_id
                         .and_then(|id| state.scenes.iter().find(|s| s.id == id))
                         .cloned();
-                    let new_scene = state.scenes.iter().find(|s| s.id == preview_id).cloned();
+                    let new_scene = state.scenes.iter().find(|s| s.id == to_id).cloned();
 
-                    state.active_scene_id = Some(preview_id);
-                    state.program_scene_id = None;
+                    // Program advances to the editing scene.
+                    state.program_scene_id = Some(to_id);
                     state.deselect_all();
 
                     let cmd_tx = state.command_tx.clone();
@@ -936,40 +841,39 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
                     state.mark_dirty();
                 }
                 crate::transition::TransitionType::Fade => {
-                    if let Some(from_scene_id) = from_id {
-                        let old_scene =
-                            state.scenes.iter().find(|s| s.id == from_scene_id).cloned();
-                        let new_scene = state.scenes.iter().find(|s| s.id == preview_id).cloned();
+                    let from_scene_id = from_id.unwrap_or(to_id);
+                    let old_scene =
+                        state.scenes.iter().find(|s| s.id == from_scene_id).cloned();
+                    let new_scene = state.scenes.iter().find(|s| s.id == to_id).cloned();
 
-                        if let Some(ref new_s) = new_scene {
-                            let cmd_tx = state.command_tx.clone();
-                            for &src_id in &new_s.source_ids() {
-                                let already_running = old_scene
-                                    .as_ref()
-                                    .map(|s| s.source_ids().contains(&src_id))
-                                    .unwrap_or(false);
-                                if !already_running {
-                                    start_capture_source(
-                                        &cmd_tx,
-                                        &state.library,
-                                        src_id,
-                                        state.settings.general.exclude_self_from_capture,
-                                    );
-                                }
+                    if let Some(ref new_s) = new_scene {
+                        let cmd_tx = state.command_tx.clone();
+                        for &src_id in &new_s.source_ids() {
+                            let already_running = old_scene
+                                .as_ref()
+                                .map(|s| s.source_ids().contains(&src_id))
+                                .unwrap_or(false);
+                            if !already_running {
+                                start_capture_source(
+                                    &cmd_tx,
+                                    &state.library,
+                                    src_id,
+                                    state.settings.general.exclude_self_from_capture,
+                                );
                             }
                         }
-
-                        state.active_transition = Some(crate::transition::TransitionState {
-                            from_scene: from_scene_id,
-                            to_scene: preview_id,
-                            transition_type,
-                            started_at: std::time::Instant::now(),
-                            duration,
-                        });
-                        state.program_scene_id = None;
-                        state.deselect_all();
-                        state.mark_dirty();
                     }
+
+                    state.active_transition = Some(crate::transition::TransitionState {
+                        from_scene: from_scene_id,
+                        to_scene: to_id,
+                        transition_type,
+                        started_at: std::time::Instant::now(),
+                        duration,
+                    });
+                    // program_scene_id will be updated to to_id when the transition completes.
+                    state.deselect_all();
+                    state.mark_dirty();
                 }
             }
         }
@@ -1206,6 +1110,10 @@ fn delete_scene_by_id(
     let first_scene = state.scenes.first().cloned();
     if let Some(ref scene) = first_scene {
         state.active_scene_id = Some(scene.id);
+        // If the deleted scene was the program scene, promote active_scene_id to program.
+        if state.program_scene_id == Some(scene_id) {
+            state.program_scene_id = Some(scene.id);
+        }
         send_capture_for_scene(
             cmd_tx,
             &state.library,
@@ -1215,6 +1123,7 @@ fn delete_scene_by_id(
         state.capture_active = !scene.sources.is_empty();
     } else {
         state.active_scene_id = None;
+        state.program_scene_id = None;
         state.capture_active = false;
     }
 

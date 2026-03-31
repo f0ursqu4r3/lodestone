@@ -649,7 +649,19 @@ impl Compositor {
         if self.canvas_width == self.output_width && self.canvas_height == self.output_height {
             return;
         }
+        self.scale_from_bind_group(encoder, &self.output_bind_group);
+    }
 
+    /// Scale an arbitrary source bind group to the output texture via a fullscreen quad blit.
+    ///
+    /// This writes to the output texture regardless of whether resolutions match,
+    /// which is necessary when blitting from a secondary canvas to the output for
+    /// readback/encoding.
+    pub fn scale_from_bind_group(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        source_bind_group: &wgpu::BindGroup,
+    ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("compositor_scale_pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -667,7 +679,7 @@ impl Compositor {
         });
 
         pass.set_pipeline(&self.scale_pipeline);
-        pass.set_bind_group(0, &self.output_bind_group, &[]);
+        pass.set_bind_group(0, source_bind_group, &[]);
         pass.draw(0..4, 0..1);
     }
 
@@ -676,19 +688,25 @@ impl Compositor {
     /// Submits a texture-to-buffer copy and starts an async buffer map.
     /// Call [`try_finish_readback`] on a subsequent frame to collect the result
     /// without blocking the render loop.
-    pub fn start_readback(&mut self, device: &Device, queue: &Queue) {
+    ///
+    /// When `force_output` is true, always reads from the output texture
+    /// (used when the program scene has been blitted to the output texture
+    /// via `scale_from_bind_group`).
+    pub fn start_readback(&mut self, device: &Device, queue: &Queue, force_output: bool) {
         // If a previous readback is still in flight, skip — we'll collect it
         // next frame and start a fresh one after that.
         if self.readback_inflight.is_some() {
             return;
         }
 
-        let (read_texture, read_width, read_height) =
-            if self.canvas_width == self.output_width && self.canvas_height == self.output_height {
-                (&self.canvas_texture, self.canvas_width, self.canvas_height)
-            } else {
-                (&self.output_texture, self.output_width, self.output_height)
-            };
+        let (read_texture, read_width, read_height) = if force_output
+            || self.canvas_width != self.output_width
+            || self.canvas_height != self.output_height
+        {
+            (&self.output_texture, self.output_width, self.output_height)
+        } else {
+            (&self.canvas_texture, self.canvas_width, self.canvas_height)
+        };
 
         let bytes_per_row_padded = ((read_width * 4) + 255) & !255;
 

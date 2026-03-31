@@ -1703,12 +1703,22 @@ impl ApplicationHandler for AppManager {
             }
         }
 
-        // Compose active scene sources onto the canvas, with optional transition blending.
+        // Compose scene sources onto canvases, with optional transition blending.
+        //
+        // Primary canvas  → active_scene_id  (Preview/editor panel)
+        // Secondary canvas → program_scene_id (Live panel + encoding) when it differs
         if let Some(ref mut gpu) = self.gpu {
-            // Read transition state and determine which scenes to compose.
-            let (active_scene_id, transition_info, is_encoding) = {
-                let app_state = self.state.lock().expect("lock AppState");
+            // Read scene IDs, transition state, and encoding status from AppState.
+            let (active_id, program_id, transition_info, is_encoding) = {
+                let mut app_state = self.state.lock().expect("lock AppState");
+
+                // Initialize program_scene_id from active_scene_id on startup.
+                if app_state.program_scene_id.is_none() && app_state.active_scene_id.is_some() {
+                    app_state.program_scene_id = app_state.active_scene_id;
+                }
+
                 let active = app_state.active_scene_id;
+                let program = app_state.program_scene_id;
                 let trans = app_state.active_transition.as_ref().map(|t| {
                     (
                         t.from_scene,
@@ -1724,30 +1734,49 @@ impl ApplicationHandler for AppManager {
                         crate::state::RecordingStatus::Recording { .. }
                     )
                     || app_state.virtual_camera_active;
-                (active, trans, encoding)
+                (active, program, trans, encoding)
             };
 
-            if let Some(active_scene_id) = active_scene_id {
-                // Determine the "program" scene and optional "secondary" scene.
-                let (program_scene_id, secondary_scene_id) =
-                    if let Some((from, to, _, _, _)) = transition_info {
-                        // During a transition, the primary canvas shows the "from" scene
-                        // and the secondary canvas shows the "to" scene.
-                        (from, Some(to))
-                    } else {
-                        (active_scene_id, None)
-                    };
+            if let Some(active_scene_id) = active_id {
+                let program_scene_id = program_id.unwrap_or(active_scene_id);
+                let scenes_differ = active_scene_id != program_scene_id;
 
-                // Resolve sources for both scenes while holding the lock.
-                let (program_sources, secondary_sources) = {
+                // Resolve sources for the active scene (always needed for Preview).
+                // Also resolve program scene sources when they differ.
+                // During a transition, resolve both the from and to scenes.
+                let (active_sources, program_sources, transition_from_sources, transition_to_sources) = {
                     let app_state = self.state.lock().expect("lock AppState");
-                    let prog = resolve_scene_sources(&app_state, program_scene_id);
-                    let sec = secondary_scene_id.map(|id| resolve_scene_sources(&app_state, id));
-                    (prog, sec)
+                    let active = resolve_scene_sources(&app_state, active_scene_id);
+                    let program = if scenes_differ {
+                        Some(resolve_scene_sources(&app_state, program_scene_id))
+                    } else {
+                        None
+                    };
+                    let (trans_from, trans_to) = if let Some((from, to, _, _, _)) = transition_info {
+                        // During transition, we need both from and to scenes composed.
+                        // The from scene is the current program_scene_id.
+                        // The to scene may or may not be active_scene_id.
+                        let from_sources = if from == active_scene_id {
+                            None // reuse active_sources from primary canvas
+                        } else {
+                            Some(resolve_scene_sources(&app_state, from))
+                        };
+                        let to_sources = if to == active_scene_id {
+                            None // reuse active_sources from primary canvas
+                        } else {
+                            Some(resolve_scene_sources(&app_state, to))
+                        };
+                        (from_sources, to_sources)
+                    } else {
+                        (None, None)
+                    };
+                    (active, program, trans_from, trans_to)
                 };
 
-                // Allocate secondary canvas on demand if needed.
-                if secondary_sources.is_some() && gpu.secondary_canvas.is_none() {
+                // Allocate secondary canvas when program differs from active, or
+                // during a transition that needs a separate compose target.
+                let need_secondary = scenes_differ || transition_info.is_some();
+                if need_secondary && gpu.secondary_canvas.is_none() {
                     gpu.secondary_canvas =
                         Some(crate::renderer::secondary_canvas::SecondaryCanvas::new(
                             &gpu.device,
@@ -1756,6 +1785,9 @@ impl ApplicationHandler for AppManager {
                             gpu.compositor.texture_bind_group_layout(),
                             gpu.compositor.compositor_sampler(),
                         ));
+                } else if !need_secondary {
+                    // Deallocate when no longer needed.
+                    gpu.secondary_canvas = None;
                 }
 
                 let mut encoder =
@@ -1764,47 +1796,128 @@ impl ApplicationHandler for AppManager {
                             label: Some("compositor_encoder"),
                         });
 
-                // Compose program scene onto primary canvas.
+                // Always compose active_scene_id onto primary canvas (Preview).
                 gpu.compositor
-                    .compose(&gpu.queue, &mut encoder, &program_sources);
+                    .compose(&gpu.queue, &mut encoder, &active_sources);
 
-                // Compose secondary scene onto secondary canvas if present.
+                // Track whether we need to force readback from the output texture.
+                let mut force_output_readback = false;
                 let mut did_transition_blend = false;
-                if let Some(ref sec_sources) = secondary_sources {
-                    if let Some(ref secondary) = gpu.secondary_canvas {
-                        gpu.compositor.compose_to(
-                            &gpu.queue,
-                            &mut encoder,
-                            &secondary.view,
-                            &secondary.source_layers,
-                            sec_sources,
-                        );
+
+                if let Some((from, to, transition_type, progress, _)) = transition_info {
+                    // --- Transition in progress ---
+                    // We need the from-scene and to-scene composed onto separate
+                    // targets so the blend pass can sample both.
+                    //
+                    // Strategy:
+                    //   - primary canvas has active_scene_id (may be to_scene)
+                    //   - secondary canvas gets the "other" scene
+                    //   - blend pass writes to the output texture
+
+                    // Determine which bind groups represent from and to for blending.
+                    // If from == active, primary canvas already has it.
+                    // If to == active, primary canvas already has it.
+                    // Otherwise, compose the missing scene(s) onto secondary canvas.
+
+                    // We'll compose the from scene onto secondary if it's not already on primary.
+                    if let Some(ref from_sources) = transition_from_sources {
+                        if let Some(ref secondary) = gpu.secondary_canvas {
+                            gpu.compositor.compose_to(
+                                &gpu.queue,
+                                &mut encoder,
+                                &secondary.view,
+                                &secondary.source_layers,
+                                from_sources,
+                            );
+                        }
                     }
 
-                    // Run transition blend pass if a fade is active.
-                    if let Some((_, _, transition_type, progress, _)) = transition_info
-                        && transition_type == crate::transition::TransitionType::Fade
-                        && let Some(ref secondary) = gpu.secondary_canvas
-                    {
-                        let time = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs_f32();
-                        gpu.transition_pipeline.blend(
-                            &gpu.queue,
-                            &mut encoder,
-                            gpu.compositor.output_bind_group(),
-                            &secondary.bind_group,
-                            gpu.compositor.output_texture_view(),
-                            progress,
-                            time,
-                        );
-                        did_transition_blend = true;
+                    // If to_scene also needs separate compose and from != to on secondary,
+                    // we'd need a third canvas. For simplicity, handle the common case:
+                    // from = old program, to = active (already on primary).
+                    // The rare case where neither from nor to is active would skip the blend.
+
+                    if transition_type == crate::transition::TransitionType::Fade {
+                        // Determine from/to bind groups for the blend pass.
+                        let from_bg = if from == active_scene_id {
+                            // from is on primary canvas
+                            Some(gpu.compositor.output_bind_group())
+                        } else if transition_from_sources.is_some() {
+                            // from was composed onto secondary canvas
+                            gpu.secondary_canvas.as_ref().map(|s| s.bind_group.as_ref())
+                        } else {
+                            None
+                        };
+
+                        let to_bg = if to == active_scene_id {
+                            // to is on primary canvas
+                            Some(gpu.compositor.output_bind_group())
+                        } else if let Some(ref to_src) = transition_to_sources {
+                            // Need to compose to_scene onto secondary. But secondary
+                            // may already have from_scene. In the common case (to == active),
+                            // this branch is not reached. For the uncommon case, compose
+                            // to_scene onto secondary (overwriting from, which we already
+                            // sampled via bind group).
+                            if let Some(ref secondary) = gpu.secondary_canvas {
+                                gpu.compositor.compose_to(
+                                    &gpu.queue,
+                                    &mut encoder,
+                                    &secondary.view,
+                                    &secondary.source_layers,
+                                    to_src,
+                                );
+                            }
+                            gpu.secondary_canvas.as_ref().map(|s| s.bind_group.as_ref())
+                        } else {
+                            None
+                        };
+
+                        if let (Some(from_bind_group), Some(to_bind_group)) = (from_bg, to_bg) {
+                            let time = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs_f32();
+                            gpu.transition_pipeline.blend(
+                                &gpu.queue,
+                                &mut encoder,
+                                from_bind_group,
+                                to_bind_group,
+                                gpu.compositor.output_texture_view(),
+                                progress,
+                                time,
+                            );
+                            did_transition_blend = true;
+                            force_output_readback = true;
+                        }
+                    }
+                } else if scenes_differ {
+                    // --- No transition, but program differs from active ---
+                    // Compose program scene onto secondary canvas for Live panel + encoding.
+                    if let Some(ref prog_sources) = program_sources {
+                        if let Some(ref secondary) = gpu.secondary_canvas {
+                            gpu.compositor.compose_to(
+                                &gpu.queue,
+                                &mut encoder,
+                                &secondary.view,
+                                &secondary.source_layers,
+                                prog_sources,
+                            );
+                        }
+                    }
+
+                    // When encoding, blit secondary canvas to output texture for readback.
+                    if is_encoding {
+                        if let Some(ref secondary) = gpu.secondary_canvas {
+                            gpu.compositor
+                                .scale_from_bind_group(&mut encoder, &secondary.bind_group);
+                            force_output_readback = true;
+                        }
                     }
                 }
 
-                // Scale to output resolution when encoding (skip if blend already wrote to output).
-                if is_encoding && !did_transition_blend {
+                // Scale primary canvas to output when encoding the same scene
+                // (skip if blend or secondary blit already wrote to output).
+                if is_encoding && !did_transition_blend && !force_output_readback {
                     gpu.compositor.scale_to_output(&mut encoder);
                 }
 
@@ -1813,36 +1926,47 @@ impl ApplicationHandler for AppManager {
                 // Start async readback — the result is collected at the top of
                 // the next about_to_wait() call, keeping the render loop free.
                 if is_encoding {
-                    gpu.compositor.start_readback(&gpu.device, &gpu.queue);
+                    gpu.compositor
+                        .start_readback(&gpu.device, &gpu.queue, force_output_readback);
                 }
 
                 // Complete transition if done.
-                if let Some((_, to_scene, _, _, is_complete)) = transition_info
+                if let Some((from_scene, to_scene, _, _, is_complete)) = transition_info
                     && is_complete
                 {
                     let mut app_state = self.state.lock().expect("lock AppState");
-                    app_state.active_scene_id = Some(to_scene);
+                    app_state.program_scene_id = Some(to_scene);
                     app_state.active_transition = None;
 
-                    // Deallocate secondary canvas after transition completes.
-                    gpu.secondary_canvas = None;
+                    // If program now matches active, deallocate secondary canvas.
+                    if app_state.program_scene_id == app_state.active_scene_id {
+                        gpu.secondary_canvas = None;
+                    }
 
-                    // Send RemoveCaptureSource for sources exclusive to the old scene.
+                    // Send RemoveCaptureSource for sources exclusive to the old
+                    // program scene that aren't needed by active_scene_id either.
                     let new_source_ids: Vec<crate::scene::SourceId> = app_state
                         .scenes
                         .iter()
                         .find(|s| s.id == to_scene)
                         .map(|s| s.source_ids())
                         .unwrap_or_default();
+                    let active_source_ids: Vec<crate::scene::SourceId> = app_state
+                        .active_scene_id
+                        .and_then(|aid| app_state.scenes.iter().find(|s| s.id == aid))
+                        .map(|s| s.source_ids())
+                        .unwrap_or_default();
                     let old_source_ids: Vec<crate::scene::SourceId> = app_state
                         .scenes
                         .iter()
-                        .find(|s| s.id == program_scene_id)
+                        .find(|s| s.id == from_scene)
                         .map(|s| s.source_ids())
                         .unwrap_or_default();
                     if let Some(ref channels) = self.gst_channels {
                         for old_id in &old_source_ids {
-                            if !new_source_ids.contains(old_id) {
+                            if !new_source_ids.contains(old_id)
+                                && !active_source_ids.contains(old_id)
+                            {
                                 let _ = channels.command_tx.try_send(
                                     crate::gstreamer::GstCommand::RemoveCaptureSource {
                                         source_id: *old_id,
@@ -1854,20 +1978,29 @@ impl ApplicationHandler for AppManager {
                 }
             }
 
-            // Update preview and live resources to reflect current canvas state.
-            if let Some(main_id) = self.main_window_id
-                && let Some(win) = self.windows.get_mut(&main_id)
+            // Update preview and live resources on all windows.
+            // Preview always shows the primary canvas (active_scene_id).
+            // Live shows the program scene: secondary canvas when scenes differ,
+            // primary canvas when they're the same.
             {
-                let new_resources = PreviewResources {
-                    pipeline: gpu.compositor.canvas_pipeline(),
-                    bind_group: gpu.compositor.canvas_bind_group(),
+                let live_bind_group = if let Some(ref secondary) = gpu.secondary_canvas {
+                    Arc::clone(&secondary.bind_group)
+                } else {
+                    gpu.compositor.canvas_bind_group()
                 };
-                win.egui_renderer.callback_resources.insert(new_resources);
-                let new_live = LiveResources {
-                    pipeline: gpu.compositor.canvas_pipeline(),
-                    bind_group: gpu.compositor.canvas_bind_group(),
-                };
-                win.egui_renderer.callback_resources.insert(new_live);
+                for win in self.windows.values_mut() {
+                    let new_preview = PreviewResources {
+                        pipeline: gpu.compositor.canvas_pipeline(),
+                        bind_group: gpu.compositor.canvas_bind_group(),
+                    };
+                    win.egui_renderer.callback_resources.insert(new_preview);
+
+                    let new_live = LiveResources {
+                        pipeline: gpu.compositor.canvas_pipeline(),
+                        bind_group: Arc::clone(&live_bind_group),
+                    };
+                    win.egui_renderer.callback_resources.insert(new_live);
+                }
             }
 
             // Request continuous redraws while a transition is in progress.
@@ -1990,9 +2123,14 @@ impl ApplicationHandler for AppManager {
                     pipeline: gpu.compositor.canvas_pipeline(),
                     bind_group: gpu.compositor.canvas_bind_group(),
                 };
+                let live_bind_group = if let Some(ref secondary) = gpu.secondary_canvas {
+                    Arc::clone(&secondary.bind_group)
+                } else {
+                    gpu.compositor.canvas_bind_group()
+                };
                 let live_resources = LiveResources {
                     pipeline: gpu.compositor.canvas_pipeline(),
-                    bind_group: gpu.compositor.canvas_bind_group(),
+                    bind_group: live_bind_group,
                 };
                 let win_state =
                     WindowState::new(window, gpu, layout, false, Some(preview_resources), Some(live_resources))

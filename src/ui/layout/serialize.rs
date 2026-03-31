@@ -394,13 +394,14 @@ mod tests {
 
         assert_eq!(restored.groups.len(), 5);
         let all_panels = restored.collect_all_panels();
-        assert_eq!(all_panels.len(), 6);
+        assert_eq!(all_panels.len(), 7);
 
         let types: Vec<PanelType> = all_panels.iter().map(|(_, t)| *t).collect();
         assert!(types.contains(&PanelType::Sources));
         assert!(types.contains(&PanelType::Library));
         assert!(types.contains(&PanelType::Scenes));
         assert!(types.contains(&PanelType::Preview));
+        assert!(types.contains(&PanelType::Live));
         assert!(types.contains(&PanelType::Properties));
         assert!(types.contains(&PanelType::AudioMixer));
     }

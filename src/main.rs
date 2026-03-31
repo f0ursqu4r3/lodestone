@@ -34,6 +34,38 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
+/// Resolve sources for any scene by ID, applying per-scene overrides.
+///
+/// Returns an empty vec if the scene is not found.
+fn resolve_scene_sources(
+    state: &crate::state::AppState,
+    scene_id: crate::scene::SceneId,
+) -> Vec<crate::renderer::compositor::ResolvedSource> {
+    state
+        .scenes
+        .iter()
+        .find(|s| s.id == scene_id)
+        .map(|scene| {
+            scene
+                .sources
+                .iter()
+                .filter_map(|scene_src| {
+                    state
+                        .library
+                        .iter()
+                        .find(|s| s.id == scene_src.source_id)
+                        .map(|lib| crate::renderer::compositor::ResolvedSource {
+                            id: lib.id,
+                            transform: scene_src.resolve_transform(lib),
+                            opacity: scene_src.resolve_opacity(lib),
+                            visible: scene_src.resolve_visible(lib),
+                        })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Holds the native menu bar and IDs for each menu item.
 struct NativeMenu {
     #[allow(dead_code)]
@@ -1293,6 +1325,17 @@ impl ApplicationHandler for AppManager {
             for (source_id, frame) in drained_frames {
                 gpu.compositor
                     .upload_frame(&gpu.device, &gpu.queue, source_id, &frame);
+                if let Some(ref mut secondary) = gpu.secondary_canvas {
+                    secondary.upload_frame(
+                        &gpu.device,
+                        &gpu.queue,
+                        source_id,
+                        &frame,
+                        gpu.compositor.texture_bind_group_layout(),
+                        gpu.compositor.uniform_bind_group_layout(),
+                        gpu.compositor.compositor_sampler(),
+                    );
+                }
             }
         }
 
@@ -1322,51 +1365,109 @@ impl ApplicationHandler for AppManager {
             }
         }
 
-        // Compose active scene sources onto the canvas.
+        // Compose active scene sources onto the canvas, with optional transition blending.
         if let Some(ref mut gpu) = self.gpu {
-            let app_state = self.state.lock().expect("lock AppState");
-            if let Some(active_scene_id) = app_state.active_scene_id {
-                // Resolve sources: apply per-scene overrides from SceneSource onto LibrarySource.
-                let resolved_sources: Vec<crate::renderer::compositor::ResolvedSource> = app_state
-                    .scenes
-                    .iter()
-                    .find(|s| s.id == active_scene_id)
-                    .map(|scene| {
-                        scene
-                            .sources
-                            .iter()
-                            .filter_map(|scene_src| {
-                                app_state
-                                    .library
-                                    .iter()
-                                    .find(|s| s.id == scene_src.source_id)
-                                    .map(|lib| crate::renderer::compositor::ResolvedSource {
-                                        id: lib.id,
-                                        transform: scene_src.resolve_transform(lib),
-                                        opacity: scene_src.resolve_opacity(lib),
-                                        visible: scene_src.resolve_visible(lib),
-                                    })
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+            // Read transition state and determine which scenes to compose.
+            let (
+                active_scene_id,
+                transition_info,
+                is_encoding,
+                studio_mode,
+            ) = {
+                let app_state = self.state.lock().expect("lock AppState");
+                let active = app_state.active_scene_id;
+                let trans = app_state.active_transition.as_ref().map(|t| {
+                    (t.from_scene, t.to_scene, t.transition_type, t.progress(), t.is_complete())
+                });
+                let encoding = app_state.stream_status.is_live()
+                    || matches!(
+                        app_state.recording_status,
+                        crate::state::RecordingStatus::Recording { .. }
+                    )
+                    || app_state.virtual_camera_active;
+                let sm = app_state.studio_mode;
+                (active, trans, encoding, sm)
+            };
+
+            if let Some(active_scene_id) = active_scene_id {
+                // Determine the "program" scene and optional "secondary" scene.
+                let (program_scene_id, secondary_scene_id) = if let Some((from, to, _, _, _)) = transition_info {
+                    // During a transition, the primary canvas shows the "from" scene
+                    // and the secondary canvas shows the "to" scene.
+                    (from, Some(to))
+                } else {
+                    (active_scene_id, None)
+                };
+
+                // Resolve sources for both scenes while holding the lock.
+                let (program_sources, secondary_sources) = {
+                    let app_state = self.state.lock().expect("lock AppState");
+                    let prog = resolve_scene_sources(&app_state, program_scene_id);
+                    let sec = secondary_scene_id.map(|id| resolve_scene_sources(&app_state, id));
+                    (prog, sec)
+                };
+
+                // Allocate secondary canvas on demand if needed.
+                if secondary_sources.is_some() && gpu.secondary_canvas.is_none() {
+                    gpu.secondary_canvas = Some(
+                        crate::renderer::secondary_canvas::SecondaryCanvas::new(
+                            &gpu.device,
+                            gpu.compositor.canvas_width,
+                            gpu.compositor.canvas_height,
+                            gpu.compositor.texture_bind_group_layout(),
+                            gpu.compositor.compositor_sampler(),
+                        ),
+                    );
+                }
 
                 let mut encoder =
                     gpu.device
                         .create_command_encoder(&egui_wgpu::wgpu::CommandEncoderDescriptor {
                             label: Some("compositor_encoder"),
                         });
-                gpu.compositor
-                    .compose(&gpu.queue, &mut encoder, &resolved_sources);
 
-                // Scale to output resolution when encoding.
-                let is_encoding = app_state.stream_status.is_live()
-                    || matches!(
-                        app_state.recording_status,
-                        crate::state::RecordingStatus::Recording { .. }
-                    )
-                    || app_state.virtual_camera_active;
-                if is_encoding {
+                // Compose program scene onto primary canvas.
+                gpu.compositor
+                    .compose(&gpu.queue, &mut encoder, &program_sources);
+
+                // Compose secondary scene onto secondary canvas if present.
+                let mut did_transition_blend = false;
+                if let Some(ref sec_sources) = secondary_sources {
+                    if let Some(ref secondary) = gpu.secondary_canvas {
+                        gpu.compositor.compose_to(
+                            &gpu.queue,
+                            &mut encoder,
+                            &secondary.view,
+                            &secondary.source_layers,
+                            sec_sources,
+                        );
+                    }
+
+                    // Run transition blend pass if a fade is active.
+                    if let Some((_, _, transition_type, progress, _)) = transition_info {
+                        if transition_type == crate::transition::TransitionType::Fade {
+                            if let Some(ref secondary) = gpu.secondary_canvas {
+                                let time = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs_f32();
+                                gpu.transition_pipeline.blend(
+                                    &gpu.queue,
+                                    &mut encoder,
+                                    gpu.compositor.output_bind_group(),
+                                    &secondary.bind_group,
+                                    gpu.compositor.output_texture_view(),
+                                    progress,
+                                    time,
+                                );
+                                did_transition_blend = true;
+                            }
+                        }
+                    }
+                }
+
+                // Scale to output resolution when encoding (skip if blend already wrote to output).
+                if is_encoding && !did_transition_blend {
                     gpu.compositor.scale_to_output(&mut encoder);
                 }
 
@@ -1376,6 +1477,57 @@ impl ApplicationHandler for AppManager {
                 // the next about_to_wait() call, keeping the render loop free.
                 if is_encoding {
                     gpu.compositor.start_readback(&gpu.device, &gpu.queue);
+                }
+
+                // Complete transition if done.
+                if let Some((_, to_scene, _, _, is_complete)) = transition_info {
+                    if is_complete {
+                        let mut app_state = self.state.lock().expect("lock AppState");
+                        app_state.active_scene_id = Some(to_scene);
+                        app_state.active_transition = None;
+
+                        if !studio_mode {
+                            // Deallocate secondary canvas when not in Studio Mode.
+                            gpu.secondary_canvas = None;
+
+                            // Send RemoveCaptureSource for sources exclusive to the old scene.
+                            let new_source_ids: Vec<crate::scene::SourceId> = app_state
+                                .scenes
+                                .iter()
+                                .find(|s| s.id == to_scene)
+                                .map(|s| s.source_ids())
+                                .unwrap_or_default();
+                            let old_source_ids: Vec<crate::scene::SourceId> = app_state
+                                .scenes
+                                .iter()
+                                .find(|s| s.id == program_scene_id)
+                                .map(|s| s.source_ids())
+                                .unwrap_or_default();
+                            if let Some(ref channels) = self.gst_channels {
+                                for old_id in &old_source_ids {
+                                    if !new_source_ids.contains(old_id) {
+                                        let _ = channels.command_tx.try_send(
+                                            crate::gstreamer::GstCommand::RemoveCaptureSource {
+                                                source_id: *old_id,
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        } else {
+                            // In Studio Mode, reset preview_scene_id.
+                            app_state.preview_scene_id = None;
+                        }
+                    }
+                }
+            }
+
+            // Request continuous redraws while a transition is in progress.
+            if transition_info.is_some() {
+                if let Some(main_id) = self.main_window_id {
+                    if let Some(win) = self.windows.get(&main_id) {
+                        win.window.request_redraw();
+                    }
                 }
             }
         }

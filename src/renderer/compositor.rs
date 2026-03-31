@@ -865,6 +865,22 @@ impl Compositor {
         &self.canvas_view
     }
 
+    /// Returns a reference to the output bind group (canvas texture + linear sampler).
+    ///
+    /// Used by the transition blend pass as the "from" bind group so that the
+    /// primary canvas is sampled with bilinear filtering.
+    pub fn output_bind_group(&self) -> &wgpu::BindGroup {
+        &self.output_bind_group
+    }
+
+    /// Returns a reference to the output texture view (at output resolution).
+    ///
+    /// The transition blend pass writes its result here so that readback can
+    /// pick it up without an extra copy.
+    pub fn output_texture_view(&self) -> &wgpu::TextureView {
+        &self.output_texture_view
+    }
+
     /// Compose sources onto an arbitrary target view using the given source layers.
     pub fn compose_to(
         &self,

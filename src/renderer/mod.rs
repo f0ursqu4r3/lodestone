@@ -14,7 +14,9 @@ use winit::window::Window;
 
 use compositor::Compositor;
 use pipelines::WidgetPipeline;
+use secondary_canvas::SecondaryCanvas;
 use text::GlyphonRenderer;
+use transition::TransitionPipeline;
 
 // ---------------------------------------------------------------------------
 // SharedGpuState — owns GPU device/queue and shared pipelines
@@ -29,6 +31,10 @@ pub struct SharedGpuState {
     #[allow(dead_code)]
     pub widget_pipeline: WidgetPipeline,
     pub text_renderer: GlyphonRenderer,
+    /// GPU pipeline for blending two canvas textures during scene transitions.
+    pub transition_pipeline: TransitionPipeline,
+    /// On-demand secondary canvas for the "to" scene during transitions or Studio Mode.
+    pub secondary_canvas: Option<SecondaryCanvas>,
 }
 
 impl SharedGpuState {
@@ -75,6 +81,12 @@ impl SharedGpuState {
         // Task 4 will wire these to user settings.
         let compositor = Compositor::new(&device, format, (1920, 1080), (1920, 1080));
 
+        let transition_pipeline = TransitionPipeline::new(
+            &device,
+            compositor.texture_bind_group_layout(),
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
+
         Ok(Self {
             instance,
             device,
@@ -83,6 +95,8 @@ impl SharedGpuState {
             compositor,
             widget_pipeline,
             text_renderer,
+            transition_pipeline,
+            secondary_canvas: None,
         })
     }
 }

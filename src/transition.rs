@@ -78,3 +78,103 @@ pub fn resolve_transition(
     let d = scene_override.duration_ms.unwrap_or(global.default_duration_ms);
     (t, Duration::from_millis(d as u64))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transition_state_progress_at_start() {
+        let state = TransitionState {
+            from_scene: SceneId(1),
+            to_scene: SceneId(2),
+            transition_type: TransitionType::Fade,
+            started_at: Instant::now(),
+            duration: Duration::from_millis(300),
+        };
+        assert!(state.progress() < 0.1);
+        assert!(!state.is_complete());
+    }
+
+    #[test]
+    fn transition_state_progress_when_complete() {
+        let state = TransitionState {
+            from_scene: SceneId(1),
+            to_scene: SceneId(2),
+            transition_type: TransitionType::Fade,
+            started_at: Instant::now() - Duration::from_millis(500),
+            duration: Duration::from_millis(300),
+        };
+        assert_eq!(state.progress(), 1.0);
+        assert!(state.is_complete());
+    }
+
+    #[test]
+    fn transition_state_zero_duration_is_immediately_complete() {
+        let state = TransitionState {
+            from_scene: SceneId(1),
+            to_scene: SceneId(2),
+            transition_type: TransitionType::Cut,
+            started_at: Instant::now(),
+            duration: Duration::ZERO,
+        };
+        assert_eq!(state.progress(), 1.0);
+        assert!(state.is_complete());
+    }
+
+    #[test]
+    fn resolve_uses_global_defaults() {
+        let global = TransitionSettings {
+            default_type: TransitionType::Fade,
+            default_duration_ms: 500,
+        };
+        let override_ = SceneTransitionOverride::default();
+        let (t, d) = resolve_transition(&global, &override_);
+        assert_eq!(t, TransitionType::Fade);
+        assert_eq!(d, Duration::from_millis(500));
+    }
+
+    #[test]
+    fn resolve_per_scene_overrides_global() {
+        let global = TransitionSettings {
+            default_type: TransitionType::Fade,
+            default_duration_ms: 300,
+        };
+        let override_ = SceneTransitionOverride {
+            transition_type: Some(TransitionType::Cut),
+            duration_ms: Some(0),
+        };
+        let (t, d) = resolve_transition(&global, &override_);
+        assert_eq!(t, TransitionType::Cut);
+        assert_eq!(d, Duration::ZERO);
+    }
+
+    #[test]
+    fn resolve_partial_override() {
+        let global = TransitionSettings {
+            default_type: TransitionType::Fade,
+            default_duration_ms: 300,
+        };
+        let override_ = SceneTransitionOverride {
+            transition_type: None,
+            duration_ms: Some(1000),
+        };
+        let (t, d) = resolve_transition(&global, &override_);
+        assert_eq!(t, TransitionType::Fade);
+        assert_eq!(d, Duration::from_millis(1000));
+    }
+
+    #[test]
+    fn transition_settings_default() {
+        let s = TransitionSettings::default();
+        assert_eq!(s.default_type, TransitionType::Fade);
+        assert_eq!(s.default_duration_ms, 300);
+    }
+
+    #[test]
+    fn scene_transition_override_default_is_none() {
+        let o = SceneTransitionOverride::default();
+        assert!(o.transition_type.is_none());
+        assert!(o.duration_ms.is_none());
+    }
+}

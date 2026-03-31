@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use bytemuck::{Pod, Zeroable};
 use egui_wgpu::wgpu;
@@ -632,7 +632,13 @@ impl Compositor {
         encoder: &mut wgpu::CommandEncoder,
         sources: &[ResolvedSource],
     ) {
-        self.compose_to(queue, encoder, &self.canvas_view, &self.source_layers, sources);
+        self.compose_to(
+            queue,
+            encoder,
+            &self.canvas_view,
+            &self.source_layers,
+            sources,
+        );
     }
 
     /// Scale the canvas texture to the output texture via a fullscreen quad blit.
@@ -846,6 +852,7 @@ impl Compositor {
     }
 
     /// Returns a reference to the compositor render pipeline (sources → canvas).
+    #[allow(dead_code)]
     pub fn compositor_pipeline(&self) -> &wgpu::RenderPipeline {
         &self.pipeline
     }
@@ -856,11 +863,13 @@ impl Compositor {
     }
 
     /// Returns a reference to the preview sampler.
+    #[allow(dead_code)]
     pub fn preview_sampler(&self) -> &wgpu::Sampler {
         &self.preview_sampler
     }
 
     /// Returns a reference to the primary canvas texture view.
+    #[allow(dead_code)]
     pub fn canvas_view(&self) -> &wgpu::TextureView {
         &self.canvas_view
     }

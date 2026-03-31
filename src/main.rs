@@ -548,7 +548,10 @@ impl ApplicationHandler for AppManager {
         let preview_resources = PreviewResources {
             pipeline: gpu.compositor.canvas_pipeline(),
             bind_group: gpu.compositor.canvas_bind_group(),
-            secondary_bind_group: gpu.secondary_canvas.as_ref().map(|sc| Arc::clone(&sc.bind_group)),
+            secondary_bind_group: gpu
+                .secondary_canvas
+                .as_ref()
+                .map(|sc| Arc::clone(&sc.bind_group)),
         };
 
         // Try to load saved layout; fall back to default.
@@ -1089,42 +1092,41 @@ impl ApplicationHandler for AppManager {
                         .unwrap_or(false);
                     if !egui_wants_input {
                         let mut app_state = self.state.lock().unwrap();
-                        if app_state.studio_mode {
-                            if let Some(preview_id) = app_state.preview_scene_id {
-                                let from_id = app_state.active_scene_id;
-                                let exclude_self =
-                                    app_state.settings.general.exclude_self_from_capture;
-                                let cmd_tx = app_state.command_tx.clone();
+                        if app_state.studio_mode
+                            && let Some(preview_id) = app_state.preview_scene_id
+                        {
+                            let from_id = app_state.active_scene_id;
+                            let exclude_self = app_state.settings.general.exclude_self_from_capture;
+                            let cmd_tx = app_state.command_tx.clone();
 
-                                // Cancel any in-flight transition.
-                                app_state.active_transition = None;
+                            // Cancel any in-flight transition.
+                            app_state.active_transition = None;
 
-                                let old_scene = from_id
-                                    .and_then(|id| app_state.scenes.iter().find(|s| s.id == id))
-                                    .cloned();
-                                let new_scene = app_state
-                                    .scenes
-                                    .iter()
-                                    .find(|s| s.id == preview_id)
-                                    .cloned();
+                            let old_scene = from_id
+                                .and_then(|id| app_state.scenes.iter().find(|s| s.id == id))
+                                .cloned();
+                            let new_scene = app_state
+                                .scenes
+                                .iter()
+                                .find(|s| s.id == preview_id)
+                                .cloned();
 
-                                app_state.active_scene_id = Some(preview_id);
-                                app_state.preview_scene_id = None;
-                                app_state.deselect_all();
+                            app_state.active_scene_id = Some(preview_id);
+                            app_state.preview_scene_id = None;
+                            app_state.deselect_all();
 
-                                crate::ui::scenes_panel::apply_scene_diff(
-                                    &cmd_tx,
-                                    &app_state.library,
-                                    old_scene.as_ref(),
-                                    new_scene.as_ref(),
-                                    exclude_self,
-                                );
-                                if let Some(ref scene) = new_scene {
-                                    app_state.capture_active = !scene.sources.is_empty();
-                                }
-                                app_state.mark_dirty();
-                                return;
+                            crate::ui::scenes_panel::apply_scene_diff(
+                                &cmd_tx,
+                                &app_state.library,
+                                old_scene.as_ref(),
+                                new_scene.as_ref(),
+                                exclude_self,
+                            );
+                            if let Some(ref scene) = new_scene {
+                                app_state.capture_active = !scene.sources.is_empty();
                             }
+                            app_state.mark_dirty();
+                            return;
                         }
                     }
                 }
@@ -1143,31 +1145,61 @@ impl ApplicationHandler for AppManager {
                             let can_transition = app_state.preview_scene_id.is_some()
                                 && app_state.preview_scene_id != app_state.active_scene_id
                                 && app_state.active_transition.is_none();
-                            if can_transition {
-                                if let Some(preview_id) = app_state.preview_scene_id {
-                                    let from_id = app_state.active_scene_id;
-                                    let exclude_self =
-                                        app_state.settings.general.exclude_self_from_capture;
-                                    let cmd_tx = app_state.command_tx.clone();
+                            if can_transition && let Some(preview_id) = app_state.preview_scene_id {
+                                let from_id = app_state.active_scene_id;
+                                let exclude_self =
+                                    app_state.settings.general.exclude_self_from_capture;
+                                let cmd_tx = app_state.command_tx.clone();
 
-                                    let target_scene =
-                                        app_state.scenes.iter().find(|s| s.id == preview_id);
-                                    let (transition_type, duration) = target_scene
-                                        .map(|s| crate::transition::resolve_transition(
+                                let target_scene =
+                                    app_state.scenes.iter().find(|s| s.id == preview_id);
+                                let (transition_type, duration) = target_scene
+                                    .map(|s| {
+                                        crate::transition::resolve_transition(
                                             &app_state.settings.transitions,
                                             &s.transition_override,
-                                        ))
-                                        .unwrap_or((
-                                            crate::transition::TransitionType::Fade,
-                                            std::time::Duration::from_millis(300),
-                                        ));
+                                        )
+                                    })
+                                    .unwrap_or((
+                                        crate::transition::TransitionType::Fade,
+                                        std::time::Duration::from_millis(300),
+                                    ));
 
-                                    match transition_type {
-                                        crate::transition::TransitionType::Cut => {
-                                            let old_scene = from_id
-                                                .and_then(|id| {
-                                                    app_state.scenes.iter().find(|s| s.id == id)
-                                                })
+                                match transition_type {
+                                    crate::transition::TransitionType::Cut => {
+                                        let old_scene = from_id
+                                            .and_then(|id| {
+                                                app_state.scenes.iter().find(|s| s.id == id)
+                                            })
+                                            .cloned();
+                                        let new_scene = app_state
+                                            .scenes
+                                            .iter()
+                                            .find(|s| s.id == preview_id)
+                                            .cloned();
+
+                                        app_state.active_scene_id = Some(preview_id);
+                                        app_state.preview_scene_id = None;
+                                        app_state.deselect_all();
+
+                                        crate::ui::scenes_panel::apply_scene_diff(
+                                            &cmd_tx,
+                                            &app_state.library,
+                                            old_scene.as_ref(),
+                                            new_scene.as_ref(),
+                                            exclude_self,
+                                        );
+                                        if let Some(ref scene) = new_scene {
+                                            app_state.capture_active = !scene.sources.is_empty();
+                                        }
+                                        app_state.mark_dirty();
+                                    }
+                                    crate::transition::TransitionType::Fade => {
+                                        if let Some(from_scene_id) = from_id {
+                                            let old_scene = app_state
+                                                .scenes
+                                                .iter()
+                                                .find(|s| s.id == from_scene_id)
                                                 .cloned();
                                             let new_scene = app_state
                                                 .scenes
@@ -1175,71 +1207,38 @@ impl ApplicationHandler for AppManager {
                                                 .find(|s| s.id == preview_id)
                                                 .cloned();
 
-                                            app_state.active_scene_id = Some(preview_id);
-                                            app_state.preview_scene_id = None;
-                                            app_state.deselect_all();
-
-                                            crate::ui::scenes_panel::apply_scene_diff(
-                                                &cmd_tx,
-                                                &app_state.library,
-                                                old_scene.as_ref(),
-                                                new_scene.as_ref(),
-                                                exclude_self,
-                                            );
-                                            if let Some(ref scene) = new_scene {
-                                                app_state.capture_active =
-                                                    !scene.sources.is_empty();
-                                            }
-                                            app_state.mark_dirty();
-                                        }
-                                        crate::transition::TransitionType::Fade => {
-                                            if let Some(from_scene_id) = from_id {
-                                                let old_scene = app_state
-                                                    .scenes
-                                                    .iter()
-                                                    .find(|s| s.id == from_scene_id)
-                                                    .cloned();
-                                                let new_scene = app_state
-                                                    .scenes
-                                                    .iter()
-                                                    .find(|s| s.id == preview_id)
-                                                    .cloned();
-
-                                                if let Some(ref new_s) = new_scene {
-                                                    for &src_id in &new_s.source_ids() {
-                                                        let already_running = old_scene
-                                                            .as_ref()
-                                                            .map(|s| {
-                                                                s.source_ids().contains(&src_id)
-                                                            })
-                                                            .unwrap_or(false);
-                                                        if !already_running {
-                                                            crate::ui::scenes_panel::start_capture_source(
+                                            if let Some(ref new_s) = new_scene {
+                                                for &src_id in &new_s.source_ids() {
+                                                    let already_running = old_scene
+                                                        .as_ref()
+                                                        .map(|s| s.source_ids().contains(&src_id))
+                                                        .unwrap_or(false);
+                                                    if !already_running {
+                                                        crate::ui::scenes_panel::start_capture_source(
                                                                 &cmd_tx,
                                                                 &app_state.library,
                                                                 src_id,
                                                                 exclude_self,
                                                             );
-                                                        }
                                                     }
                                                 }
-
-                                                app_state.active_transition =
-                                                    Some(crate::transition::TransitionState {
-                                                        from_scene: from_scene_id,
-                                                        to_scene: preview_id,
-                                                        transition_type,
-                                                        started_at: std::time::Instant::now(),
-                                                        duration,
-                                                    });
-                                                app_state.preview_scene_id = None;
-                                                app_state.deselect_all();
-                                                app_state.mark_dirty();
                                             }
+
+                                            app_state.active_transition =
+                                                Some(crate::transition::TransitionState {
+                                                    from_scene: from_scene_id,
+                                                    to_scene: preview_id,
+                                                    transition_type,
+                                                    started_at: std::time::Instant::now(),
+                                                    duration,
+                                                });
+                                            app_state.preview_scene_id = None;
+                                            app_state.deselect_all();
+                                            app_state.mark_dirty();
                                         }
                                     }
-                                    return;
                                 }
+                                return;
                             }
                         }
                     }
@@ -1269,10 +1268,7 @@ impl ApplicationHandler for AppManager {
                     if !egui_wants_input {
                         let mut app_state = self.state.lock().unwrap();
                         let scene_index = digit - 1; // 0-based
-                        let target_id = app_state
-                            .scenes
-                            .get(scene_index)
-                            .map(|s| s.id);
+                        let target_id = app_state.scenes.get(scene_index).map(|s| s.id);
 
                         if let Some(new_id) = target_id {
                             if app_state.studio_mode {
@@ -1285,15 +1281,10 @@ impl ApplicationHandler for AppManager {
                                         app_state.settings.general.exclude_self_from_capture;
                                     let cmd_tx = app_state.command_tx.clone();
                                     let old_preview_scene = old_preview
-                                        .and_then(|id| {
-                                            app_state.scenes.iter().find(|s| s.id == id)
-                                        })
+                                        .and_then(|id| app_state.scenes.iter().find(|s| s.id == id))
                                         .cloned();
-                                    let new_scene = app_state
-                                        .scenes
-                                        .iter()
-                                        .find(|s| s.id == new_id)
-                                        .cloned();
+                                    let new_scene =
+                                        app_state.scenes.iter().find(|s| s.id == new_id).cloned();
 
                                     crate::ui::scenes_panel::apply_scene_diff(
                                         &cmd_tx,
@@ -1311,13 +1302,14 @@ impl ApplicationHandler for AppManager {
                                     app_state.settings.general.exclude_self_from_capture;
                                 let cmd_tx = app_state.command_tx.clone();
 
-                                let target_scene =
-                                    app_state.scenes.iter().find(|s| s.id == new_id);
+                                let target_scene = app_state.scenes.iter().find(|s| s.id == new_id);
                                 let (transition_type, duration) = target_scene
-                                    .map(|s| crate::transition::resolve_transition(
-                                        &app_state.settings.transitions,
-                                        &s.transition_override,
-                                    ))
+                                    .map(|s| {
+                                        crate::transition::resolve_transition(
+                                            &app_state.settings.transitions,
+                                            &s.transition_override,
+                                        )
+                                    })
                                     .unwrap_or((
                                         crate::transition::TransitionType::Fade,
                                         std::time::Duration::from_millis(300),
@@ -1704,7 +1696,10 @@ impl ApplicationHandler for AppManager {
                     let new_resources = PreviewResources {
                         pipeline: gpu.compositor.canvas_pipeline(),
                         bind_group: gpu.compositor.canvas_bind_group(),
-                        secondary_bind_group: gpu.secondary_canvas.as_ref().map(|sc| Arc::clone(&sc.bind_group)),
+                        secondary_bind_group: gpu
+                            .secondary_canvas
+                            .as_ref()
+                            .map(|sc| Arc::clone(&sc.bind_group)),
                     };
                     win.egui_renderer.callback_resources.insert(new_resources);
                 }
@@ -1714,16 +1709,17 @@ impl ApplicationHandler for AppManager {
         // Compose active scene sources onto the canvas, with optional transition blending.
         if let Some(ref mut gpu) = self.gpu {
             // Read transition state and determine which scenes to compose.
-            let (
-                active_scene_id,
-                transition_info,
-                is_encoding,
-                studio_mode,
-            ) = {
+            let (active_scene_id, transition_info, is_encoding, studio_mode) = {
                 let app_state = self.state.lock().expect("lock AppState");
                 let active = app_state.active_scene_id;
                 let trans = app_state.active_transition.as_ref().map(|t| {
-                    (t.from_scene, t.to_scene, t.transition_type, t.progress(), t.is_complete())
+                    (
+                        t.from_scene,
+                        t.to_scene,
+                        t.transition_type,
+                        t.progress(),
+                        t.is_complete(),
+                    )
                 });
                 let encoding = app_state.stream_status.is_live()
                     || matches!(
@@ -1737,13 +1733,14 @@ impl ApplicationHandler for AppManager {
 
             if let Some(active_scene_id) = active_scene_id {
                 // Determine the "program" scene and optional "secondary" scene.
-                let (program_scene_id, secondary_scene_id) = if let Some((from, to, _, _, _)) = transition_info {
-                    // During a transition, the primary canvas shows the "from" scene
-                    // and the secondary canvas shows the "to" scene.
-                    (from, Some(to))
-                } else {
-                    (active_scene_id, None)
-                };
+                let (program_scene_id, secondary_scene_id) =
+                    if let Some((from, to, _, _, _)) = transition_info {
+                        // During a transition, the primary canvas shows the "from" scene
+                        // and the secondary canvas shows the "to" scene.
+                        (from, Some(to))
+                    } else {
+                        (active_scene_id, None)
+                    };
 
                 // Resolve sources for both scenes while holding the lock.
                 let (program_sources, secondary_sources) = {
@@ -1755,15 +1752,14 @@ impl ApplicationHandler for AppManager {
 
                 // Allocate secondary canvas on demand if needed.
                 if secondary_sources.is_some() && gpu.secondary_canvas.is_none() {
-                    gpu.secondary_canvas = Some(
-                        crate::renderer::secondary_canvas::SecondaryCanvas::new(
+                    gpu.secondary_canvas =
+                        Some(crate::renderer::secondary_canvas::SecondaryCanvas::new(
                             &gpu.device,
                             gpu.compositor.canvas_width,
                             gpu.compositor.canvas_height,
                             gpu.compositor.texture_bind_group_layout(),
                             gpu.compositor.compositor_sampler(),
-                        ),
-                    );
+                        ));
                 }
 
                 let mut encoder =
@@ -1790,25 +1786,24 @@ impl ApplicationHandler for AppManager {
                     }
 
                     // Run transition blend pass if a fade is active.
-                    if let Some((_, _, transition_type, progress, _)) = transition_info {
-                        if transition_type == crate::transition::TransitionType::Fade {
-                            if let Some(ref secondary) = gpu.secondary_canvas {
-                                let time = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs_f32();
-                                gpu.transition_pipeline.blend(
-                                    &gpu.queue,
-                                    &mut encoder,
-                                    gpu.compositor.output_bind_group(),
-                                    &secondary.bind_group,
-                                    gpu.compositor.output_texture_view(),
-                                    progress,
-                                    time,
-                                );
-                                did_transition_blend = true;
-                            }
-                        }
+                    if let Some((_, _, transition_type, progress, _)) = transition_info
+                        && transition_type == crate::transition::TransitionType::Fade
+                        && let Some(ref secondary) = gpu.secondary_canvas
+                    {
+                        let time = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs_f32();
+                        gpu.transition_pipeline.blend(
+                            &gpu.queue,
+                            &mut encoder,
+                            gpu.compositor.output_bind_group(),
+                            &secondary.bind_group,
+                            gpu.compositor.output_texture_view(),
+                            progress,
+                            time,
+                        );
+                        did_transition_blend = true;
                     }
                 }
 
@@ -1826,44 +1821,44 @@ impl ApplicationHandler for AppManager {
                 }
 
                 // Complete transition if done.
-                if let Some((_, to_scene, _, _, is_complete)) = transition_info {
-                    if is_complete {
-                        let mut app_state = self.state.lock().expect("lock AppState");
-                        app_state.active_scene_id = Some(to_scene);
-                        app_state.active_transition = None;
+                if let Some((_, to_scene, _, _, is_complete)) = transition_info
+                    && is_complete
+                {
+                    let mut app_state = self.state.lock().expect("lock AppState");
+                    app_state.active_scene_id = Some(to_scene);
+                    app_state.active_transition = None;
 
-                        if !studio_mode {
-                            // Deallocate secondary canvas when not in Studio Mode.
-                            gpu.secondary_canvas = None;
+                    if !studio_mode {
+                        // Deallocate secondary canvas when not in Studio Mode.
+                        gpu.secondary_canvas = None;
 
-                            // Send RemoveCaptureSource for sources exclusive to the old scene.
-                            let new_source_ids: Vec<crate::scene::SourceId> = app_state
-                                .scenes
-                                .iter()
-                                .find(|s| s.id == to_scene)
-                                .map(|s| s.source_ids())
-                                .unwrap_or_default();
-                            let old_source_ids: Vec<crate::scene::SourceId> = app_state
-                                .scenes
-                                .iter()
-                                .find(|s| s.id == program_scene_id)
-                                .map(|s| s.source_ids())
-                                .unwrap_or_default();
-                            if let Some(ref channels) = self.gst_channels {
-                                for old_id in &old_source_ids {
-                                    if !new_source_ids.contains(old_id) {
-                                        let _ = channels.command_tx.try_send(
-                                            crate::gstreamer::GstCommand::RemoveCaptureSource {
-                                                source_id: *old_id,
-                                            },
-                                        );
-                                    }
+                        // Send RemoveCaptureSource for sources exclusive to the old scene.
+                        let new_source_ids: Vec<crate::scene::SourceId> = app_state
+                            .scenes
+                            .iter()
+                            .find(|s| s.id == to_scene)
+                            .map(|s| s.source_ids())
+                            .unwrap_or_default();
+                        let old_source_ids: Vec<crate::scene::SourceId> = app_state
+                            .scenes
+                            .iter()
+                            .find(|s| s.id == program_scene_id)
+                            .map(|s| s.source_ids())
+                            .unwrap_or_default();
+                        if let Some(ref channels) = self.gst_channels {
+                            for old_id in &old_source_ids {
+                                if !new_source_ids.contains(old_id) {
+                                    let _ = channels.command_tx.try_send(
+                                        crate::gstreamer::GstCommand::RemoveCaptureSource {
+                                            source_id: *old_id,
+                                        },
+                                    );
                                 }
                             }
-                        } else {
-                            // In Studio Mode, reset preview_scene_id.
-                            app_state.preview_scene_id = None;
                         }
+                    } else {
+                        // In Studio Mode, reset preview_scene_id.
+                        app_state.preview_scene_id = None;
                     }
                 }
             }
@@ -1875,18 +1870,20 @@ impl ApplicationHandler for AppManager {
                 let new_resources = PreviewResources {
                     pipeline: gpu.compositor.canvas_pipeline(),
                     bind_group: gpu.compositor.canvas_bind_group(),
-                    secondary_bind_group: gpu.secondary_canvas.as_ref().map(|sc| Arc::clone(&sc.bind_group)),
+                    secondary_bind_group: gpu
+                        .secondary_canvas
+                        .as_ref()
+                        .map(|sc| Arc::clone(&sc.bind_group)),
                 };
                 win.egui_renderer.callback_resources.insert(new_resources);
             }
 
             // Request continuous redraws while a transition is in progress.
-            if transition_info.is_some() {
-                if let Some(main_id) = self.main_window_id {
-                    if let Some(win) = self.windows.get(&main_id) {
-                        win.window.request_redraw();
-                    }
-                }
+            if transition_info.is_some()
+                && let Some(main_id) = self.main_window_id
+                && let Some(win) = self.windows.get(&main_id)
+            {
+                win.window.request_redraw();
             }
         }
 
@@ -2000,7 +1997,10 @@ impl ApplicationHandler for AppManager {
                 let preview_resources = PreviewResources {
                     pipeline: gpu.compositor.canvas_pipeline(),
                     bind_group: gpu.compositor.canvas_bind_group(),
-                    secondary_bind_group: gpu.secondary_canvas.as_ref().map(|sc| Arc::clone(&sc.bind_group)),
+                    secondary_bind_group: gpu
+                        .secondary_canvas
+                        .as_ref()
+                        .map(|sc| Arc::clone(&sc.bind_group)),
                 };
                 let win_state =
                     WindowState::new(window, gpu, layout, false, Some(preview_resources))

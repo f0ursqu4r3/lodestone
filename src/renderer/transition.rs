@@ -71,8 +71,8 @@ impl TransitionPipeline {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("transition_pipeline_layout"),
             bind_group_layouts: &[
-                texture_bind_group_layout, // group 0: from texture + sampler
-                texture_bind_group_layout, // group 1: to texture + sampler
+                texture_bind_group_layout,  // group 0: from texture + sampler
+                texture_bind_group_layout,  // group 1: to texture + sampler
                 &uniform_bind_group_layout, // group 2: uniforms
             ],
             push_constant_ranges: &[],
@@ -121,6 +121,7 @@ impl TransitionPipeline {
     ///
     /// `from_bind_group` and `to_bind_group` are texture+sampler bind groups
     /// for the outgoing and incoming scene canvases.
+    #[allow(clippy::too_many_arguments)]
     pub fn blend(
         &self,
         queue: &wgpu::Queue,

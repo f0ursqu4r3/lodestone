@@ -44,15 +44,13 @@ unsafe impl objc2::RefEncode for OSSystemExtensionRequest {
 
 impl OSSystemExtensionRequest {
     fn class() -> &'static AnyClass {
-        AnyClass::get(c"OSSystemExtensionRequest")
-            .expect("OSSystemExtensionRequest class not found — is SystemExtensions.framework linked?")
+        AnyClass::get(c"OSSystemExtensionRequest").expect(
+            "OSSystemExtensionRequest class not found — is SystemExtensions.framework linked?",
+        )
     }
 
     /// `+[OSSystemExtensionRequest activationRequestForExtension:queue:]`
-    fn activation_request(
-        identifier: &NSString,
-        queue: *const std::ffi::c_void,
-    ) -> *mut AnyObject {
+    fn activation_request(identifier: &NSString, queue: *const std::ffi::c_void) -> *mut AnyObject {
         let cls = Self::class();
         // Cast dispatch_queue_t to &AnyObject — msg_send! checks type encodings
         // and expects '@' (object) for the queue parameter, not '^v' (void pointer).
@@ -79,8 +77,9 @@ unsafe impl objc2::RefEncode for OSSystemExtensionManager {
 
 impl OSSystemExtensionManager {
     fn class() -> &'static AnyClass {
-        AnyClass::get(c"OSSystemExtensionManager")
-            .expect("OSSystemExtensionManager class not found — is SystemExtensions.framework linked?")
+        AnyClass::get(c"OSSystemExtensionManager").expect(
+            "OSSystemExtensionManager class not found — is SystemExtensions.framework linked?",
+        )
     }
 
     /// `+[OSSystemExtensionManager sharedManager]`

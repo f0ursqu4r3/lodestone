@@ -257,10 +257,11 @@ pub struct HotkeySettings {
 }
 
 /// Font scale presets that proportionally scale all text sizes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FontScale {
     XS,
     S,
+    #[default]
     M,
     L,
     XL,
@@ -293,12 +294,6 @@ impl FontScale {
             Self::L => "L",
             Self::XL => "XL",
         }
-    }
-}
-
-impl Default for FontScale {
-    fn default() -> Self {
-        Self::M
     }
 }
 

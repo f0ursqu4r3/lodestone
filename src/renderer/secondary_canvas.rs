@@ -16,6 +16,7 @@ use crate::scene::SourceId;
 /// be composited independently of the primary canvas.
 pub struct SecondaryCanvas {
     /// The GPU texture backing this canvas.
+    #[allow(dead_code)]
     pub texture: wgpu::Texture,
     /// View into the canvas texture for use as a render target.
     pub view: wgpu::TextureView,
@@ -78,6 +79,7 @@ impl SecondaryCanvas {
     /// Upload a frame for a source on the secondary canvas.
     ///
     /// Creates or resizes the source layer GPU texture as needed.
+    #[allow(clippy::too_many_arguments)]
     pub fn upload_frame(
         &mut self,
         device: &Device,

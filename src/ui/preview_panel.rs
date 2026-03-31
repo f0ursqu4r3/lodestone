@@ -697,10 +697,8 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
         let gap = 6.0;
         let half_w = (panel_rect.width() - gap) / 2.0;
 
-        let left_rect = egui::Rect::from_min_size(
-            panel_rect.min,
-            egui::vec2(half_w, panel_rect.height()),
-        );
+        let left_rect =
+            egui::Rect::from_min_size(panel_rect.min, egui::vec2(half_w, panel_rect.height()));
         let right_rect = egui::Rect::from_min_size(
             egui::pos2(panel_rect.min.x + half_w + gap, panel_rect.min.y),
             egui::vec2(panel_rect.width() - half_w - gap, panel_rect.height()),
@@ -750,11 +748,8 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
         // "PROGRAM" label — red, top-left of right pane
         {
             let program_color = egui::Color32::from_rgb(220, 80, 80);
-            let galley = label_painter.layout_no_wrap(
-                "PROGRAM".to_string(),
-                label_font,
-                program_color,
-            );
+            let galley =
+                label_painter.layout_no_wrap("PROGRAM".to_string(), label_font, program_color);
             let bg_size = galley.size() + label_pad * 2.0;
             let bg_pos = right_rect.left_top() + egui::vec2(6.0, 6.0);
             let bg_rect = egui::Rect::from_min_size(bg_pos, bg_size);

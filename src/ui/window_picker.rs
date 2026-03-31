@@ -31,9 +31,7 @@ mod native {
         kCGWindowListOptionOnScreenOnly,
     };
     use objc2::rc::Retained;
-    use objc2_app_kit::{
-        NSColor, NSCursor, NSEvent, NSPanel, NSScreen, NSView, NSWindowStyleMask,
-    };
+    use objc2_app_kit::{NSColor, NSCursor, NSEvent, NSPanel, NSScreen, NSView, NSWindowStyleMask};
     use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
     use std::cell::RefCell;
 
@@ -189,7 +187,12 @@ mod native {
                 unsafe { CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _) }.to_f64()
             };
 
-            let (x, y, w, h) = match (get_f64("X"), get_f64("Y"), get_f64("Width"), get_f64("Height")) {
+            let (x, y, w, h) = match (
+                get_f64("X"),
+                get_f64("Y"),
+                get_f64("Width"),
+                get_f64("Height"),
+            ) {
                 (Some(x), Some(y), Some(w), Some(h)) => (x, y, w, h),
                 _ => continue,
             };
@@ -206,17 +209,26 @@ mod native {
             {
                 let owner_name = dict
                     .find(&CFString::new("kCGWindowOwnerName"))
-                    .map(|v| unsafe { CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _) }.to_string())
+                    .map(|v| {
+                        unsafe { CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _) }
+                            .to_string()
+                    })
                     .unwrap_or_default();
 
                 let window_name = dict
                     .find(&CFString::new("kCGWindowName"))
-                    .map(|v| unsafe { CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _) }.to_string())
+                    .map(|v| {
+                        unsafe { CFString::wrap_under_get_rule(v.as_CFTypeRef() as *const _) }
+                            .to_string()
+                    })
                     .unwrap_or_default();
 
                 let bundle_id = get_bundle_id_from_pid(
                     dict.find(&pid_key)
-                        .and_then(|v| unsafe { CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _) }.to_i32())
+                        .and_then(|v| {
+                            unsafe { CFNumber::wrap_under_get_rule(v.as_CFTypeRef() as *const _) }
+                                .to_i32()
+                        })
                         .unwrap_or(0),
                 );
 

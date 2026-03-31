@@ -211,14 +211,13 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                                 }
                             }
 
-                            state.active_transition =
-                                Some(crate::transition::TransitionState {
-                                    from_scene: from_scene_id,
-                                    to_scene: new_id,
-                                    transition_type,
-                                    started_at: std::time::Instant::now(),
-                                    duration,
-                                });
+                            state.active_transition = Some(crate::transition::TransitionState {
+                                from_scene: from_scene_id,
+                                to_scene: new_id,
+                                transition_type,
+                                started_at: std::time::Instant::now(),
+                                duration,
+                            });
                             state.deselect_all();
                             state.mark_dirty();
                         }
@@ -341,10 +340,7 @@ fn draw_scene_card(
             let badge_w = text_w + 6.0;
             let badge_h = 11.0;
             let badge_rect = egui::Rect::from_min_size(
-                egui::pos2(
-                    thumb_rect.right() - badge_w - 4.0,
-                    thumb_rect.top() + 4.0,
-                ),
+                egui::pos2(thumb_rect.right() - badge_w - 4.0, thumb_rect.top() + 4.0),
                 egui::vec2(badge_w, badge_h),
             );
 
@@ -515,40 +511,26 @@ fn draw_scene_card(
                         .selectable_label(current_type.is_none(), "Default")
                         .clicked()
                     {
-                        if let Some(scene) =
-                            state.scenes.iter_mut().find(|s| s.id == scene_id)
-                        {
+                        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
                             scene.transition_override.transition_type = None;
                         }
                         state.mark_dirty();
                     }
                     if ui
-                        .selectable_label(
-                            current_type == Some(TransitionType::Fade),
-                            "Fade",
-                        )
+                        .selectable_label(current_type == Some(TransitionType::Fade), "Fade")
                         .clicked()
                     {
-                        if let Some(scene) =
-                            state.scenes.iter_mut().find(|s| s.id == scene_id)
-                        {
-                            scene.transition_override.transition_type =
-                                Some(TransitionType::Fade);
+                        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                            scene.transition_override.transition_type = Some(TransitionType::Fade);
                         }
                         state.mark_dirty();
                     }
                     if ui
-                        .selectable_label(
-                            current_type == Some(TransitionType::Cut),
-                            "Cut",
-                        )
+                        .selectable_label(current_type == Some(TransitionType::Cut), "Cut")
                         .clicked()
                     {
-                        if let Some(scene) =
-                            state.scenes.iter_mut().find(|s| s.id == scene_id)
-                        {
-                            scene.transition_override.transition_type =
-                                Some(TransitionType::Cut);
+                        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                            scene.transition_override.transition_type = Some(TransitionType::Cut);
                         }
                         state.mark_dirty();
                     }
@@ -625,11 +607,7 @@ fn draw_scene_card(
 ///
 /// Contains: Fade/Cut segmented control, duration input, Studio Mode toggle,
 /// and (in Studio Mode) a Transition button that fires preview → program.
-fn draw_transition_bar(
-    ui: &mut egui::Ui,
-    state: &mut AppState,
-    theme: &crate::ui::theme::Theme,
-) {
+fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::ui::theme::Theme) {
     let bar_height = 30.0;
     let padding = 4.0;
     let available_width = ui.available_width();
@@ -653,16 +631,15 @@ fn draw_transition_bar(
     let seg_y = bar_rect.center().y - seg_btn_h / 2.0;
     let seg_x = bar_rect.left() + padding;
 
-    let fade_rect = egui::Rect::from_min_size(
-        egui::pos2(seg_x, seg_y),
-        egui::vec2(seg_btn_w, seg_btn_h),
-    );
+    let fade_rect =
+        egui::Rect::from_min_size(egui::pos2(seg_x, seg_y), egui::vec2(seg_btn_w, seg_btn_h));
     let cut_rect = egui::Rect::from_min_size(
         egui::pos2(seg_x + seg_btn_w, seg_y),
         egui::vec2(seg_btn_w, seg_btn_h),
     );
 
-    let is_fade = state.settings.transitions.default_type == crate::transition::TransitionType::Fade;
+    let is_fade =
+        state.settings.transitions.default_type == crate::transition::TransitionType::Fade;
 
     // Combined pill background.
     let combined_seg_rect = egui::Rect::from_min_max(fade_rect.min, cut_rect.max);
@@ -687,8 +664,16 @@ fn draw_transition_bar(
     );
 
     // Segment labels.
-    let fade_color = if is_fade { theme.text_primary } else { theme.text_muted };
-    let cut_color = if !is_fade { theme.text_primary } else { theme.text_muted };
+    let fade_color = if is_fade {
+        theme.text_primary
+    } else {
+        theme.text_muted
+    };
+    let cut_color = if !is_fade {
+        theme.text_primary
+    } else {
+        theme.text_muted
+    };
 
     painter.text(
         fade_rect.center(),
@@ -729,10 +714,8 @@ fn draw_transition_bar(
     // ── Duration input ──
     let dur_x = seg_x + seg_btn_w * 2.0 + 6.0;
     let dur_w = 46.0;
-    let dur_rect = egui::Rect::from_min_size(
-        egui::pos2(dur_x, seg_y),
-        egui::vec2(dur_w, seg_btn_h),
-    );
+    let dur_rect =
+        egui::Rect::from_min_size(egui::pos2(dur_x, seg_y), egui::vec2(dur_w, seg_btn_h));
 
     painter.rect_filled(
         dur_rect,
@@ -761,11 +744,9 @@ fn draw_transition_bar(
     };
 
     let text_edit_rect = dur_rect.shrink(2.0);
-    let mut child_ui = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(text_edit_rect)
-            .layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight)),
-    );
+    let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(text_edit_rect).layout(
+        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+    ));
     let te = egui::TextEdit::singleline(&mut dur_str)
         .desired_width(dur_w - 4.0)
         .font(egui::FontId::proportional(9.0))
@@ -915,79 +896,83 @@ fn draw_transition_bar(
             egui::Sense::click(),
         );
 
-        if trans_response.clicked() && can_transition {
-            if let Some(preview_id) = state.preview_scene_id {
-                let from_id = state.active_scene_id;
-                let target_scene = state.scenes.iter().find(|s| s.id == preview_id);
-                let (transition_type, duration) = target_scene
-                    .map(|s| crate::transition::resolve_transition(
+        if trans_response.clicked()
+            && can_transition
+            && let Some(preview_id) = state.preview_scene_id
+        {
+            let from_id = state.active_scene_id;
+            let target_scene = state.scenes.iter().find(|s| s.id == preview_id);
+            let (transition_type, duration) = target_scene
+                .map(|s| {
+                    crate::transition::resolve_transition(
                         &state.settings.transitions,
                         &s.transition_override,
-                    ))
-                    .unwrap_or((
-                        crate::transition::TransitionType::Fade,
-                        std::time::Duration::from_millis(300),
-                    ));
+                    )
+                })
+                .unwrap_or((
+                    crate::transition::TransitionType::Fade,
+                    std::time::Duration::from_millis(300),
+                ));
 
-                match transition_type {
-                    crate::transition::TransitionType::Cut => {
-                        let old_scene = from_id
-                            .and_then(|id| state.scenes.iter().find(|s| s.id == id))
-                            .cloned();
+            match transition_type {
+                crate::transition::TransitionType::Cut => {
+                    let old_scene = from_id
+                        .and_then(|id| state.scenes.iter().find(|s| s.id == id))
+                        .cloned();
+                    let new_scene = state.scenes.iter().find(|s| s.id == preview_id).cloned();
+
+                    state.active_scene_id = Some(preview_id);
+                    state.preview_scene_id = None;
+                    state.deselect_all();
+
+                    let cmd_tx = state.command_tx.clone();
+                    apply_scene_diff(
+                        &cmd_tx,
+                        &state.library,
+                        old_scene.as_ref(),
+                        new_scene.as_ref(),
+                        state.settings.general.exclude_self_from_capture,
+                    );
+
+                    if let Some(ref scene) = new_scene {
+                        state.capture_active = !scene.sources.is_empty();
+                    }
+                    state.mark_dirty();
+                }
+                crate::transition::TransitionType::Fade => {
+                    if let Some(from_scene_id) = from_id {
+                        let old_scene =
+                            state.scenes.iter().find(|s| s.id == from_scene_id).cloned();
                         let new_scene = state.scenes.iter().find(|s| s.id == preview_id).cloned();
 
-                        state.active_scene_id = Some(preview_id);
-                        state.preview_scene_id = None;
-                        state.deselect_all();
-
-                        let cmd_tx = state.command_tx.clone();
-                        apply_scene_diff(
-                            &cmd_tx,
-                            &state.library,
-                            old_scene.as_ref(),
-                            new_scene.as_ref(),
-                            state.settings.general.exclude_self_from_capture,
-                        );
-
-                        if let Some(ref scene) = new_scene {
-                            state.capture_active = !scene.sources.is_empty();
-                        }
-                        state.mark_dirty();
-                    }
-                    crate::transition::TransitionType::Fade => {
-                        if let Some(from_scene_id) = from_id {
-                            let old_scene = state.scenes.iter().find(|s| s.id == from_scene_id).cloned();
-                            let new_scene = state.scenes.iter().find(|s| s.id == preview_id).cloned();
-
-                            if let Some(ref new_s) = new_scene {
-                                let cmd_tx = state.command_tx.clone();
-                                for &src_id in &new_s.source_ids() {
-                                    let already_running = old_scene
-                                        .as_ref()
-                                        .map(|s| s.source_ids().contains(&src_id))
-                                        .unwrap_or(false);
-                                    if !already_running {
-                                        start_capture_source(
-                                            &cmd_tx,
-                                            &state.library,
-                                            src_id,
-                                            state.settings.general.exclude_self_from_capture,
-                                        );
-                                    }
+                        if let Some(ref new_s) = new_scene {
+                            let cmd_tx = state.command_tx.clone();
+                            for &src_id in &new_s.source_ids() {
+                                let already_running = old_scene
+                                    .as_ref()
+                                    .map(|s| s.source_ids().contains(&src_id))
+                                    .unwrap_or(false);
+                                if !already_running {
+                                    start_capture_source(
+                                        &cmd_tx,
+                                        &state.library,
+                                        src_id,
+                                        state.settings.general.exclude_self_from_capture,
+                                    );
                                 }
                             }
-
-                            state.active_transition = Some(crate::transition::TransitionState {
-                                from_scene: from_scene_id,
-                                to_scene: preview_id,
-                                transition_type,
-                                started_at: std::time::Instant::now(),
-                                duration,
-                            });
-                            state.preview_scene_id = None;
-                            state.deselect_all();
-                            state.mark_dirty();
                         }
+
+                        state.active_transition = Some(crate::transition::TransitionState {
+                            from_scene: from_scene_id,
+                            to_scene: preview_id,
+                            transition_type,
+                            started_at: std::time::Instant::now(),
+                            duration,
+                        });
+                        state.preview_scene_id = None;
+                        state.deselect_all();
+                        state.mark_dirty();
                     }
                 }
             }
@@ -1182,10 +1167,7 @@ pub fn start_capture_source(
                     }
                 }
             };
-            let _ = tx.try_send(GstCommand::AddCaptureSource {
-                source_id,
-                config,
-            });
+            let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config });
         }
         _ => {} // Image, Text, Color, Browser: no capture pipeline.
     }

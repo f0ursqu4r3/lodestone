@@ -93,7 +93,15 @@ pub fn start_virtual_camera(width: u32, height: u32, fps: u32) -> Result<Virtual
         let v_pixel_fmt = NSNumber::numberWithUnsignedInt(PIXEL_FORMAT_BGRA as c_uint);
         let v_true = objc2_foundation::NSNumber::numberWithBool(true);
 
-        let values: &[&AnyObject] = &[&v_width, &v_height, &v_bpe, &v_bpr, &v_alloc, &v_pixel_fmt, &v_true];
+        let values: &[&AnyObject] = &[
+            &v_width,
+            &v_height,
+            &v_bpe,
+            &v_bpr,
+            &v_alloc,
+            &v_pixel_fmt,
+            &v_true,
+        ];
 
         let props: Retained<NSDictionary<IOSurfacePropertyKey, AnyObject>> =
             NSDictionary::from_slices(keys, values);

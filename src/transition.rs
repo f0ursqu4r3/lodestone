@@ -74,8 +74,12 @@ pub fn resolve_transition(
     global: &TransitionSettings,
     scene_override: &SceneTransitionOverride,
 ) -> (TransitionType, Duration) {
-    let t = scene_override.transition_type.unwrap_or(global.default_type);
-    let d = scene_override.duration_ms.unwrap_or(global.default_duration_ms);
+    let t = scene_override
+        .transition_type
+        .unwrap_or(global.default_type);
+    let d = scene_override
+        .duration_ms
+        .unwrap_or(global.default_duration_ms);
     (t, Duration::from_millis(d as u64))
 }
 

@@ -19,13 +19,13 @@
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleVersion</key>
-    <string>10</string>
+    <string>18</string>
     <key>NSSystemExtensionUsageDescription</key>
     <string>Lodestone Virtual Camera provides a virtual camera device.</string>
     <key>CMIOExtension</key>
     <dict>
         <key>CMIOExtensionMachServiceName</key>
-        <string>$(TeamIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+        <string>group.com.kdougan.lodestone.app.camera-extension</string>
     </dict>
 </dict>
 </plist>

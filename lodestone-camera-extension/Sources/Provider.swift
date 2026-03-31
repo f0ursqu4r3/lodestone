@@ -5,15 +5,15 @@ import Foundation
 class LodestoneProvider: NSObject, CMIOExtensionProviderSource {
 
     private(set) var provider: CMIOExtensionProvider!
-    private var device: LodestoneDevice!
+    private var deviceSource: LodestoneDevice!
 
     override init() {
         super.init()
         provider = CMIOExtensionProvider(source: self, clientQueue: nil)
-        device = LodestoneDevice()
+        deviceSource = LodestoneDevice()
 
         do {
-            try provider.addDevice(device.device)
+            try provider.addDevice(deviceSource.device)
         } catch {
             fatalError("Failed to add device to provider: \(error)")
         }
@@ -36,14 +36,11 @@ class LodestoneProvider: NSObject, CMIOExtensionProviderSource {
     }
 
     func setProviderProperties(_ providerProperties: CMIOExtensionProviderProperties) throws {
-        // No settable properties
     }
 
     func connect(to client: CMIOExtensionClient) throws {
-        // Accept all client connections
     }
 
     func disconnect(from client: CMIOExtensionClient) {
-        // No cleanup needed on disconnect
     }
 }

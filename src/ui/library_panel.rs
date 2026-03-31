@@ -327,6 +327,7 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
                 format!("Image {}", count + 1),
                 SourceProperties::Image {
                     path: String::new(),
+                    loop_mode: None,
                 },
             )
         }

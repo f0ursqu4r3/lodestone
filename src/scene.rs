@@ -99,6 +99,15 @@ pub struct Transform {
     pub rotation: f32, // Degrees, default 0.0
 }
 
+/// How an animated image (GIF) should loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum LoopMode {
+    #[default]
+    Infinite,
+    Once,
+    Count(u32),
+}
+
 /// Text alignment for text sources.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TextAlignment {
@@ -184,6 +193,9 @@ pub enum SourceProperties {
     },
     Image {
         path: String,
+        /// Loop behavior override for animated GIFs. None = use GIF's embedded loop count.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        loop_mode: Option<LoopMode>,
     },
     Text {
         #[serde(default = "default_text_content")]

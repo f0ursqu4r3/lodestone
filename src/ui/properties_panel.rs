@@ -502,7 +502,7 @@ fn draw_source_properties(
             let src_id = selected_id;
 
             let source = &mut state.library[lib_idx];
-            if let SourceProperties::Image { ref mut path } = source.properties {
+            if let SourceProperties::Image { ref mut path, .. } = source.properties {
                 // Path text input.
                 let hint = if path.is_empty() {
                     "Select an image..."
@@ -1741,11 +1741,11 @@ fn load_and_send_image(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     path: String,
 ) {
-    match crate::image_source::load_image_source(&path) {
+    match crate::image_source::load_static_image(&path) {
         Ok(frame) => {
             let source = &mut state.library[source_idx];
             // Update the stored path.
-            if let SourceProperties::Image { path: ref mut p } = source.properties {
+            if let SourceProperties::Image { path: ref mut p, .. } = source.properties {
                 *p = path;
             }
             // Set transform and native size to the image's dimensions.

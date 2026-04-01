@@ -18,6 +18,8 @@ The settings window is initialized with `DockLayout::new_single(PanelType::Previ
 
 Option (a) is simpler and correct — the settings window has its own sidebar navigation and doesn't need dockview chrome.
 
+**Root cause detail:** In `src/main.rs:1547-1558`, all non-main windows have their OS title dynamically set every frame to the active panel type's display name. Since the settings window uses `DockLayout::new_single(PanelType::Preview)`, the title is overwritten to "Preview" every frame. Fix: skip this title update when `window_id == self.settings_window_id`.
+
 ---
 
 ## 2. Toolbar action buttons — subdued inactive state

@@ -166,22 +166,35 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
         }
     }
 
-    // Transition button — shown when editing scene differs from live scene.
+    // Transition button — animates in when editing scene differs from live scene.
     let can_transition = active_id != program_id
         && active_id.is_some()
         && state.active_transition.is_none();
-    if can_transition {
+    let anim_id = egui::Id::new("toolbar_transition_btn_anim");
+    let t = ui.ctx().animate_bool_with_time(anim_id, can_transition, 0.2);
+    if t > 0.0 {
+        let opacity = t;
+        let accent = theme.accent;
+        let fill = egui::Color32::from_rgba_unmultiplied(
+            accent.r(),
+            accent.g(),
+            accent.b(),
+            (accent.a() as f32 * opacity) as u8,
+        );
+        let text_alpha = (255.0 * opacity) as u8;
+        let text_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, text_alpha);
+
         let btn = egui::Button::new(
-            RichText::new(format!("{} Go Live", egui_phosphor::regular::ARROW_RIGHT))
+            RichText::new(format!("{} Transition", egui_phosphor::regular::ARROW_RIGHT))
                 .size(11.0)
                 .strong()
-                .color(Color32::WHITE),
+                .color(text_color),
         )
-        .fill(theme.danger)
+        .fill(fill)
         .corner_radius(theme.radius_sm)
         .min_size(Vec2::new(0.0, 24.0));
 
-        if ui.add(btn).clicked() {
+        if ui.add(btn).clicked() && can_transition {
             trigger_scene_transition(state);
         }
     }

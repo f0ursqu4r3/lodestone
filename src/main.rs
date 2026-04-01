@@ -1816,25 +1816,25 @@ impl ApplicationHandler for AppManager {
                     } else {
                         None
                     };
-                    let (trans_from, trans_to) = if let Some((from, to, _, _, _, _)) = transition_info
-                    {
-                        // During transition, we need both from and to scenes composed.
-                        // The from scene is the current program_scene_id.
-                        // The to scene may or may not be active_scene_id.
-                        let from_sources = if from == active_scene_id {
-                            None // reuse active_sources from primary canvas
+                    let (trans_from, trans_to) =
+                        if let Some((from, to, _, _, _, _)) = transition_info {
+                            // During transition, we need both from and to scenes composed.
+                            // The from scene is the current program_scene_id.
+                            // The to scene may or may not be active_scene_id.
+                            let from_sources = if from == active_scene_id {
+                                None // reuse active_sources from primary canvas
+                            } else {
+                                Some(resolve_scene_sources(&app_state, from))
+                            };
+                            let to_sources = if to == active_scene_id {
+                                None // reuse active_sources from primary canvas
+                            } else {
+                                Some(resolve_scene_sources(&app_state, to))
+                            };
+                            (from_sources, to_sources)
                         } else {
-                            Some(resolve_scene_sources(&app_state, from))
+                            (None, None)
                         };
-                        let to_sources = if to == active_scene_id {
-                            None // reuse active_sources from primary canvas
-                        } else {
-                            Some(resolve_scene_sources(&app_state, to))
-                        };
-                        (from_sources, to_sources)
-                    } else {
-                        (None, None)
-                    };
                     (active, program, trans_from, trans_to)
                 };
 

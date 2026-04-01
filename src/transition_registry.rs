@@ -14,10 +14,13 @@ pub struct TransitionDef {
     /// Display name from `@name` header, or title-cased file stem.
     pub name: String,
     /// Author from `@author` header, or empty.
+    #[allow(dead_code)]
     pub author: String,
     /// Description from `@description` header, or empty.
+    #[allow(dead_code)]
     pub description: String,
     /// Which color uniforms to expose in the UI, from `@params` header.
+    #[allow(dead_code)]
     pub params: Vec<TransitionParam>,
     /// Raw WGSL shader source.
     pub shader_source: String,
@@ -63,7 +66,10 @@ impl TransitionRegistry {
         let entries = match std::fs::read_dir(dir) {
             Ok(entries) => entries,
             Err(e) => {
-                log::warn!("Failed to read transitions directory {}: {e}", dir.display());
+                log::warn!(
+                    "Failed to read transitions directory {}: {e}",
+                    dir.display()
+                );
                 return Self { transitions };
             }
         };
@@ -112,6 +118,7 @@ impl TransitionRegistry {
     }
 
     /// Re-scan the transitions directory.
+    #[allow(dead_code)]
     pub fn rescan(&mut self, dir: &std::path::Path) {
         *self = Self::scan(dir);
     }
@@ -212,7 +219,10 @@ mod tests {
         assert_eq!(name, "Dip to Color");
         assert_eq!(author, "Lodestone");
         assert_eq!(desc, "Fades through a solid color");
-        assert_eq!(params, vec![TransitionParam::Color, TransitionParam::FromColor]);
+        assert_eq!(
+            params,
+            vec![TransitionParam::Color, TransitionParam::FromColor]
+        );
     }
 
     #[test]
@@ -245,11 +255,14 @@ mod tests {
     fn parse_header_all_params() {
         let src = "// @params: color, from_color, to_color\n";
         let (_, _, _, params) = parse_header(src);
-        assert_eq!(params, vec![
-            TransitionParam::Color,
-            TransitionParam::FromColor,
-            TransitionParam::ToColor,
-        ]);
+        assert_eq!(
+            params,
+            vec![
+                TransitionParam::Color,
+                TransitionParam::FromColor,
+                TransitionParam::ToColor,
+            ]
+        );
     }
 
     #[test]

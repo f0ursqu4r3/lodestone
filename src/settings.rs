@@ -425,10 +425,10 @@ pub fn seed_builtin_transitions() {
 
     for (filename, source) in builtins {
         let path = dir.join(filename);
-        if !path.exists() {
-            if let Err(e) = std::fs::write(&path, source) {
-                log::warn!("Failed to write built-in transition {filename}: {e}");
-            }
+        if !path.exists()
+            && let Err(e) = std::fs::write(&path, source)
+        {
+            log::warn!("Failed to write built-in transition {filename}: {e}");
         }
     }
 }

@@ -1732,7 +1732,7 @@ fn override_dot(ui: &mut egui::Ui, is_overridden: bool) -> bool {
     reset
 }
 
-/// Render a section heading in the style: 9px uppercase text_muted with letter spacing.
+/// Render a section heading with subtle underline, matching settings panel style.
 fn section_label(ui: &mut egui::Ui, text: &str) {
     let theme = active_theme(ui.ctx());
     ui.label(
@@ -1741,6 +1741,16 @@ fn section_label(ui: &mut egui::Ui, text: &str) {
             .size(10.0)
             .strong(),
     );
+    // Subtle separator line below header text.
+    let rect = ui.cursor();
+    let line_y = rect.top() + 2.0;
+    let left = ui.min_rect().left();
+    let right = ui.max_rect().right();
+    ui.painter().line_segment(
+        [egui::pos2(left, line_y), egui::pos2(right, line_y)],
+        egui::Stroke::new(1.0, theme.border_subtle),
+    );
+    ui.add_space(4.0);
 }
 
 /// Render a row with two labeled drag fields in a [label][input][label][input] grid.

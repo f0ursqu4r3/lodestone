@@ -1,4 +1,5 @@
 pub mod compositor;
+pub mod effect_pipeline;
 pub mod pipelines;
 pub mod secondary_canvas;
 pub mod text;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 use winit::window::Window;
 
 use compositor::Compositor;
+use effect_pipeline::EffectPipeline;
 use pipelines::WidgetPipeline;
 use secondary_canvas::SecondaryCanvas;
 use text::GlyphonRenderer;
@@ -33,6 +35,8 @@ pub struct SharedGpuState {
     pub text_renderer: GlyphonRenderer,
     /// GPU pipeline for blending two canvas textures during scene transitions.
     pub transition_pipeline: TransitionPipeline,
+    /// GPU pipeline for per-source shader effects (blur, color correction, etc.).
+    pub effect_pipeline: EffectPipeline,
     /// On-demand secondary canvas for the "to" scene during transitions or Studio Mode.
     pub secondary_canvas: Option<SecondaryCanvas>,
 }
@@ -87,6 +91,9 @@ impl SharedGpuState {
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
 
+        let effect_pipeline =
+            EffectPipeline::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb);
+
         Ok(Self {
             instance,
             device,
@@ -96,6 +103,7 @@ impl SharedGpuState {
             widget_pipeline,
             text_renderer,
             transition_pipeline,
+            effect_pipeline,
             secondary_canvas: None,
         })
     }

@@ -637,7 +637,6 @@ pub fn draw_transform_handles(
 
     let pointer = ui.input(|i| i.pointer.hover_pos());
     let primary_clicked = ui.input(|i| i.pointer.primary_clicked());
-    let primary_down = ui.input(|i| i.pointer.primary_down());
     let primary_released = ui.input(|i| i.pointer.primary_released());
     let shift_held = ui.input(|i| i.modifiers.shift);
     let alt_held = ui.input(|i| i.modifiers.alt);
@@ -899,7 +898,7 @@ pub fn draw_transform_handles(
         if let Some(mouse_pos) = pointer {
             match &drag_mode {
                 DragMode::None => {
-                    if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open {
+                    if primary_clicked && panel_rect.contains(mouse_pos) && !ctx_menu_open {
                         // No source hit, no selection — start marquee.
                         let hit = active_scene_sources
                             .iter()
@@ -984,7 +983,7 @@ pub fn draw_transform_handles(
     if let Some(mouse_pos) = pointer {
         match &mut drag_mode {
             DragMode::None => {
-                if primary_down && panel_rect.contains(mouse_pos) && !ctx_menu_open && !is_locked {
+                if primary_clicked && panel_rect.contains(mouse_pos) && !ctx_menu_open && !is_locked {
                     if let Some(handle) =
                         hit_test_handles(mouse_pos, screen_rect, transform.rotation)
                     {

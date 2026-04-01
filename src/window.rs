@@ -148,13 +148,10 @@ impl WindowState {
             theme.accent_hover = accent;
             theme.accent_dim = crate::ui::theme::accent_dim(accent);
         }
-        // Store resolved ThemeId in context data (read by active_theme()).
-        self.egui_ctx.data_mut(|d| {
-            d.insert_temp(egui::Id::new("active_theme"), theme.id);
-        });
-        // Maintain old accent_color key for backward compat during migration.
+        // Store resolved Theme (with accent override applied) in context data.
         state.accent_color = theme.accent;
         self.egui_ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new("active_theme"), theme.clone());
             d.insert_temp(egui::Id::new("accent_color"), theme.accent);
         });
         // Set egui dark/light visuals based on theme brightness.
@@ -351,13 +348,10 @@ impl WindowState {
             theme.accent_hover = accent;
             theme.accent_dim = crate::ui::theme::accent_dim(accent);
         }
-        // Store resolved ThemeId in context data (read by active_theme()).
-        self.egui_ctx.data_mut(|d| {
-            d.insert_temp(egui::Id::new("active_theme"), theme.id);
-        });
-        // Maintain old accent_color key for backward compat during migration.
+        // Store resolved Theme (with accent override applied) in context data.
         state.accent_color = theme.accent;
         self.egui_ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new("active_theme"), theme.clone());
             d.insert_temp(egui::Id::new("accent_color"), theme.accent);
         });
         // Set egui dark/light visuals based on theme brightness.

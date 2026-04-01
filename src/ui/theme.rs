@@ -364,8 +364,7 @@ pub const DEFAULT_DARK: Theme = Theme {
 /// Read the active [`Theme`] from egui context data.
 /// Falls back to [`DEFAULT_DARK`] if none has been stored.
 pub fn active_theme(ctx: &egui::Context) -> Theme {
-    ctx.data(|d| d.get_temp::<ThemeId>(egui::Id::new("active_theme")))
-        .map(Theme::builtin)
+    ctx.data(|d| d.get_temp::<Theme>(egui::Id::new("active_theme")))
         .unwrap_or_else(|| DEFAULT_DARK.clone())
 }
 

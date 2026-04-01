@@ -138,7 +138,13 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
             theme.text_secondary
         };
 
-        let btn = egui::Button::new(RichText::new(name).size(11.0).color(text_color))
+        // Add left padding for the dot when this is the live scene.
+        let label = if is_live {
+            format!("    {name}")
+        } else {
+            name.clone()
+        };
+        let btn = egui::Button::new(RichText::new(&label).size(11.0).color(text_color))
             .fill(fill)
             .corner_radius(theme.radius_lg)
             .min_size(Vec2::new(0.0, 24.0));
@@ -148,7 +154,7 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
         // Red dot for the live (program) scene.
         if is_live {
             let dot_center = egui::pos2(
-                response.rect.left() + 8.0,
+                response.rect.left() + 10.0,
                 response.rect.center().y,
             );
             ui.painter()

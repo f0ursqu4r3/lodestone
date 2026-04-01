@@ -252,14 +252,30 @@ fn render_content_direct(ui: &mut Ui, category: SettingsCategory, state: &mut Ap
 
 pub(super) fn section_header(ui: &mut Ui, label: &str) {
     let theme = active_theme(ui.ctx());
-    ui.add_space(12.0);
+
+    // Use larger top margin for separation, but less for the first header.
+    let cursor_y = ui.cursor().top();
+    let min_y = ui.min_rect().top();
+    let is_first = (cursor_y - min_y) < 20.0;
+    let top_space = if is_first { 4.0 } else { 16.0 };
+
+    ui.add_space(top_space);
     ui.label(
         egui::RichText::new(label)
             .size(11.0)
-            .color(theme.text_muted)
+            .color(theme.text_secondary)
             .strong(),
     );
-    ui.add_space(4.0);
+    // Subtle separator line below header text.
+    let rect = ui.cursor();
+    let line_y = rect.top() + 2.0;
+    let left = ui.min_rect().left();
+    let right = ui.max_rect().right();
+    ui.painter().line_segment(
+        [egui::pos2(left, line_y), egui::pos2(right, line_y)],
+        egui::Stroke::new(1.0, theme.border_subtle),
+    );
+    ui.add_space(8.0);
 }
 
 pub(super) fn labeled_row(ui: &mut Ui, label: &str) {

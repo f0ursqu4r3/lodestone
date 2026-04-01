@@ -1,15 +1,15 @@
-// src/renderer/shaders/transition_fade.wgsl
-//
-// Crossfade transition: linearly blends two scene canvases by progress.
-// Standard transition interface — all transition shaders receive:
-//   - t_from / s_from: outgoing scene texture + sampler (group 0)
-//   - t_to / s_to:     incoming scene texture + sampler (group 1)
-//   - uniforms.progress: 0.0 (fully "from") to 1.0 (fully "to")
-//   - uniforms.time:     elapsed seconds since transition start
+// @name: Fade
+// @author: Lodestone
+// @description: Linear crossfade between outgoing and incoming scene
 
 struct TransitionUniforms {
     progress: f32,
     time: f32,
+    _pad0: f32,
+    _pad1: f32,
+    color: vec4<f32>,
+    from_color: vec4<f32>,
+    to_color: vec4<f32>,
 };
 
 struct VertexOutput {

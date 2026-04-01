@@ -314,7 +314,7 @@ fn draw_scene_card(
             let badge_w = text_w + 10.0;
             let badge_h = 13.0;
             let badge_rect = egui::Rect::from_min_size(
-                egui::pos2(thumb_rect.right() - badge_w - 4.0, thumb_rect.top() + 4.0),
+                egui::pos2(thumb_rect.left() + 4.0, thumb_rect.top() + 4.0),
                 egui::vec2(badge_w, badge_h),
             );
 

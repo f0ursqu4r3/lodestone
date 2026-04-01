@@ -62,8 +62,8 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let from = textureSample(t_from, s_from, in.uv);
-    let to = textureSample(t_to, s_to, in.uv);
+    let src = textureSample(t_from, s_from, in.uv);
+    let dst = textureSample(t_to, s_to, in.uv);
 
     let noise = dissolve_noise(in.uv);
 
@@ -72,5 +72,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let edge = 0.04;
     let blend = smoothstep(uniforms.progress - edge, uniforms.progress + edge, noise);
 
-    return mix(to, from, blend);
+    return mix(dst, src, blend);
 }

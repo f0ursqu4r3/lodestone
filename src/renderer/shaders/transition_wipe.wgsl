@@ -40,13 +40,13 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let from = textureSample(t_from, s_from, in.uv);
-    let to = textureSample(t_to, s_to, in.uv);
+    let src = textureSample(t_from, s_from, in.uv);
+    let dst = textureSample(t_to, s_to, in.uv);
 
     // Soft edge: ~2% of screen width for antialiasing
     let edge = 0.02;
     let cutoff = uniforms.progress;
     let blend = smoothstep(cutoff - edge, cutoff + edge, in.uv.x);
 
-    return mix(to, from, blend);
+    return mix(dst, src, blend);
 }

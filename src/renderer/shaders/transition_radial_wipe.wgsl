@@ -40,8 +40,8 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let from = textureSample(t_from, s_from, in.uv);
-    let to = textureSample(t_to, s_to, in.uv);
+    let src = textureSample(t_from, s_from, in.uv);
+    let dst = textureSample(t_to, s_to, in.uv);
 
     // Distance from center, corrected for 16:9 aspect ratio
     let center = vec2<f32>(0.5, 0.5);
@@ -56,5 +56,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let edge = 0.02 * max_dist; // soft edge
 
     let blend = smoothstep(radius - edge, radius + edge, dist);
-    return mix(to, from, blend);
+    return mix(dst, src, blend);
 }

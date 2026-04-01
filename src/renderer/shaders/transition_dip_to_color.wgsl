@@ -41,17 +41,17 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let from = textureSample(t_from, s_from, in.uv);
-    let to = textureSample(t_to, s_to, in.uv);
+    let src = textureSample(t_from, s_from, in.uv);
+    let dst = textureSample(t_to, s_to, in.uv);
     let p = uniforms.progress;
 
     // First half: fade from scene → solid color
     // Second half: fade from solid color → to scene
     if p < 0.5 {
         let t = p * 2.0; // 0..1 over first half
-        return mix(from, uniforms.color, t);
+        return mix(src, uniforms.color, t);
     } else {
         let t = (p - 0.5) * 2.0; // 0..1 over second half
-        return mix(uniforms.color, to, t);
+        return mix(uniforms.color, dst, t);
     }
 }

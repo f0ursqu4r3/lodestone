@@ -29,20 +29,25 @@ pub struct TransitionDef {
 #[derive(Debug, Clone)]
 pub struct TransitionRegistry {
     transitions: Vec<TransitionDef>,
+    /// Simple fingerprint: concatenation of (id, shader_source length) for change detection.
+    fingerprint: u64,
 }
 
 impl TransitionRegistry {
     /// Create an empty registry with just the synthetic "cut" entry.
     pub fn empty() -> Self {
+        let transitions = vec![TransitionDef {
+            id: crate::transition::TRANSITION_CUT.to_string(),
+            name: "Cut".to_string(),
+            author: String::new(),
+            description: "Instant scene switch".to_string(),
+            params: Vec::new(),
+            shader_source: String::new(),
+        }];
+        let fingerprint = Self::compute_fingerprint(&transitions);
         Self {
-            transitions: vec![TransitionDef {
-                id: crate::transition::TRANSITION_CUT.to_string(),
-                name: "Cut".to_string(),
-                author: String::new(),
-                description: "Instant scene switch".to_string(),
-                params: Vec::new(),
-                shader_source: String::new(),
-            }],
+            transitions,
+            fingerprint,
         }
     }
 
@@ -69,7 +74,11 @@ impl TransitionRegistry {
                     "Failed to read transitions directory {}: {e}",
                     dir.display()
                 );
-                return Self { transitions };
+                let fingerprint = Self::compute_fingerprint(&transitions);
+                return Self {
+                    transitions,
+                    fingerprint,
+                };
             }
         };
 
@@ -113,13 +122,35 @@ impl TransitionRegistry {
         shader_defs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         transitions.extend(shader_defs);
 
-        Self { transitions }
+        let fingerprint = Self::compute_fingerprint(&transitions);
+        Self {
+            transitions,
+            fingerprint,
+        }
     }
 
-    /// Re-scan the transitions directory.
-    #[allow(dead_code)]
-    pub fn rescan(&mut self, dir: &std::path::Path) {
-        *self = Self::scan(dir);
+    /// Re-scan the transitions directory. Returns true if the registry changed.
+    pub fn rescan(&mut self, dir: &std::path::Path) -> bool {
+        let new = Self::scan(dir);
+        if new.fingerprint != self.fingerprint {
+            *self = new;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Simple fingerprint based on file count, IDs, and source lengths.
+    fn compute_fingerprint(transitions: &[TransitionDef]) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        for t in transitions {
+            t.id.hash(&mut hasher);
+            t.shader_source.len().hash(&mut hasher);
+            t.shader_source.hash(&mut hasher);
+        }
+        hasher.finish()
     }
 
     /// Look up a transition by ID.

@@ -1766,12 +1766,34 @@ impl ApplicationHandler for AppManager {
         // Secondary canvas → program_scene_id (Live panel + encoding) when it differs
         if let Some(ref mut gpu) = self.gpu {
             // Read scene IDs, transition state, and encoding status from AppState.
-            let (active_id, program_id, transition_info, is_encoding, transition_registry) = {
+            let (
+                active_id,
+                program_id,
+                transition_info,
+                is_encoding,
+                transition_registry,
+                registry_changed,
+            ) = {
                 let mut app_state = self.state.lock().expect("lock AppState");
 
                 // Initialize program_scene_id from active_scene_id on startup.
                 if app_state.program_scene_id.is_none() && app_state.active_scene_id.is_some() {
                     app_state.program_scene_id = app_state.active_scene_id;
+                }
+
+                // Periodically rescan the transitions directory for new/changed shaders.
+                if app_state.last_transition_scan.elapsed() >= std::time::Duration::from_secs(2) {
+                    app_state.last_transition_scan = std::time::Instant::now();
+                    if app_state
+                        .transition_registry
+                        .rescan(&crate::settings::transitions_dir())
+                    {
+                        app_state.transition_registry_changed = true;
+                        log::info!(
+                            "Transition registry updated — {} transitions available",
+                            app_state.transition_registry.all().len()
+                        );
+                    }
                 }
 
                 let active = app_state.active_scene_id;
@@ -1787,14 +1809,29 @@ impl ApplicationHandler for AppManager {
                     )
                 });
                 let transition_registry = app_state.transition_registry.clone();
+                let registry_changed = app_state.transition_registry_changed;
+                if registry_changed {
+                    app_state.transition_registry_changed = false;
+                }
                 let encoding = app_state.stream_status.is_live()
                     || matches!(
                         app_state.recording_status,
                         crate::state::RecordingStatus::Recording { .. }
                     )
                     || app_state.virtual_camera_active;
-                (active, program, trans, encoding, transition_registry)
+                (
+                    active,
+                    program,
+                    trans,
+                    encoding,
+                    transition_registry,
+                    registry_changed,
+                )
             };
+            // Invalidate compiled shader pipelines when the registry changed.
+            if registry_changed {
+                gpu.transition_pipeline.invalidate_user_shaders();
+            }
 
             let mut did_transition_blend = false;
 

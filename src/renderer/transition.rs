@@ -141,6 +141,13 @@ impl TransitionPipeline {
         true
     }
 
+    /// Clear all compiled shader pipelines except the built-in fade.
+    /// Called when the transition registry is rescanned (user modified/added shaders).
+    pub fn invalidate_user_shaders(&mut self) {
+        self.compiled
+            .retain(|id, _| id == crate::transition::TRANSITION_FADE);
+    }
+
     /// Get or lazily compile a transition pipeline by ID.
     /// Falls back to "fade" if the shader fails to compile or isn't found in the registry.
     pub fn get_or_compile(

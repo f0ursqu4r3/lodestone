@@ -196,6 +196,10 @@ pub struct AppState {
     pub pending_loop_mode_updates: Vec<(SourceId, crate::scene::LoopMode)>,
     /// Registry of available transition shaders, scanned from transitions directory.
     pub transition_registry: crate::transition_registry::TransitionRegistry,
+    /// When the transitions directory was last scanned for changes.
+    pub last_transition_scan: std::time::Instant,
+    /// Whether the transition registry changed on the last rescan (triggers pipeline invalidation).
+    pub transition_registry_changed: bool,
 }
 
 impl Default for AppState {
@@ -252,6 +256,8 @@ impl Default for AppState {
             pending_gif_animations: Vec::new(),
             pending_loop_mode_updates: Vec::new(),
             transition_registry: crate::transition_registry::TransitionRegistry::empty(),
+            last_transition_scan: std::time::Instant::now(),
+            transition_registry_changed: false,
         }
     }
 }

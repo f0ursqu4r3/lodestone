@@ -68,11 +68,40 @@ fn resolve_scene_sources(
                         .library
                         .iter()
                         .find(|s| s.id == scene_src.source_id)
-                        .map(|lib| crate::renderer::compositor::ResolvedSource {
-                            id: lib.id,
-                            transform: scene_src.resolve_transform(lib),
-                            opacity: scene_src.resolve_opacity(lib),
-                            visible: scene_src.resolve_visible(lib),
+                        .map(|lib| {
+                            // Resolve effect chain and convert to ResolvedEffect.
+                            let effect_chain = scene_src.resolve_effects(lib);
+                            let resolved_effects: Vec<
+                                crate::renderer::effect_pipeline::ResolvedEffect,
+                            > = effect_chain
+                                .iter()
+                                .filter(|e| e.enabled)
+                                .filter_map(|e| {
+                                    let def = state.effect_registry.get(&e.effect_id)?;
+                                    let mut params = [0.0f32; 8];
+                                    for (i, param_def) in
+                                        def.params.iter().enumerate().take(8)
+                                    {
+                                        params[i] = e
+                                            .params
+                                            .get(&param_def.name)
+                                            .copied()
+                                            .unwrap_or(param_def.default);
+                                    }
+                                    Some(crate::renderer::effect_pipeline::ResolvedEffect {
+                                        effect_id: e.effect_id.clone(),
+                                        params,
+                                    })
+                                })
+                                .collect();
+
+                            crate::renderer::compositor::ResolvedSource {
+                                id: lib.id,
+                                transform: scene_src.resolve_transform(lib),
+                                opacity: scene_src.resolve_opacity(lib),
+                                visible: scene_src.resolve_visible(lib),
+                                effects: resolved_effects,
+                            }
                         })
                 })
                 .collect()
@@ -286,9 +315,16 @@ impl AppManager {
         // Seed built-in transition shaders on first launch.
         settings::seed_builtin_transitions();
 
+        // Seed built-in effect shaders on first launch.
+        settings::seed_builtin_effects();
+
         // Scan transitions directory and populate the registry.
         let transition_registry =
             crate::transition_registry::TransitionRegistry::scan(&settings::transitions_dir());
+
+        // Scan effects directory and populate the registry.
+        let effect_registry =
+            crate::effect_registry::EffectRegistry::scan(&settings::effects_dir());
 
         let initial_state = AppState {
             scenes: collection.scenes,
@@ -303,6 +339,7 @@ impl AppManager {
             detected_resolution,
             settings: saved_settings,
             transition_registry,
+            effect_registry,
             ..AppState::default()
         };
 
@@ -1852,6 +1889,8 @@ impl ApplicationHandler for AppManager {
                 is_encoding,
                 transition_registry,
                 registry_changed,
+                effect_registry,
+                effect_registry_changed,
             ) = {
                 let mut app_state = self.state.lock().expect("lock AppState");
 
@@ -1875,6 +1914,21 @@ impl ApplicationHandler for AppManager {
                     }
                 }
 
+                // Periodically rescan the effects directory for new/changed shaders.
+                if app_state.last_effect_scan.elapsed() >= std::time::Duration::from_secs(2) {
+                    app_state.last_effect_scan = std::time::Instant::now();
+                    if app_state
+                        .effect_registry
+                        .rescan(&crate::settings::effects_dir())
+                    {
+                        app_state.effect_registry_changed = true;
+                        log::info!(
+                            "Effect registry updated — {} effects available",
+                            app_state.effect_registry.all().len()
+                        );
+                    }
+                }
+
                 let active = app_state.active_scene_id;
                 let program = app_state.program_scene_id;
                 let trans = app_state.active_transition.as_ref().map(|t| {
@@ -1892,6 +1946,11 @@ impl ApplicationHandler for AppManager {
                 if registry_changed {
                     app_state.transition_registry_changed = false;
                 }
+                let effect_registry = app_state.effect_registry.clone();
+                let effect_registry_changed = app_state.effect_registry_changed;
+                if effect_registry_changed {
+                    app_state.effect_registry_changed = false;
+                }
                 let encoding = app_state.stream_status.is_live()
                     || matches!(
                         app_state.recording_status,
@@ -1905,11 +1964,16 @@ impl ApplicationHandler for AppManager {
                     encoding,
                     transition_registry,
                     registry_changed,
+                    effect_registry,
+                    effect_registry_changed,
                 )
             };
             // Invalidate compiled shader pipelines when the registry changed.
             if registry_changed {
                 gpu.transition_pipeline.invalidate_user_shaders();
+            }
+            if effect_registry_changed {
+                gpu.effect_pipeline.invalidate_user_shaders();
             }
 
             let mut did_transition_blend = false;
@@ -1979,9 +2043,22 @@ impl ApplicationHandler for AppManager {
                             label: Some("compositor_encoder"),
                         });
 
+                // Time value for animated effects (seconds since epoch).
+                let effect_time = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs_f32();
+
                 // Always compose active_scene_id onto primary canvas (Preview).
-                gpu.compositor
-                    .compose(&gpu.queue, &mut encoder, &active_sources);
+                gpu.compositor.compose(
+                    &gpu.device,
+                    &gpu.queue,
+                    &mut encoder,
+                    &active_sources,
+                    Some(&mut gpu.effect_pipeline),
+                    effect_time,
+                    Some(&effect_registry),
+                );
 
                 // Track whether we need to force readback from the output texture.
                 let mut force_output_readback = false;
@@ -2006,11 +2083,15 @@ impl ApplicationHandler for AppManager {
                         && let Some(ref secondary) = gpu.secondary_canvas
                     {
                         gpu.compositor.compose_to(
+                            &gpu.device,
                             &gpu.queue,
                             &mut encoder,
                             &secondary.view,
                             gpu.compositor.source_layers(),
                             from_sources,
+                            Some(&mut gpu.effect_pipeline),
+                            effect_time,
+                            Some(&effect_registry),
                         );
                     }
 
@@ -2042,11 +2123,15 @@ impl ApplicationHandler for AppManager {
                             // sampled via bind group).
                             if let Some(ref secondary) = gpu.secondary_canvas {
                                 gpu.compositor.compose_to(
+                                    &gpu.device,
                                     &gpu.queue,
                                     &mut encoder,
                                     &secondary.view,
                                     gpu.compositor.source_layers(),
                                     to_src,
+                                    Some(&mut gpu.effect_pipeline),
+                                    effect_time,
+                                    Some(&effect_registry),
                                 );
                             }
                             gpu.secondary_canvas.as_ref().map(|s| s.bind_group.as_ref())
@@ -2083,11 +2168,15 @@ impl ApplicationHandler for AppManager {
                         && let Some(ref secondary) = gpu.secondary_canvas
                     {
                         gpu.compositor.compose_to(
+                            &gpu.device,
                             &gpu.queue,
                             &mut encoder,
                             &secondary.view,
                             gpu.compositor.source_layers(),
                             prog_sources,
+                            Some(&mut gpu.effect_pipeline),
+                            effect_time,
+                            Some(&effect_registry),
                         );
                     }
 

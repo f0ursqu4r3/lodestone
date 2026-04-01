@@ -414,6 +414,15 @@ impl EffectPipeline {
             .map(|tt| &tt.bind_groups[index])
     }
 
+    /// After `apply_chain` returns `Some(index)`, call this to get the texture view
+    /// for the resulting texture. Used by the compositor to create a bind group with
+    /// its own layout.
+    pub fn result_texture_view(&self, source_id: SourceId, index: usize) -> Option<&wgpu::TextureView> {
+        self.temp_textures
+            .get(&source_id)
+            .map(|tt| &tt.views[index])
+    }
+
     // ---- Private helpers ---------------------------------------------------
 
     fn create_temp_texture_pair(&self, device: &Device, size: (u32, u32)) -> TempTextures {

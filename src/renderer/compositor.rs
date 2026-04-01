@@ -26,6 +26,8 @@ pub struct ResolvedSource {
     pub opacity: f32,
     /// Whether this source should be drawn at all.
     pub visible: bool,
+    /// Resolved effect chain to apply before compositing this source.
+    pub effects: Vec<crate::renderer::effect_pipeline::ResolvedEffect>,
 }
 
 // ---------------------------------------------------------------------------
@@ -638,18 +640,31 @@ impl Compositor {
     ///
     /// Always clears the canvas to black first, then draws each visible source
     /// with its own per-source uniform buffer to avoid data races.
+    /// Compose sources onto the primary canvas texture.
+    ///
+    /// When `effect_pipeline` and `effect_registry` are provided, per-source
+    /// effect chains are applied before compositing.
+    #[allow(clippy::too_many_arguments)]
     pub fn compose(
         &self,
+        device: &Device,
         queue: &Queue,
         encoder: &mut wgpu::CommandEncoder,
         sources: &[ResolvedSource],
+        effect_pipeline: Option<&mut crate::renderer::effect_pipeline::EffectPipeline>,
+        effect_time: f32,
+        effect_registry: Option<&crate::effect_registry::EffectRegistry>,
     ) {
         self.compose_to(
+            device,
             queue,
             encoder,
             &self.canvas_view,
             &self.source_layers,
             sources,
+            effect_pipeline,
+            effect_time,
+            effect_registry,
         );
     }
 
@@ -948,13 +963,22 @@ impl Compositor {
     }
 
     /// Compose sources onto an arbitrary target view using the given source layers.
+    ///
+    /// When `effect_pipeline` is provided, per-source effect chains are applied
+    /// before compositing. The effect chain runs on the source texture and the
+    /// result is composited in place of the original.
+    #[allow(clippy::too_many_arguments)]
     pub fn compose_to(
         &self,
+        device: &Device,
         queue: &Queue,
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
         source_layers: &HashMap<SourceId, SourceLayer>,
         sources: &[ResolvedSource],
+        mut effect_pipeline: Option<&mut crate::renderer::effect_pipeline::EffectPipeline>,
+        effect_time: f32,
+        effect_registry: Option<&crate::effect_registry::EffectRegistry>,
     ) {
         let cw = self.canvas_width as f32;
         let ch = self.canvas_height as f32;
@@ -978,6 +1002,55 @@ impl Compositor {
             });
         }
 
+        // Apply effect chains (mutable borrow of effect_pipeline).
+        // Collect the result indices so we can use them in the immutable compositing phase.
+        let mut effect_results: HashMap<SourceId, usize> = HashMap::new();
+        if let Some(ref mut ep) = effect_pipeline.as_deref_mut()
+            && let Some(registry) = effect_registry
+        {
+            for source in sources {
+                if !source.visible || source.effects.is_empty() {
+                    continue;
+                }
+                let layer = match source_layers.get(&source.id) {
+                    Some(l) => l,
+                    None => continue,
+                };
+                if let Some(result_idx) = ep.apply_chain(
+                    device,
+                    queue,
+                    encoder,
+                    source.id,
+                    &layer.bind_group,
+                    layer.size,
+                    &source.effects,
+                    effect_time,
+                    registry,
+                ) {
+                    effect_results.insert(source.id, result_idx);
+                }
+            }
+        }
+
+        // Compositing phase: for each source, use the effect result texture if
+        // available, otherwise use the original source layer texture.
+        // We need a temporary storage for bind groups created from effect results.
+        let mut effect_bind_groups: HashMap<SourceId, wgpu::BindGroup> = HashMap::new();
+        if let Some(ep) = effect_pipeline {
+            for (&source_id, &result_idx) in &effect_results {
+                if let Some(view) = ep.result_texture_view(source_id, result_idx) {
+                    let bg = create_texture_bind_group(
+                        device,
+                        "effect_result_compositor_bg",
+                        &self.texture_bind_group_layout,
+                        view,
+                        &self.sampler,
+                    );
+                    effect_bind_groups.insert(source_id, bg);
+                }
+            }
+        }
+
         for source in sources {
             let layer = match source_layers.get(&source.id) {
                 Some(l) => l,
@@ -997,6 +1070,11 @@ impl Compositor {
             };
             queue.write_buffer(&layer.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
+            // Use effect result bind group if effects were applied, else original.
+            let source_bind_group = effect_bind_groups
+                .get(&source.id)
+                .unwrap_or(&layer.bind_group);
+
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("compositor_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1014,7 +1092,7 @@ impl Compositor {
             });
 
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &layer.bind_group, &[]);
+            pass.set_bind_group(0, source_bind_group, &[]);
             pass.set_bind_group(1, &layer.uniform_bind_group, &[]);
             pass.draw(0..4, 0..1);
         }

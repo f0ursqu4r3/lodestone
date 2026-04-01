@@ -200,6 +200,12 @@ pub struct AppState {
     pub last_transition_scan: std::time::Instant,
     /// Whether the transition registry changed on the last rescan (triggers pipeline invalidation).
     pub transition_registry_changed: bool,
+    /// Registry of available effect shaders, scanned from effects directory.
+    pub effect_registry: crate::effect_registry::EffectRegistry,
+    /// When the effects directory was last scanned for changes.
+    pub last_effect_scan: std::time::Instant,
+    /// Whether the effect registry changed on the last rescan (triggers pipeline invalidation).
+    pub effect_registry_changed: bool,
 }
 
 impl Default for AppState {
@@ -258,6 +264,9 @@ impl Default for AppState {
             transition_registry: crate::transition_registry::TransitionRegistry::empty(),
             last_transition_scan: std::time::Instant::now(),
             transition_registry_changed: false,
+            effect_registry: crate::effect_registry::EffectRegistry::empty(),
+            last_effect_scan: std::time::Instant::now(),
+            effect_registry_changed: false,
         }
     }
 }

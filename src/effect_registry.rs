@@ -38,6 +38,7 @@ pub struct EffectDef {
 }
 
 /// Registry of available effect shaders, scanned from a directory.
+#[derive(Debug, Clone)]
 pub struct EffectRegistry {
     effects: Vec<EffectDef>,
     /// Simple fingerprint: concatenation of (id, shader_source) for change detection.

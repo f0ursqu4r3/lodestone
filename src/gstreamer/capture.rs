@@ -249,6 +249,7 @@ mod tests {
         let config = CaptureSourceConfig::Screen {
             screen_index: 0,
             exclude_self: false,
+            capture_size: (1920, 1080),
         };
         let result = build_capture_pipeline(&config, 1920, 1080, 30);
         match result {

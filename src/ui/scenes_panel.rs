@@ -150,12 +150,16 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
                 // Diff sources: stop sources no longer needed, start new ones.
                 // Then re-start any sources that were stopped but are needed by the program scene.
+                let capture_size = crate::renderer::compositor::parse_resolution(
+                    &state.settings.video.base_resolution,
+                );
                 let anims = apply_scene_diff(
                     &cmd_tx,
                     &state.library,
                     old_scene.as_ref(),
                     new_scene.as_ref(),
                     state.settings.general.exclude_self_from_capture,
+                    capture_size,
                 );
                 state.pending_gif_animations.extend(anims);
 
@@ -176,6 +180,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                             &state.library,
                             src_id,
                             state.settings.general.exclude_self_from_capture,
+                            capture_size,
                         );
                         state.pending_gif_animations.extend(anims);
                     }
@@ -682,12 +687,16 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
             state.deselect_all();
 
             let cmd_tx = state.command_tx.clone();
+            let capture_size = crate::renderer::compositor::parse_resolution(
+                &state.settings.video.base_resolution,
+            );
             let anims = apply_scene_diff(
                 &cmd_tx,
                 &state.library,
                 old_scene.as_ref(),
                 new_scene.as_ref(),
                 state.settings.general.exclude_self_from_capture,
+                capture_size,
             );
             state.pending_gif_animations.extend(anims);
 
@@ -702,6 +711,9 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
 
             if let Some(ref new_s) = new_scene {
                 let cmd_tx = state.command_tx.clone();
+                let capture_size = crate::renderer::compositor::parse_resolution(
+                    &state.settings.video.base_resolution,
+                );
                 for &src_id in &new_s.source_ids() {
                     let already_running = old_scene
                         .as_ref()
@@ -713,6 +725,7 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
                             &state.library,
                             src_id,
                             state.settings.general.exclude_self_from_capture,
+                            capture_size,
                         );
                     }
                 }
@@ -796,6 +809,7 @@ pub fn apply_scene_diff(
     old_scene: Option<&Scene>,
     new_scene: Option<&Scene>,
     exclude_self: bool,
+    capture_size: (u32, u32),
 ) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
     let mut pending_animations = Vec::new();
     let Some(tx) = cmd_tx else { return pending_animations };
@@ -820,13 +834,14 @@ pub fn apply_scene_diff(
                         config: CaptureSourceConfig::Screen {
                             screen_index: *screen_index,
                             exclude_self,
+                            capture_size,
                         },
                     });
                 }
                 crate::scene::SourceProperties::Window { mode, .. } => {
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
-                        config: CaptureSourceConfig::Window { mode: mode.clone() },
+                        config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
                     });
                 }
                 crate::scene::SourceProperties::Camera { device_index, .. } => {
@@ -875,6 +890,7 @@ pub fn start_capture_source(
     library: &[crate::scene::LibrarySource],
     source_id: SourceId,
     exclude_self: bool,
+    capture_size: (u32, u32),
 ) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
     let mut pending_animations = Vec::new();
     let Some(tx) = cmd_tx else { return pending_animations };
@@ -889,13 +905,14 @@ pub fn start_capture_source(
                 config: CaptureSourceConfig::Screen {
                     screen_index: *screen_index,
                     exclude_self,
+                    capture_size,
                 },
             });
         }
         crate::scene::SourceProperties::Window { mode, .. } => {
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
-                config: CaptureSourceConfig::Window { mode: mode.clone() },
+                config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
             });
         }
         crate::scene::SourceProperties::Camera { device_index, .. } => {
@@ -1005,11 +1022,15 @@ fn delete_scene_by_id(
         if state.program_scene_id == Some(scene_id) {
             state.program_scene_id = Some(scene.id);
         }
+        let capture_size = crate::renderer::compositor::parse_resolution(
+            &state.settings.video.base_resolution,
+        );
         let anims = send_capture_for_scene(
             cmd_tx,
             &state.library,
             scene,
             state.settings.general.exclude_self_from_capture,
+            capture_size,
         );
         state.pending_gif_animations.extend(anims);
         state.capture_active = !scene.sources.is_empty();
@@ -1028,6 +1049,7 @@ pub(crate) fn send_capture_for_scene(
     library: &[crate::scene::LibrarySource],
     scene: &Scene,
     exclude_self: bool,
+    capture_size: (u32, u32),
 ) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
     let mut pending_animations = Vec::new();
     let Some(tx) = cmd_tx else { return pending_animations };
@@ -1041,6 +1063,7 @@ pub(crate) fn send_capture_for_scene(
                         config: CaptureSourceConfig::Screen {
                             screen_index: *screen_index,
                             exclude_self,
+                            capture_size,
                         },
                     });
                     any_started = true;
@@ -1048,7 +1071,7 @@ pub(crate) fn send_capture_for_scene(
                 crate::scene::SourceProperties::Window { mode, .. } => {
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
-                        config: CaptureSourceConfig::Window { mode: mode.clone() },
+                        config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
                     });
                     any_started = true;
                 }

@@ -684,19 +684,26 @@ fn start_capture_from_properties(
     let Some(tx) = cmd_tx else { return };
     match properties {
         SourceProperties::Display { screen_index } => {
+            let capture_size = crate::renderer::compositor::parse_resolution(
+                &state.settings.video.base_resolution,
+            );
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
                 config: CaptureSourceConfig::Screen {
                     screen_index: *screen_index,
                     exclude_self: state.settings.general.exclude_self_from_capture,
+                    capture_size,
                 },
             });
             state.capture_active = true;
         }
         SourceProperties::Window { mode, .. } => {
+            let capture_size = crate::renderer::compositor::parse_resolution(
+                &state.settings.video.base_resolution,
+            );
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
-                config: CaptureSourceConfig::Window { mode: mode.clone() },
+                config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
             });
             state.capture_active = true;
         }

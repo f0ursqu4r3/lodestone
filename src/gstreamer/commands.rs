@@ -99,9 +99,13 @@ pub enum CaptureSourceConfig {
     Screen {
         screen_index: u32,
         exclude_self: bool,
+        /// Capture resolution (width, height). Derived from base_resolution setting.
+        capture_size: (u32, u32),
     },
     Window {
         mode: crate::scene::WindowCaptureMode,
+        /// Capture resolution (width, height). Derived from base_resolution setting.
+        capture_size: (u32, u32),
     },
     Camera {
         device_index: u32,
@@ -353,6 +357,7 @@ mod tests {
         let config = CaptureSourceConfig::Screen {
             screen_index: 0,
             exclude_self: false,
+            capture_size: (1920, 1080),
         };
         assert!(matches!(
             config,

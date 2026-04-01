@@ -533,11 +533,15 @@ fn draw_source_properties(
                         let _ = tx.try_send(GstCommand::RemoveCaptureSource {
                             source_id: selected_id,
                         });
+                        let capture_size = crate::renderer::compositor::parse_resolution(
+                            &state.settings.video.base_resolution,
+                        );
                         let _ = tx.try_send(GstCommand::AddCaptureSource {
                             source_id: selected_id,
                             config: CaptureSourceConfig::Screen {
                                 screen_index: new_idx,
                                 exclude_self,
+                                capture_size,
                             },
                         });
                     }
@@ -761,12 +765,15 @@ fn draw_source_properties(
                     changed = true;
                     // Restart capture with the new mode.
                     if let Some(ref tx) = state.command_tx {
+                        let capture_size = crate::renderer::compositor::parse_resolution(
+                            &state.settings.video.base_resolution,
+                        );
                         let _ = tx.try_send(GstCommand::RemoveCaptureSource {
                             source_id: selected_id,
                         });
                         let _ = tx.try_send(GstCommand::AddCaptureSource {
                             source_id: selected_id,
-                            config: CaptureSourceConfig::Window { mode: new_mode },
+                            config: CaptureSourceConfig::Window { mode: new_mode, capture_size },
                         });
                     }
                     // Refresh app list so the newly selected app shows up.
@@ -963,12 +970,15 @@ fn draw_source_properties(
                     source.transform.height = h;
                 }
                 if let Some(ref tx) = cmd_tx {
+                    let capture_size = crate::renderer::compositor::parse_resolution(
+                        &state.settings.video.base_resolution,
+                    );
                     let _ = tx.try_send(GstCommand::RemoveCaptureSource {
                         source_id: selected_id,
                     });
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: selected_id,
-                        config: CaptureSourceConfig::Window { mode: new_mode },
+                        config: CaptureSourceConfig::Window { mode: new_mode, capture_size },
                     });
                 }
                 changed = true;

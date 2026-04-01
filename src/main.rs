@@ -511,11 +511,15 @@ impl AppManager {
         }
         if let Some(scene) = app_state.active_scene() {
             let scene = scene.clone();
+            let capture_size = crate::renderer::compositor::parse_resolution(
+                &app_state.settings.video.base_resolution,
+            );
             let anims = crate::ui::scenes_panel::send_capture_for_scene(
                 cmd_tx,
                 &app_state.library,
                 &scene,
                 app_state.settings.general.exclude_self_from_capture,
+                capture_size,
             );
             app_state.pending_gif_animations.extend(anims);
         }
@@ -620,6 +624,9 @@ impl ApplicationHandler for AppManager {
             if let Some(scene_id) = state.active_scene_id
                 && let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id)
             {
+                let capture_size = crate::renderer::compositor::parse_resolution(
+                    &state.settings.video.base_resolution,
+                );
                 for src_id in scene.source_ids() {
                     if let Some(source) = state.library.iter().find(|s| s.id == src_id) {
                         match &source.properties {
@@ -633,6 +640,7 @@ impl ApplicationHandler for AppManager {
                                                 .settings
                                                 .general
                                                 .exclude_self_from_capture,
+                                            capture_size,
                                         },
                                     });
                                 }
@@ -643,6 +651,7 @@ impl ApplicationHandler for AppManager {
                                         source_id: src_id,
                                         config: gstreamer::CaptureSourceConfig::Window {
                                             mode: mode.clone(),
+                                            capture_size,
                                         },
                                     });
                                 }
@@ -1146,12 +1155,16 @@ impl ApplicationHandler for AppManager {
 
                             // Stop sources that were exclusive to the old program scene
                             // (not needed by the current active/editing scene).
+                            let capture_size = crate::renderer::compositor::parse_resolution(
+                                &app_state.settings.video.base_resolution,
+                            );
                             let anims = crate::ui::scenes_panel::apply_scene_diff(
                                 &cmd_tx,
                                 &app_state.library,
                                 old_scene.as_ref(),
                                 new_scene.as_ref(),
                                 exclude_self,
+                                capture_size,
                             );
                             app_state.pending_gif_animations.extend(anims);
                             if let Some(ref scene) = new_scene {
@@ -1182,6 +1195,9 @@ impl ApplicationHandler for AppManager {
                             let from_id = app_state.program_scene_id;
                             let exclude_self = app_state.settings.general.exclude_self_from_capture;
                             let cmd_tx = app_state.command_tx.clone();
+                            let capture_size = crate::renderer::compositor::parse_resolution(
+                                &app_state.settings.video.base_resolution,
+                            );
 
                             let target_scene =
                                 app_state.scenes.iter().find(|s| s.id == new_program_id);
@@ -1216,6 +1232,7 @@ impl ApplicationHandler for AppManager {
                                     old_scene.as_ref(),
                                     new_scene.as_ref(),
                                     exclude_self,
+                                    capture_size,
                                 );
                                 app_state.pending_gif_animations.extend(anims);
                                 if let Some(ref scene) = new_scene {
@@ -1245,6 +1262,7 @@ impl ApplicationHandler for AppManager {
                                                 &app_state.library,
                                                 src_id,
                                                 exclude_self,
+                                                capture_size,
                                             );
                                             app_state.pending_gif_animations.extend(anims);
                                         }
@@ -1301,6 +1319,9 @@ impl ApplicationHandler for AppManager {
                             let program_id = app_state.program_scene_id;
                             let exclude_self = app_state.settings.general.exclude_self_from_capture;
                             let cmd_tx = app_state.command_tx.clone();
+                            let capture_size = crate::renderer::compositor::parse_resolution(
+                                &app_state.settings.video.base_resolution,
+                            );
 
                             let old_scene = old_active
                                 .and_then(|id| app_state.scenes.iter().find(|s| s.id == id))
@@ -1331,6 +1352,7 @@ impl ApplicationHandler for AppManager {
                                             &app_state.library,
                                             src_id,
                                             exclude_self,
+                                            capture_size,
                                         );
                                         app_state.pending_gif_animations.extend(anims);
                                     }

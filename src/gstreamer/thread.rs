@@ -107,16 +107,17 @@ impl GstThread {
         if let CaptureSourceConfig::Screen {
             screen_index,
             exclude_self,
+            capture_size,
         } = config
         {
-            self.add_display_capture_source(source_id, *screen_index, *exclude_self);
+            self.add_display_capture_source(source_id, *screen_index, *exclude_self, *capture_size);
             return;
         }
 
         // Window capture uses ScreenCaptureKit + WindowWatcher on macOS.
         #[cfg(target_os = "macos")]
-        if let CaptureSourceConfig::Window { mode } = config {
-            self.add_window_capture_source(source_id, mode.clone());
+        if let CaptureSourceConfig::Window { mode, capture_size } = config {
+            self.add_window_capture_source(source_id, mode.clone(), *capture_size);
             return;
         }
 
@@ -166,6 +167,7 @@ impl GstThread {
         &mut self,
         source_id: SourceId,
         mode: crate::scene::WindowCaptureMode,
+        _capture_size: (u32, u32),
     ) {
         let watched = WatchedSource {
             mode: mode.clone(),
@@ -324,12 +326,13 @@ impl GstThread {
         source_id: SourceId,
         screen_index: u32,
         exclude_self: bool,
+        capture_size: (u32, u32),
     ) {
         use super::capture::build_display_capture_pipeline;
         use super::screencapturekit;
 
-        let width = 1920u32;
-        let height = 1080u32;
+        let width = capture_size.0;
+        let height = capture_size.1;
         let fps = 30u32;
 
         // 1. Start SCK capture
@@ -1309,6 +1312,7 @@ mod tests {
                 config: CaptureSourceConfig::Screen {
                     screen_index: 0,
                     exclude_self: false,
+                    capture_size: (1920, 1080),
                 },
             })
             .unwrap();

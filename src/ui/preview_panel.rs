@@ -836,20 +836,28 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
             {
                 match &properties {
                     crate::scene::SourceProperties::Display { screen_index } => {
+                        let capture_size = crate::renderer::compositor::parse_resolution(
+                            &state.settings.video.base_resolution,
+                        );
                         let _ = cmd_tx.try_send(crate::gstreamer::GstCommand::AddCaptureSource {
                             source_id: src_id,
                             config: crate::gstreamer::CaptureSourceConfig::Screen {
                                 screen_index: *screen_index,
                                 exclude_self: state.settings.general.exclude_self_from_capture,
+                                capture_size,
                             },
                         });
                         state.capture_active = true;
                     }
                     crate::scene::SourceProperties::Window { mode, .. } => {
+                        let capture_size = crate::renderer::compositor::parse_resolution(
+                            &state.settings.video.base_resolution,
+                        );
                         let _ = cmd_tx.try_send(crate::gstreamer::GstCommand::AddCaptureSource {
                             source_id: src_id,
                             config: crate::gstreamer::CaptureSourceConfig::Window {
                                 mode: mode.clone(),
+                                capture_size,
                             },
                         });
                         state.capture_active = true;

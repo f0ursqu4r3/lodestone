@@ -216,18 +216,22 @@ fn draw_scene_card(
         theme.bg_elevated,
     );
 
-    // Border: active = text_primary, hovered = text_muted, default = border.
-    let border_color = if is_active {
-        theme.text_primary
+    // Border: program = danger 2px, active-only = text_primary 1px,
+    // hovered = text_muted, default = border_subtle.
+    let is_program = state.program_scene_id == Some(scene_id);
+    let (border_color, border_width) = if is_program {
+        (theme.danger, 2.0)
+    } else if is_active {
+        (theme.text_primary, 1.0)
     } else if is_hovered {
-        theme.text_muted
+        (theme.text_muted, 1.0)
     } else {
-        theme.border
+        (theme.border_subtle, 1.0)
     };
     painter.rect_stroke(
         thumb_rect,
         CornerRadius::same(theme.radius_sm as u8),
-        Stroke::new(1.0, border_color),
+        Stroke::new(border_width, border_color),
         egui::StrokeKind::Outside,
     );
 
@@ -297,8 +301,8 @@ fn draw_scene_card(
                 egui::Color32::WHITE,
             );
             let text_w = text_galley.size().x;
-            let badge_w = text_w + 6.0;
-            let badge_h = 11.0;
+            let badge_w = text_w + 10.0;
+            let badge_h = 13.0;
             let badge_rect = egui::Rect::from_min_size(
                 egui::pos2(thumb_rect.right() - badge_w - 4.0, thumb_rect.top() + 4.0),
                 egui::vec2(badge_w, badge_h),
@@ -723,7 +727,7 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
     }
 }
 
-/// Draw the dashed-border "Add" card with a "+" icon and "Add" label.
+/// Draw the solid-border "Add" card with a "+" icon and "Add" label.
 fn draw_add_card(
     painter: &egui::Painter,
     thumb_rect: Rect,
@@ -734,31 +738,26 @@ fn draw_add_card(
     let border_color = if hovered {
         theme.text_muted
     } else {
-        theme.border
+        theme.border_subtle
+    };
+    let fill = if hovered {
+        theme.bg_elevated
+    } else {
+        egui::Color32::TRANSPARENT
     };
 
-    // Draw dashed border as short segments along the rectangle edges.
-    let dash_len = 4.0;
-    let gap_len = 3.0;
-    let stroke = Stroke::new(1.0, border_color);
-    let corners = [
-        thumb_rect.left_top(),
-        thumb_rect.right_top(),
-        thumb_rect.right_bottom(),
-        thumb_rect.left_bottom(),
-    ];
-    for i in 0..4 {
-        let start = corners[i];
-        let end = corners[(i + 1) % 4];
-        let dir = (end - start).normalized();
-        let total = start.distance(end);
-        let mut d = 0.0;
-        while d < total {
-            let seg_end = (d + dash_len).min(total);
-            painter.line_segment([start + dir * d, start + dir * seg_end], stroke);
-            d = seg_end + gap_len;
-        }
-    }
+    // Solid border + hover fill.
+    painter.rect_filled(
+        thumb_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        fill,
+    );
+    painter.rect_stroke(
+        thumb_rect,
+        CornerRadius::same(theme.radius_sm as u8),
+        Stroke::new(1.0, border_color),
+        egui::StrokeKind::Outside,
+    );
 
     // "+" icon in center of thumbnail.
     let icon_color = if hovered {
@@ -770,11 +769,11 @@ fn draw_add_card(
         thumb_rect.center(),
         egui::Align2::CENTER_CENTER,
         egui_phosphor::regular::PLUS,
-        egui::FontId::proportional(18.0),
+        egui::FontId::proportional(20.0),
         icon_color,
     );
 
-    // "Add" label.
+    // "Add" label below thumbnail.
     painter.text(
         label_pos,
         egui::Align2::CENTER_CENTER,

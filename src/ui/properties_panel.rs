@@ -170,11 +170,9 @@ fn draw_transform_section(
         let mut transform_changed = false;
 
         // X / Y row
-        ui.horizontal(|ui| {
-            transform_changed |= drag_field_colored(ui, "X", &mut transform.x, text_color);
-            ui.add_space(8.0);
-            transform_changed |= drag_field_colored(ui, "Y", &mut transform.y, text_color);
-        });
+        transform_changed |= transform_row_2(
+            ui, "X", &mut transform.x, "Y", &mut transform.y, text_color,
+        );
 
         ui.add_space(2.0);
 
@@ -182,15 +180,34 @@ fn draw_transform_section(
         let prev_w = transform.width;
         let prev_h = transform.height;
         ui.horizontal(|ui| {
-            transform_changed |= drag_field_colored(ui, "W", &mut transform.width, text_color);
-            ui.add_space(4.0);
+            let label_w = 16.0;
+            let spacing = 4.0;
+            let extra_buttons = 36.0;
+            let total_labels = label_w * 2.0 + spacing + extra_buttons;
+            let field_w = ((ui.available_width() - total_labels) / 2.0).max(30.0);
+
+            ui.label(egui::RichText::new("W").color(text_color).size(10.0));
+            transform_changed |= ui
+                .add_sized(
+                    [field_w, 20.0],
+                    egui::DragValue::new(&mut transform.width)
+                        .speed(1.0)
+                        .update_while_editing(false),
+                )
+                .changed();
             if aspect_lock_button(ui, aspect_locked) {
                 state.library[lib_idx].aspect_ratio_locked = !aspect_locked;
                 changed = true;
             }
-            ui.add_space(4.0);
-            transform_changed |= drag_field_colored(ui, "H", &mut transform.height, text_color);
-            ui.add_space(4.0);
+            ui.label(egui::RichText::new("H").color(text_color).size(10.0));
+            transform_changed |= ui
+                .add_sized(
+                    [field_w, 20.0],
+                    egui::DragValue::new(&mut transform.height)
+                        .speed(1.0)
+                        .update_while_editing(false),
+                )
+                .changed();
             if ui
                 .add(
                     egui::Button::new(
@@ -216,16 +233,20 @@ fn draw_transform_section(
 
         ui.add_space(2.0);
 
-        // Rotation row
+        // Rotation row — aligned to same grid
         ui.horizontal(|ui| {
             let mut rotation = transform.rotation;
-            let response = ui.add(
+            ui.add_space(16.0); // Skip first label column to align with X/W inputs
+            let field_w = 60.0;
+            let response = ui.add_sized(
+                [field_w, 20.0],
                 egui::DragValue::new(&mut rotation)
                     .speed(1.0)
                     .suffix("°")
                     .range(0.0..=360.0)
                     .update_while_editing(false),
             );
+            ui.add_space(4.0);
             ui.label(egui::RichText::new("Rotation").color(text_color).size(10.0));
             if response.changed() {
                 transform.rotation = rotation.rem_euclid(360.0);
@@ -248,11 +269,12 @@ fn draw_transform_section(
         // X / Y row
         {
             let source = &mut state.library[lib_idx];
-            ui.horizontal(|ui| {
-                changed |= drag_field(ui, "X", &mut source.transform.x);
-                ui.add_space(8.0);
-                changed |= drag_field(ui, "Y", &mut source.transform.y);
-            });
+            changed |= transform_row_2(
+                ui,
+                "X", &mut source.transform.x,
+                "Y", &mut source.transform.y,
+                theme.text_muted,
+            );
         }
 
         ui.add_space(2.0);
@@ -264,12 +286,31 @@ fn draw_transform_section(
         {
             let source = &mut state.library[lib_idx];
             ui.horizontal(|ui| {
-                changed |= drag_field(ui, "W", &mut source.transform.width);
-                ui.add_space(4.0);
+                let label_w = 16.0;
+                let spacing = 4.0;
+                let extra_buttons = 36.0;
+                let total_labels = label_w * 2.0 + spacing + extra_buttons;
+                let field_w = ((ui.available_width() - total_labels) / 2.0).max(30.0);
+
+                ui.label(egui::RichText::new("W").color(theme.text_muted).size(10.0));
+                changed |= ui
+                    .add_sized(
+                        [field_w, 20.0],
+                        egui::DragValue::new(&mut source.transform.width)
+                            .speed(1.0)
+                            .update_while_editing(false),
+                    )
+                    .changed();
                 lock_toggled = aspect_lock_button(ui, aspect_locked);
-                ui.add_space(4.0);
-                changed |= drag_field(ui, "H", &mut source.transform.height);
-                ui.add_space(4.0);
+                ui.label(egui::RichText::new("H").color(theme.text_muted).size(10.0));
+                changed |= ui
+                    .add_sized(
+                        [field_w, 20.0],
+                        egui::DragValue::new(&mut source.transform.height)
+                            .speed(1.0)
+                            .update_while_editing(false),
+                    )
+                    .changed();
                 if ui
                     .add(
                         egui::Button::new(
@@ -295,18 +336,22 @@ fn draw_transform_section(
 
         ui.add_space(2.0);
 
-        // Rotation row
+        // Rotation row — aligned to same grid
         {
             let source = &mut state.library[lib_idx];
             ui.horizontal(|ui| {
                 let mut rotation = source.transform.rotation;
-                let response = ui.add(
+                ui.add_space(16.0); // Skip first label column to align with X/W inputs
+                let field_w = 60.0;
+                let response = ui.add_sized(
+                    [field_w, 20.0],
                     egui::DragValue::new(&mut rotation)
                         .speed(1.0)
                         .suffix("°")
                         .range(0.0..=360.0)
                         .update_while_editing(false),
                 );
+                ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new("Rotation")
                         .color(theme.text_muted)
@@ -1690,40 +1735,51 @@ fn override_dot(ui: &mut egui::Ui, is_overridden: bool) -> bool {
 /// Render a section heading in the style: 9px uppercase text_muted with letter spacing.
 fn section_label(ui: &mut egui::Ui, text: &str) {
     let theme = active_theme(ui.ctx());
-    ui.label(egui::RichText::new(text).color(theme.text_muted).size(9.0));
-}
-
-/// Render a labeled `DragValue` field and return whether the value changed.
-fn drag_field(ui: &mut egui::Ui, label: &str, value: &mut f32) -> bool {
-    let theme = active_theme(ui.ctx());
     ui.label(
-        egui::RichText::new(label)
-            .color(theme.text_muted)
-            .size(10.0),
+        egui::RichText::new(text)
+            .color(theme.text_secondary)
+            .size(10.0)
+            .strong(),
     );
-    ui.add(
-        egui::DragValue::new(value)
-            .speed(1.0)
-            .update_while_editing(false),
-    )
-    .changed()
 }
 
-/// Render a labeled `DragValue` field with a specific label color, and return
-/// whether the value changed.
-fn drag_field_colored(
+/// Render a row with two labeled drag fields in a [label][input][label][input] grid.
+fn transform_row_2(
     ui: &mut egui::Ui,
-    label: &str,
-    value: &mut f32,
+    label_a: &str,
+    val_a: &mut f32,
+    label_b: &str,
+    val_b: &mut f32,
     label_color: egui::Color32,
 ) -> bool {
-    ui.label(egui::RichText::new(label).color(label_color).size(10.0));
-    ui.add(
-        egui::DragValue::new(value)
-            .speed(1.0)
-            .update_while_editing(false),
-    )
-    .changed()
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        let label_w = 16.0;
+        let spacing = 8.0;
+        let total_labels = label_w * 2.0 + spacing;
+        let field_w = ((ui.available_width() - total_labels) / 2.0).max(30.0);
+
+        ui.label(egui::RichText::new(label_a).color(label_color).size(10.0));
+        changed |= ui
+            .add_sized(
+                [field_w, 20.0],
+                egui::DragValue::new(val_a)
+                    .speed(1.0)
+                    .update_while_editing(false),
+            )
+            .changed();
+        ui.add_space(spacing);
+        ui.label(egui::RichText::new(label_b).color(label_color).size(10.0));
+        changed |= ui
+            .add_sized(
+                [field_w, 20.0],
+                egui::DragValue::new(val_b)
+                    .speed(1.0)
+                    .update_while_editing(false),
+            )
+            .changed();
+    });
+    changed
 }
 
 /// Draw the aspect-ratio lock toggle between W and H. Returns `true` if clicked.

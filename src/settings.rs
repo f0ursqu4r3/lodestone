@@ -405,6 +405,34 @@ pub fn scenes_path() -> PathBuf {
     config_dir().join("scenes.toml")
 }
 
+pub fn transitions_dir() -> PathBuf {
+    config_dir().join("transitions")
+}
+
+/// Seed the transitions directory with built-in shaders on first launch.
+/// Only writes files that don't already exist, so user modifications are preserved.
+pub fn seed_builtin_transitions() {
+    let dir = transitions_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        log::warn!("Failed to create transitions directory: {e}");
+        return;
+    }
+
+    let builtins: &[(&str, &str)] = &[(
+        "fade.wgsl",
+        include_str!("renderer/shaders/transition_fade.wgsl"),
+    )];
+
+    for (filename, source) in builtins {
+        let path = dir.join(filename);
+        if !path.exists() {
+            if let Err(e) = std::fs::write(&path, source) {
+                log::warn!("Failed to write built-in transition {filename}: {e}");
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,5 +573,13 @@ controls_panel_open = true
         let parsed: RecordSettings = toml::from_str(&toml_str).unwrap();
         assert_eq!(parsed.format, settings.format);
         assert_eq!(parsed.filename_template, settings.filename_template);
+    }
+
+    #[test]
+    fn transitions_dir_is_inside_config_dir() {
+        let td = super::transitions_dir();
+        let cd = super::config_dir();
+        assert!(td.starts_with(cd));
+        assert!(td.ends_with("transitions"));
     }
 }

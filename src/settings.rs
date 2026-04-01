@@ -418,10 +418,32 @@ pub fn seed_builtin_transitions() {
         return;
     }
 
-    let builtins: &[(&str, &str)] = &[(
-        "fade.wgsl",
-        include_str!("renderer/shaders/transition_fade.wgsl"),
-    )];
+    let builtins: &[(&str, &str)] = &[
+        (
+            "fade.wgsl",
+            include_str!("renderer/shaders/transition_fade.wgsl"),
+        ),
+        (
+            "dip_to_color.wgsl",
+            include_str!("renderer/shaders/transition_dip_to_color.wgsl"),
+        ),
+        (
+            "wipe.wgsl",
+            include_str!("renderer/shaders/transition_wipe.wgsl"),
+        ),
+        (
+            "slide.wgsl",
+            include_str!("renderer/shaders/transition_slide.wgsl"),
+        ),
+        (
+            "radial_wipe.wgsl",
+            include_str!("renderer/shaders/transition_radial_wipe.wgsl"),
+        ),
+        (
+            "dissolve.wgsl",
+            include_str!("renderer/shaders/transition_dissolve.wgsl"),
+        ),
+    ];
 
     for (filename, source) in builtins {
         let path = dir.join(filename);

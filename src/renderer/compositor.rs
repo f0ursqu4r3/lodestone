@@ -884,6 +884,15 @@ impl Compositor {
         Arc::clone(&self.output_preview_bind_group)
     }
 
+    /// Per-source GPU layers (texture + bind groups) for compositing.
+    ///
+    /// Used when compositing onto a secondary canvas — the secondary canvas doesn't
+    /// have its own copy of source textures for sources loaded before it was allocated
+    /// (e.g. image sources), so the primary compositor's layers are used instead.
+    pub fn source_layers(&self) -> &HashMap<SourceId, SourceLayer> {
+        &self.source_layers
+    }
+
     /// Arc-wrapped canvas preview pipeline for the egui preview panel paint callback.
     pub fn canvas_pipeline(&self) -> Arc<wgpu::RenderPipeline> {
         Arc::clone(&self.canvas_pipeline)

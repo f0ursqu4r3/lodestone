@@ -1893,7 +1893,7 @@ impl ApplicationHandler for AppManager {
                             &gpu.queue,
                             &mut encoder,
                             &secondary.view,
-                            &secondary.source_layers,
+                            gpu.compositor.source_layers(),
                             from_sources,
                         );
                     }
@@ -1929,7 +1929,7 @@ impl ApplicationHandler for AppManager {
                                     &gpu.queue,
                                     &mut encoder,
                                     &secondary.view,
-                                    &secondary.source_layers,
+                                    gpu.compositor.source_layers(),
                                     to_src,
                                 );
                             }
@@ -1970,7 +1970,7 @@ impl ApplicationHandler for AppManager {
                             &gpu.queue,
                             &mut encoder,
                             &secondary.view,
-                            &secondary.source_layers,
+                            gpu.compositor.source_layers(),
                             prog_sources,
                         );
                     }

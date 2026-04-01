@@ -431,7 +431,7 @@ impl AppManager {
                 app_state.undo()
             };
             if restored {
-                self.reconcile_captures(&app_state);
+                self.reconcile_captures(&mut app_state);
             }
             return;
         }
@@ -504,19 +504,20 @@ impl AppManager {
 
     /// Reconcile GStreamer captures after undo/redo by stopping all captures
     /// and restarting those in the active scene.
-    fn reconcile_captures(&self, app_state: &AppState) {
+    fn reconcile_captures(&self, app_state: &mut AppState) {
         let cmd_tx = &app_state.command_tx;
         if let Some(tx) = cmd_tx {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopCapture);
         }
         if let Some(scene) = app_state.active_scene() {
             let scene = scene.clone();
-            crate::ui::scenes_panel::send_capture_for_scene(
+            let anims = crate::ui::scenes_panel::send_capture_for_scene(
                 cmd_tx,
                 &app_state.library,
                 &scene,
                 app_state.settings.general.exclude_self_from_capture,
             );
+            app_state.pending_gif_animations.extend(anims);
         }
     }
 
@@ -729,7 +730,7 @@ impl ApplicationHandler for AppManager {
                         app_state.undo()
                     };
                     if restored {
-                        self.reconcile_captures(&app_state);
+                        self.reconcile_captures(&mut app_state);
                     }
                     return;
                 }
@@ -1126,13 +1127,14 @@ impl ApplicationHandler for AppManager {
 
                             // Stop sources that were exclusive to the old program scene
                             // (not needed by the current active/editing scene).
-                            crate::ui::scenes_panel::apply_scene_diff(
+                            let anims = crate::ui::scenes_panel::apply_scene_diff(
                                 &cmd_tx,
                                 &app_state.library,
                                 old_scene.as_ref(),
                                 new_scene.as_ref(),
                                 exclude_self,
                             );
+                            app_state.pending_gif_animations.extend(anims);
                             if let Some(ref scene) = new_scene {
                                 app_state.capture_active = !scene.sources.is_empty();
                             }
@@ -1189,13 +1191,14 @@ impl ApplicationHandler for AppManager {
 
                                 app_state.program_scene_id = Some(new_program_id);
 
-                                crate::ui::scenes_panel::apply_scene_diff(
+                                let anims = crate::ui::scenes_panel::apply_scene_diff(
                                     &cmd_tx,
                                     &app_state.library,
                                     old_scene.as_ref(),
                                     new_scene.as_ref(),
                                     exclude_self,
                                 );
+                                app_state.pending_gif_animations.extend(anims);
                                 if let Some(ref scene) = new_scene {
                                     app_state.capture_active = !scene.sources.is_empty();
                                 }
@@ -1218,12 +1221,13 @@ impl ApplicationHandler for AppManager {
                                             .map(|s| s.source_ids().contains(&src_id))
                                             .unwrap_or(false);
                                         if !already_running {
-                                            crate::ui::scenes_panel::start_capture_source(
+                                            let anims = crate::ui::scenes_panel::start_capture_source(
                                                 &cmd_tx,
                                                 &app_state.library,
                                                 src_id,
                                                 exclude_self,
                                             );
+                                            app_state.pending_gif_animations.extend(anims);
                                         }
                                     }
                                 }
@@ -1303,12 +1307,13 @@ impl ApplicationHandler for AppManager {
                                             .map(|s| s.source_ids().contains(&src_id))
                                             .unwrap_or(false);
                                     if !already_running {
-                                        crate::ui::scenes_panel::start_capture_source(
+                                        let anims = crate::ui::scenes_panel::start_capture_source(
                                             &cmd_tx,
                                             &app_state.library,
                                             src_id,
                                             exclude_self,
                                         );
+                                        app_state.pending_gif_animations.extend(anims);
                                     }
                                 }
                             }

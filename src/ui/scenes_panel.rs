@@ -150,13 +150,14 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
                 // Diff sources: stop sources no longer needed, start new ones.
                 // Then re-start any sources that were stopped but are needed by the program scene.
-                apply_scene_diff(
+                let anims = apply_scene_diff(
                     &cmd_tx,
                     &state.library,
                     old_scene.as_ref(),
                     new_scene.as_ref(),
                     state.settings.general.exclude_self_from_capture,
                 );
+                state.pending_gif_animations.extend(anims);
 
                 // Re-start any sources that apply_scene_diff may have stopped but
                 // are still required by the live program scene.
@@ -170,12 +171,13 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     .unwrap_or_default();
                 for &src_id in old_ids.difference(&new_ids) {
                     if program_source_ids.contains(&src_id) {
-                        start_capture_source(
+                        let anims = start_capture_source(
                             &cmd_tx,
                             &state.library,
                             src_id,
                             state.settings.general.exclude_self_from_capture,
                         );
+                        state.pending_gif_animations.extend(anims);
                     }
                 }
 
@@ -677,13 +679,14 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
             state.deselect_all();
 
             let cmd_tx = state.command_tx.clone();
-            apply_scene_diff(
+            let anims = apply_scene_diff(
                 &cmd_tx,
                 &state.library,
                 old_scene.as_ref(),
                 new_scene.as_ref(),
                 state.settings.general.exclude_self_from_capture,
             );
+            state.pending_gif_animations.extend(anims);
 
             if let Some(ref scene) = new_scene {
                 state.capture_active = !scene.sources.is_empty();
@@ -790,8 +793,9 @@ pub fn apply_scene_diff(
     old_scene: Option<&Scene>,
     new_scene: Option<&Scene>,
     exclude_self: bool,
-) {
-    let Some(tx) = cmd_tx else { return };
+) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
+    let mut pending_animations = Vec::new();
+    let Some(tx) = cmd_tx else { return pending_animations };
 
     let old_ids: std::collections::HashSet<SourceId> = old_scene
         .map(|s| s.source_ids().into_iter().collect())
@@ -849,14 +853,17 @@ pub fn apply_scene_diff(
                         config,
                     });
                 }
-                crate::scene::SourceProperties::Image { .. } => {
-                    // Image sources don't use a capture pipeline.
+                crate::scene::SourceProperties::Image { path, loop_mode } => {
+                    if !path.is_empty() {
+                        load_image_for_source(tx, src_id, path, *loop_mode, &mut pending_animations);
+                    }
                 }
                 // Text, Color, Browser: no capture pipeline
                 _ => {}
             }
         }
     }
+    pending_animations
 }
 
 /// Start a single capture source by ID without stopping anything.
@@ -865,10 +872,11 @@ pub fn start_capture_source(
     library: &[crate::scene::LibrarySource],
     source_id: SourceId,
     exclude_self: bool,
-) {
-    let Some(tx) = cmd_tx else { return };
+) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
+    let mut pending_animations = Vec::new();
+    let Some(tx) = cmd_tx else { return pending_animations };
     let Some(source) = library.iter().find(|s| s.id == source_id) else {
-        return;
+        return pending_animations;
     };
 
     match &source.properties {
@@ -911,7 +919,45 @@ pub fn start_capture_source(
             };
             let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config });
         }
-        _ => {} // Image, Text, Color, Browser: no capture pipeline.
+        crate::scene::SourceProperties::Image { path, loop_mode } => {
+            if !path.is_empty() {
+                load_image_for_source(tx, source_id, path, *loop_mode, &mut pending_animations);
+            }
+        }
+        _ => {} // Text, Color, Browser: no capture pipeline.
+    }
+    pending_animations
+}
+
+/// Load an image file and send its frame to the GStreamer thread.
+/// For animated GIFs, sends the first frame and appends animation data to `pending`.
+fn load_image_for_source(
+    tx: &tokio::sync::mpsc::Sender<GstCommand>,
+    source_id: SourceId,
+    path: &str,
+    loop_mode: Option<crate::scene::LoopMode>,
+    pending: &mut Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)>,
+) {
+    match crate::image_source::load_image_source(path) {
+        Ok(crate::image_source::ImageData::Static(frame)) => {
+            let _ = tx.try_send(GstCommand::LoadImageFrame {
+                source_id,
+                frame,
+            });
+        }
+        Ok(crate::image_source::ImageData::Animated(animation)) => {
+            if let Some(first) = animation.frames.first() {
+                let _ = tx.try_send(GstCommand::LoadImageFrame {
+                    source_id,
+                    frame: first.clone(),
+                });
+            }
+            let lm = loop_mode.unwrap_or(animation.embedded_loop_count);
+            pending.push((source_id, animation, lm));
+        }
+        Err(e) => {
+            log::warn!("Failed to load image source {path}: {e}");
+        }
     }
 }
 
@@ -956,12 +1002,13 @@ fn delete_scene_by_id(
         if state.program_scene_id == Some(scene_id) {
             state.program_scene_id = Some(scene.id);
         }
-        send_capture_for_scene(
+        let anims = send_capture_for_scene(
             cmd_tx,
             &state.library,
             scene,
             state.settings.general.exclude_self_from_capture,
         );
+        state.pending_gif_animations.extend(anims);
         state.capture_active = !scene.sources.is_empty();
     } else {
         state.active_scene_id = None;
@@ -978,8 +1025,9 @@ pub(crate) fn send_capture_for_scene(
     library: &[crate::scene::LibrarySource],
     scene: &Scene,
     exclude_self: bool,
-) {
-    let Some(tx) = cmd_tx else { return };
+) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
+    let mut pending_animations = Vec::new();
+    let Some(tx) = cmd_tx else { return pending_animations };
     let mut any_started = false;
     for src_id in scene.source_ids() {
         if let Some(source) = library.iter().find(|s| s.id == src_id) {
@@ -1030,8 +1078,11 @@ pub(crate) fn send_capture_for_scene(
                     });
                     any_started = true;
                 }
-                crate::scene::SourceProperties::Image { .. } => {
-                    // Image sources don't use a capture pipeline.
+                crate::scene::SourceProperties::Image { path, loop_mode } => {
+                    // Image sources don't use a capture pipeline — load directly.
+                    if !path.is_empty() {
+                        load_image_for_source(tx, src_id, path, *loop_mode, &mut pending_animations);
+                    }
                 }
                 // Text, Color, Browser: no capture pipeline
                 _ => {}
@@ -1041,4 +1092,5 @@ pub(crate) fn send_capture_for_scene(
     if !any_started {
         let _ = tx.try_send(GstCommand::StopCapture);
     }
+    pending_animations
 }

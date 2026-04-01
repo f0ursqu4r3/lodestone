@@ -428,6 +428,7 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
         visible: true,
         muted: false,
         volume: 1.0,
+        effects: Vec::new(),
     };
 
     state.library.push(lib_source);

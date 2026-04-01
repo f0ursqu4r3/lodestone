@@ -48,6 +48,9 @@ pub struct LibrarySource {
     /// Optional folder for organizing sources in the library UI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// Ordered chain of shader effects applied to this source.
+    #[serde(default)]
+    pub effects: Vec<EffectInstance>,
 }
 
 /// Per-scene reference to a library source, with optional property overrides.
@@ -75,6 +78,26 @@ pub struct SourceOverrides {
     /// Whether this source is locked (not movable/resizable) in this scene.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked: Option<bool>,
+    /// Per-scene effect chain override. Replaces the entire library chain when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effects: Option<Vec<EffectInstance>>,
+}
+
+/// A single effect instance applied to a source.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EffectInstance {
+    /// Effect ID matching the registry (e.g. "circle_crop").
+    pub effect_id: String,
+    /// Parameter values keyed by name. Missing keys use the effect's default.
+    #[serde(default)]
+    pub params: std::collections::HashMap<String, f32>,
+    /// Whether this effect is active. Disabled effects remain in the chain but are skipped.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -352,6 +375,19 @@ impl SceneSource {
     pub fn is_volume_overridden(&self) -> bool {
         self.overrides.volume.is_some()
     }
+
+    /// Resolve the effect chain: use scene override if set, otherwise library defaults.
+    pub fn resolve_effects(&self, lib: &LibrarySource) -> Vec<EffectInstance> {
+        self.overrides
+            .effects
+            .clone()
+            .unwrap_or_else(|| lib.effects.clone())
+    }
+
+    /// Returns true if the scene overrides the effect chain.
+    pub fn is_effects_overridden(&self) -> bool {
+        self.overrides.effects.is_some()
+    }
 }
 
 impl Scene {
@@ -594,6 +630,7 @@ impl SceneCollection {
                 muted: false,
                 volume: 1.0,
                 folder: None,
+                effects: Vec::new(),
             }],
             active_scene_id: Some(scene_id),
             next_scene_id: 2,
@@ -640,6 +677,7 @@ mod tests {
             muted: false,
             volume: 1.0,
             folder: None,
+            effects: Vec::new(),
         }
     }
 
@@ -669,6 +707,7 @@ mod tests {
                 muted: Some(true),
                 volume: Some(0.25),
                 locked: None,
+                effects: None,
             },
         };
 
@@ -736,6 +775,7 @@ mod tests {
                 muted: None,
                 volume: Some(0.5),
                 locked: None,
+                effects: None,
             },
         };
 
@@ -784,6 +824,7 @@ mod tests {
             muted: false,
             volume: 1.0,
             folder: None,
+            effects: Vec::new(),
         };
         let serialized = toml::to_string(&source).unwrap();
         let deserialized: LibrarySource = toml::from_str(&serialized).unwrap();
@@ -995,6 +1036,7 @@ mod tests {
                 muted: Some(true),
                 volume: None,
                 locked: None,
+                effects: None,
             },
         };
         let serialized = toml::to_string(&ss).unwrap();
@@ -1224,5 +1266,75 @@ sources = []
         assert!(!source.muted);
         assert_eq!(source.volume, 1.0);
         assert!((source.opacity - 1.0).abs() < f32::EPSILON);
+    }
+
+    // ---- EffectInstance tests ----
+
+    #[test]
+    fn effect_instance_default_enabled() {
+        let effect = EffectInstance {
+            effect_id: "circle_crop".to_string(),
+            params: std::collections::HashMap::new(),
+            enabled: true,
+        };
+        assert!(effect.enabled);
+        assert!(effect.params.is_empty());
+    }
+
+    #[test]
+    fn effect_instance_roundtrip_toml() {
+        let effect = EffectInstance {
+            effect_id: "circle_crop".to_string(),
+            params: [("radius".to_string(), 0.4), ("feather".to_string(), 0.02)]
+                .into_iter()
+                .collect(),
+            enabled: true,
+        };
+        let toml_str = toml::to_string(&effect).unwrap();
+        let restored: EffectInstance = toml::from_str(&toml_str).unwrap();
+        assert_eq!(restored.effect_id, "circle_crop");
+        assert!((restored.params["radius"] - 0.4).abs() < f32::EPSILON);
+        assert!(restored.enabled);
+    }
+
+    #[test]
+    fn resolve_effects_falls_back_to_library() {
+        let mut lib = test_library_source(1);
+        lib.effects = vec![EffectInstance {
+            effect_id: "circle_crop".to_string(),
+            params: std::collections::HashMap::new(),
+            enabled: true,
+        }];
+        let ss = SceneSource::new(SourceId(1));
+        let resolved = ss.resolve_effects(&lib);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].effect_id, "circle_crop");
+        assert!(!ss.is_effects_overridden());
+    }
+
+    #[test]
+    fn resolve_effects_uses_scene_override() {
+        let mut lib = test_library_source(1);
+        lib.effects = vec![EffectInstance {
+            effect_id: "circle_crop".to_string(),
+            params: std::collections::HashMap::new(),
+            enabled: true,
+        }];
+        let ss = SceneSource {
+            source_id: SourceId(1),
+            overrides: SourceOverrides {
+                effects: Some(vec![EffectInstance {
+                    effect_id: "chroma_key".to_string(),
+                    params: std::collections::HashMap::new(),
+                    enabled: false,
+                }]),
+                ..Default::default()
+            },
+        };
+        let resolved = ss.resolve_effects(&lib);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].effect_id, "chroma_key");
+        assert!(!resolved[0].enabled);
+        assert!(ss.is_effects_overridden());
     }
 }

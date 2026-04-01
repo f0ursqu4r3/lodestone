@@ -324,11 +324,13 @@ impl EffectPipeline {
         let mut passes: Vec<(String, [f32; 8])> = Vec::new();
         for effect in effects {
             if effect.effect_id == "blur" {
+                // Blur is separable: run horizontal then vertical pass.
+                // Direction is at param index 1 (params_a.y in the shader).
                 let mut h_params = effect.params;
-                h_params[7] = 0.0;
+                h_params[1] = 0.0; // horizontal
                 passes.push((effect.effect_id.clone(), h_params));
                 let mut v_params = effect.params;
-                v_params[7] = 1.0;
+                v_params[1] = 1.0; // vertical
                 passes.push((effect.effect_id.clone(), v_params));
             } else {
                 passes.push((effect.effect_id.clone(), effect.params));

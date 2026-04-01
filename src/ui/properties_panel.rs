@@ -1,8 +1,9 @@
-//! Properties panel — context-sensitive property editor for the selected source.
+//! Properties panel — context-sensitive property editor.
 //!
-//! Works in two modes:
-//! - **Library mode** — source is not in the active scene: edits library defaults directly
-//! - **Scene mode** — source is in the active scene: edits scene overrides, shows override dots
+//! Works in three modes:
+//! - **Scene mode** — source selected in active scene: edits scene overrides, shows override dots
+//! - **Library mode** — source selected in library: edits library defaults directly
+//! - **Scene properties mode** — no source selected, scene active: edits scene name, transition, pinned
 
 use crate::gstreamer::types::RgbaFrame;
 use crate::gstreamer::{CaptureSourceConfig, GstCommand, GstError};
@@ -24,6 +25,11 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     } else if let Some(id) = state.selected_library_source_id {
         (id, true)
     } else {
+        // No source selected — show scene properties if a scene is active.
+        if state.active_scene_id.is_some() {
+            draw_scene_properties(ui, state);
+            return;
+        }
         // Empty state: centered muted label.
         ui.vertical_centered(|ui| {
             ui.add_space(ui.available_height() / 3.0);
@@ -1913,4 +1919,292 @@ fn load_and_send_image(
             });
         }
     }
+}
+
+/// Draw scene-level properties when no source is selected.
+///
+/// Shows: scene name, transition override (type + duration + color pickers), pinned toggle.
+fn draw_scene_properties(ui: &mut egui::Ui, state: &mut AppState) {
+    let theme = active_theme(ui.ctx());
+
+    let Some(scene_id) = state.active_scene_id else {
+        return;
+    };
+    let scene_name = state
+        .active_scene()
+        .map(|s| s.name.clone())
+        .unwrap_or_default();
+
+    // ── Header ──
+    ui.label(
+        egui::RichText::new(format!("SCENE PROPERTIES — {}", scene_name.to_uppercase()))
+            .color(theme.accent)
+            .size(9.0),
+    );
+    ui.add_space(8.0);
+
+    let mut changed = false;
+
+    // ── Name field ──
+    ui.label(
+        egui::RichText::new("Name")
+            .color(theme.text_muted)
+            .size(9.0),
+    );
+    ui.add_space(2.0);
+
+    let name_key = egui::Id::new(("scene_props_name", scene_id.0));
+    let mut name_str: String = ui.data_mut(|d| {
+        d.get_temp::<String>(name_key)
+            .unwrap_or_else(|| scene_name.clone())
+    });
+
+    let name_resp = ui.add(
+        egui::TextEdit::singleline(&mut name_str)
+            .desired_width(ui.available_width())
+            .font(egui::FontId::proportional(12.0)),
+    );
+
+    if name_resp.changed() {
+        ui.data_mut(|d| d.insert_temp(name_key, name_str.clone()));
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+            scene.name = name_str;
+        }
+        changed = true;
+    }
+    // Sync temp storage when scene changes externally (e.g. undo).
+    if !name_resp.has_focus() {
+        let current = state
+            .active_scene()
+            .map(|s| s.name.clone())
+            .unwrap_or_default();
+        ui.data_mut(|d| d.insert_temp(name_key, current));
+    }
+
+    ui.add_space(12.0);
+
+    // ── Transition In section ──
+    ui.label(
+        egui::RichText::new("Transition In")
+            .color(theme.text_secondary)
+            .size(10.0),
+    );
+    ui.add_space(4.0);
+
+    changed |= draw_scene_transition_override(ui, state, scene_id);
+
+    ui.add_space(12.0);
+
+    // ── Pinned toggle ──
+    let mut pinned = state
+        .scenes
+        .iter()
+        .find(|s| s.id == scene_id)
+        .map(|s| s.pinned)
+        .unwrap_or(false);
+
+    if ui.checkbox(&mut pinned, "Pinned").changed() {
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+            scene.pinned = pinned;
+        }
+        changed = true;
+    }
+
+    if changed {
+        state.mark_dirty();
+    }
+}
+
+/// Draw the transition override controls for a scene (type dropdown, duration, color pickers).
+///
+/// Returns true if any value changed.
+fn draw_scene_transition_override(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    scene_id: crate::scene::SceneId,
+) -> bool {
+    let theme = active_theme(ui.ctx());
+    let mut changed = false;
+
+    // Read current override.
+    let (current_transition, current_duration_ms) = state
+        .scenes
+        .iter()
+        .find(|s| s.id == scene_id)
+        .map(|s| {
+            (
+                s.transition_override.transition.clone(),
+                s.transition_override.duration_ms,
+            )
+        })
+        .unwrap_or((None, None));
+
+    // ── Type dropdown ──
+    ui.label(
+        egui::RichText::new("Type")
+            .color(theme.text_muted)
+            .size(9.0),
+    );
+    ui.add_space(2.0);
+
+    let type_label = current_transition
+        .as_ref()
+        .and_then(|id| state.transition_registry.get(id))
+        .map(|t| t.name.clone())
+        .unwrap_or_else(|| "Default".to_string());
+
+    let all_transitions: Vec<_> = state
+        .transition_registry
+        .all()
+        .iter()
+        .map(|d| (d.id.clone(), d.name.clone()))
+        .collect();
+
+    egui::ComboBox::from_id_salt(egui::Id::new(("scene_props_tx_type", scene_id.0)))
+        .selected_text(&type_label)
+        .width(ui.available_width() - 16.0)
+        .show_ui(ui, |ui| {
+            if ui
+                .selectable_label(current_transition.is_none(), "Default")
+                .clicked()
+            {
+                if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                    scene.transition_override.transition = None;
+                }
+                changed = true;
+            }
+            for (id, name) in &all_transitions {
+                if ui
+                    .selectable_label(current_transition.as_deref() == Some(id.as_str()), name)
+                    .clicked()
+                {
+                    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                        scene.transition_override.transition = Some(id.clone());
+                    }
+                    changed = true;
+                }
+            }
+        });
+
+    ui.add_space(4.0);
+
+    // ── Duration input ──
+    ui.label(
+        egui::RichText::new("Duration (ms)")
+            .color(theme.text_muted)
+            .size(9.0),
+    );
+    ui.add_space(2.0);
+
+    let dur_key = egui::Id::new(("scene_props_dur", scene_id.0));
+    let mut dur_str: String = ui.data_mut(|d| {
+        d.get_temp::<String>(dur_key).unwrap_or_else(|| {
+            current_duration_ms
+                .map(|v| v.to_string())
+                .unwrap_or_default()
+        })
+    });
+
+    let dur_resp = ui.add(
+        egui::TextEdit::singleline(&mut dur_str)
+            .desired_width(80.0)
+            .hint_text("Default")
+            .font(egui::FontId::proportional(12.0)),
+    );
+
+    if dur_resp.changed() {
+        ui.data_mut(|d| d.insert_temp(dur_key, dur_str.clone()));
+        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+            scene.transition_override.duration_ms = if dur_str.trim().is_empty() {
+                None
+            } else {
+                dur_str.trim().parse::<u32>().ok()
+            };
+        }
+        changed = true;
+    }
+    if dur_resp.lost_focus() {
+        ui.data_mut(|d| d.remove::<String>(dur_key));
+    }
+
+    ui.add_space(4.0);
+
+    // ── Color pickers (based on effective transition's @params) ──
+    let effective_id = current_transition
+        .as_deref()
+        .unwrap_or(&state.settings.transitions.default_transition);
+
+    let params: Vec<crate::transition_registry::TransitionParam> = state
+        .transition_registry
+        .get(effective_id)
+        .map(|d| d.params.clone())
+        .unwrap_or_default();
+
+    if !params.is_empty() {
+        ui.add_space(4.0);
+
+        let current_colors = state
+            .scenes
+            .iter()
+            .find(|s| s.id == scene_id)
+            .and_then(|s| s.transition_override.colors)
+            .unwrap_or(state.settings.transitions.default_colors);
+
+        for param in &params {
+            let (label, color_val) = match param {
+                crate::transition_registry::TransitionParam::Color => {
+                    ("Color", current_colors.color)
+                }
+                crate::transition_registry::TransitionParam::FromColor => {
+                    ("From Color", current_colors.from_color)
+                }
+                crate::transition_registry::TransitionParam::ToColor => {
+                    ("To Color", current_colors.to_color)
+                }
+            };
+
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(label).color(theme.text_muted).size(9.0));
+
+                let mut rgba = egui::ecolor::Rgba::from_rgba_unmultiplied(
+                    color_val[0],
+                    color_val[1],
+                    color_val[2],
+                    color_val[3],
+                );
+
+                if egui::color_picker::color_edit_button_rgba(
+                    ui,
+                    &mut rgba,
+                    egui::color_picker::Alpha::OnlyBlend,
+                )
+                .changed()
+                {
+                    let new_val = [rgba.r(), rgba.g(), rgba.b(), rgba.a()];
+
+                    if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                        let colors = scene
+                            .transition_override
+                            .colors
+                            .get_or_insert(current_colors);
+
+                        match param {
+                            crate::transition_registry::TransitionParam::Color => {
+                                colors.color = new_val;
+                            }
+                            crate::transition_registry::TransitionParam::FromColor => {
+                                colors.from_color = new_val;
+                            }
+                            crate::transition_registry::TransitionParam::ToColor => {
+                                colors.to_color = new_val;
+                            }
+                        }
+                    }
+                    changed = true;
+                }
+            });
+        }
+    }
+
+    changed
 }

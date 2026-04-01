@@ -24,7 +24,7 @@ pub struct TransitionDef {
 }
 
 /// Registry of available transition shaders.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TransitionRegistry {
     transitions: Vec<TransitionDef>,
 }

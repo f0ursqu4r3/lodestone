@@ -1164,83 +1164,82 @@ impl ApplicationHandler for AppManager {
 
                             let target_scene =
                                 app_state.scenes.iter().find(|s| s.id == new_program_id);
-                            let (transition_type, duration) = target_scene
+                            let resolved = target_scene
                                 .map(|s| {
                                     crate::transition::resolve_transition(
                                         &app_state.settings.transitions,
                                         &s.transition_override,
                                     )
                                 })
-                                .unwrap_or((
-                                    crate::transition::TransitionType::Fade,
-                                    std::time::Duration::from_millis(300),
-                                ));
+                                .unwrap_or_else(|| crate::transition::ResolvedTransition {
+                                    transition: crate::transition::TRANSITION_FADE.to_string(),
+                                    duration: std::time::Duration::from_millis(300),
+                                    colors: crate::transition::TransitionColors::default(),
+                                });
 
-                            match transition_type {
-                                crate::transition::TransitionType::Cut => {
-                                    let old_scene = from_id
-                                        .and_then(|id| app_state.scenes.iter().find(|s| s.id == id))
-                                        .cloned();
-                                    let new_scene = app_state
-                                        .scenes
-                                        .iter()
-                                        .find(|s| s.id == new_program_id)
-                                        .cloned();
+                            if resolved.transition == crate::transition::TRANSITION_CUT {
+                                let old_scene = from_id
+                                    .and_then(|id| app_state.scenes.iter().find(|s| s.id == id))
+                                    .cloned();
+                                let new_scene = app_state
+                                    .scenes
+                                    .iter()
+                                    .find(|s| s.id == new_program_id)
+                                    .cloned();
 
-                                    app_state.program_scene_id = Some(new_program_id);
+                                app_state.program_scene_id = Some(new_program_id);
 
-                                    crate::ui::scenes_panel::apply_scene_diff(
-                                        &cmd_tx,
-                                        &app_state.library,
-                                        old_scene.as_ref(),
-                                        new_scene.as_ref(),
-                                        exclude_self,
-                                    );
-                                    if let Some(ref scene) = new_scene {
-                                        app_state.capture_active = !scene.sources.is_empty();
-                                    }
-                                    app_state.mark_dirty();
+                                crate::ui::scenes_panel::apply_scene_diff(
+                                    &cmd_tx,
+                                    &app_state.library,
+                                    old_scene.as_ref(),
+                                    new_scene.as_ref(),
+                                    exclude_self,
+                                );
+                                if let Some(ref scene) = new_scene {
+                                    app_state.capture_active = !scene.sources.is_empty();
                                 }
-                                crate::transition::TransitionType::Fade => {
-                                    let from_scene_id = from_id;
-                                    let old_scene = from_scene_id
-                                        .and_then(|id| app_state.scenes.iter().find(|s| s.id == id))
-                                        .cloned();
-                                    let new_scene = app_state
-                                        .scenes
-                                        .iter()
-                                        .find(|s| s.id == new_program_id)
-                                        .cloned();
+                                app_state.mark_dirty();
+                            } else {
+                                let from_scene_id = from_id;
+                                let old_scene = from_scene_id
+                                    .and_then(|id| app_state.scenes.iter().find(|s| s.id == id))
+                                    .cloned();
+                                let new_scene = app_state
+                                    .scenes
+                                    .iter()
+                                    .find(|s| s.id == new_program_id)
+                                    .cloned();
 
-                                    if let Some(ref new_s) = new_scene {
-                                        for &src_id in &new_s.source_ids() {
-                                            let already_running = old_scene
-                                                .as_ref()
-                                                .map(|s| s.source_ids().contains(&src_id))
-                                                .unwrap_or(false);
-                                            if !already_running {
-                                                crate::ui::scenes_panel::start_capture_source(
-                                                    &cmd_tx,
-                                                    &app_state.library,
-                                                    src_id,
-                                                    exclude_self,
-                                                );
-                                            }
+                                if let Some(ref new_s) = new_scene {
+                                    for &src_id in &new_s.source_ids() {
+                                        let already_running = old_scene
+                                            .as_ref()
+                                            .map(|s| s.source_ids().contains(&src_id))
+                                            .unwrap_or(false);
+                                        if !already_running {
+                                            crate::ui::scenes_panel::start_capture_source(
+                                                &cmd_tx,
+                                                &app_state.library,
+                                                src_id,
+                                                exclude_self,
+                                            );
                                         }
                                     }
-
-                                    let transition_from = from_scene_id.unwrap_or(new_program_id);
-                                    app_state.active_transition =
-                                        Some(crate::transition::TransitionState {
-                                            from_scene: transition_from,
-                                            to_scene: new_program_id,
-                                            transition_type,
-                                            started_at: std::time::Instant::now(),
-                                            duration,
-                                        });
-                                    app_state.program_scene_id = Some(new_program_id);
-                                    app_state.mark_dirty();
                                 }
+
+                                let transition_from = from_scene_id.unwrap_or(new_program_id);
+                                app_state.active_transition =
+                                    Some(crate::transition::TransitionState {
+                                        from_scene: transition_from,
+                                        to_scene: new_program_id,
+                                        transition: resolved.transition,
+                                        started_at: std::time::Instant::now(),
+                                        duration: resolved.duration,
+                                        colors: resolved.colors,
+                                    });
+                                app_state.program_scene_id = Some(new_program_id);
+                                app_state.mark_dirty();
                             }
                             return;
                         }
@@ -1767,7 +1766,7 @@ impl ApplicationHandler for AppManager {
         // Secondary canvas → program_scene_id (Live panel + encoding) when it differs
         if let Some(ref mut gpu) = self.gpu {
             // Read scene IDs, transition state, and encoding status from AppState.
-            let (active_id, program_id, transition_info, is_encoding) = {
+            let (active_id, program_id, transition_info, is_encoding, transition_registry) = {
                 let mut app_state = self.state.lock().expect("lock AppState");
 
                 // Initialize program_scene_id from active_scene_id on startup.
@@ -1781,18 +1780,20 @@ impl ApplicationHandler for AppManager {
                     (
                         t.from_scene,
                         t.to_scene,
-                        t.transition_type,
+                        t.transition.clone(),
                         t.progress(),
                         t.is_complete(),
+                        t.colors,
                     )
                 });
+                let transition_registry = app_state.transition_registry.clone();
                 let encoding = app_state.stream_status.is_live()
                     || matches!(
                         app_state.recording_status,
                         crate::state::RecordingStatus::Recording { .. }
                     )
                     || app_state.virtual_camera_active;
-                (active, program, trans, encoding)
+                (active, program, trans, encoding, transition_registry)
             };
 
             if let Some(active_scene_id) = active_id {
@@ -1815,7 +1816,7 @@ impl ApplicationHandler for AppManager {
                     } else {
                         None
                     };
-                    let (trans_from, trans_to) = if let Some((from, to, _, _, _)) = transition_info
+                    let (trans_from, trans_to) = if let Some((from, to, _, _, _, _)) = transition_info
                     {
                         // During transition, we need both from and to scenes composed.
                         // The from scene is the current program_scene_id.
@@ -1868,7 +1869,7 @@ impl ApplicationHandler for AppManager {
                 let mut force_output_readback = false;
                 let mut did_transition_blend = false;
 
-                if let Some((from, to, transition_type, progress, _)) = transition_info {
+                if let Some((from, to, ref transition_id, progress, _, colors)) = transition_info {
                     // --- Transition in progress ---
                     // We need the from-scene and to-scene composed onto separate
                     // targets so the blend pass can sample both.
@@ -1901,7 +1902,7 @@ impl ApplicationHandler for AppManager {
                     // from = old program, to = active (already on primary).
                     // The rare case where neither from nor to is active would skip the blend.
 
-                    if transition_type == crate::transition::TransitionType::Fade {
+                    if transition_id != crate::transition::TRANSITION_CUT {
                         // Determine from/to bind groups for the blend pass.
                         let from_bg = if from == active_scene_id {
                             // from is on primary canvas
@@ -1942,13 +1943,17 @@ impl ApplicationHandler for AppManager {
                                 .unwrap_or_default()
                                 .as_secs_f32();
                             gpu.transition_pipeline.blend(
+                                &gpu.device,
                                 &gpu.queue,
                                 &mut encoder,
                                 from_bind_group,
                                 to_bind_group,
                                 gpu.compositor.output_texture_view(),
+                                transition_id,
                                 progress,
                                 time,
+                                &colors,
+                                &transition_registry,
                             );
                             did_transition_blend = true;
                             force_output_readback = true;
@@ -1993,7 +1998,7 @@ impl ApplicationHandler for AppManager {
                 }
 
                 // Complete transition if done.
-                if let Some((from_scene, to_scene, _, _, is_complete)) = transition_info
+                if let Some((from_scene, to_scene, _, _, is_complete, _)) = transition_info
                     && is_complete
                 {
                     let mut app_state = self.state.lock().expect("lock AppState");

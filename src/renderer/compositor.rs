@@ -247,6 +247,8 @@ pub struct Compositor {
 
     /// Arc-wrapped canvas bind group for the preview panel paint callback.
     canvas_bind_group: Arc<wgpu::BindGroup>,
+    /// Arc-wrapped bind group sampling the output texture (blend result) for the Live panel.
+    output_preview_bind_group: Arc<wgpu::BindGroup>,
     /// Arc-wrapped preview pipeline for the preview panel paint callback.
     canvas_pipeline: Arc<wgpu::RenderPipeline>,
 }
@@ -504,6 +506,15 @@ impl Compositor {
             &sampler,
         );
 
+        // Bind group sampling the output texture for Live panel display (e.g. transition blend result).
+        let output_preview_bind_group = create_texture_bind_group(
+            device,
+            "output_preview_bind_group",
+            &texture_bind_group_layout,
+            &output_texture_view,
+            &preview_sampler,
+        );
+
         Self {
             canvas_texture,
             canvas_view,
@@ -524,6 +535,7 @@ impl Compositor {
             readback_inflight: None,
             preview_sampler,
             canvas_bind_group: Arc::new(canvas_bind_group),
+            output_preview_bind_group: Arc::new(output_preview_bind_group),
             canvas_pipeline: Arc::new(canvas_pipeline),
         }
     }
@@ -847,11 +859,29 @@ impl Compositor {
                 &self.sampler,
             );
         }
+
+        // Output preview bind group references output_texture_view, recreate if output changed.
+        if output_changed {
+            let opbg = create_texture_bind_group(
+                device,
+                "output_preview_bind_group",
+                &self.texture_bind_group_layout,
+                &self.output_texture_view,
+                &self.preview_sampler,
+            );
+            self.output_preview_bind_group = Arc::new(opbg);
+        }
     }
 
     /// Arc-wrapped canvas bind group for the egui preview panel paint callback.
     pub fn canvas_bind_group(&self) -> Arc<wgpu::BindGroup> {
         Arc::clone(&self.canvas_bind_group)
+    }
+
+    /// Arc-wrapped bind group sampling the output texture (transition blend result).
+    /// Used by the Live panel during transitions to show the blended output.
+    pub fn output_preview_bind_group(&self) -> Arc<wgpu::BindGroup> {
+        Arc::clone(&self.output_preview_bind_group)
     }
 
     /// Arc-wrapped canvas preview pipeline for the egui preview panel paint callback.

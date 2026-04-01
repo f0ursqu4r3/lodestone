@@ -1796,6 +1796,8 @@ impl ApplicationHandler for AppManager {
                 (active, program, trans, encoding, transition_registry)
             };
 
+            let mut did_transition_blend = false;
+
             if let Some(active_scene_id) = active_id {
                 let program_scene_id = program_id.unwrap_or(active_scene_id);
                 let scenes_differ = active_scene_id != program_scene_id;
@@ -1867,7 +1869,6 @@ impl ApplicationHandler for AppManager {
 
                 // Track whether we need to force readback from the output texture.
                 let mut force_output_readback = false;
-                let mut did_transition_blend = false;
 
                 if let Some((from, to, ref transition_id, progress, _, colors)) = transition_info {
                     // --- Transition in progress ---
@@ -2047,10 +2048,14 @@ impl ApplicationHandler for AppManager {
 
             // Update preview and live resources on all windows.
             // Preview always shows the primary canvas (active_scene_id).
-            // Live shows the program scene: secondary canvas when scenes differ,
-            // primary canvas when they're the same.
+            // Live shows:
+            //   - output texture during a transition blend (the blended result)
+            //   - secondary canvas when program differs from active (no transition)
+            //   - primary canvas when they're the same
             {
-                let live_bind_group = if let Some(ref secondary) = gpu.secondary_canvas {
+                let live_bind_group = if did_transition_blend {
+                    gpu.compositor.output_preview_bind_group()
+                } else if let Some(ref secondary) = gpu.secondary_canvas {
                     Arc::clone(&secondary.bind_group)
                 } else {
                     gpu.compositor.canvas_bind_group()

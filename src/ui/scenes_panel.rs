@@ -287,16 +287,16 @@ fn draw_scene_card(
         }
     }
 
-    // PGM / PRV badges.
-    // PGM (red) on the program scene. PRV (green) on the editing scene when it differs from program.
+    // Live / Preview badges.
+    // Live (red) on the program scene. PRV (green) on the editing scene when it differs from program.
     {
         let is_program = state.program_scene_id == Some(scene_id);
         let is_preview = state.active_scene_id == Some(scene_id)
             && state.active_scene_id != state.program_scene_id;
 
-        // PGM takes priority when both match the same scene.
+        // Live takes priority when both match the same scene.
         let (show_badge, badge_label, badge_color) = if is_program {
-            (true, "PGM", theme.danger)
+            (true, "LIVE", theme.danger)
         } else if is_preview {
             (true, "PRV", theme.success)
         } else {
@@ -657,9 +657,20 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
     );
 
     // Transition: program_scene_id → active_scene_id.
-    if trans_response.clicked()
-        && can_transition
-        && let Some(to_id) = state.active_scene_id
+    if trans_response.clicked() && can_transition {
+        trigger_scene_transition(state);
+    }
+}
+
+/// Trigger a transition from the current program scene to the active (editing) scene.
+/// Used by both the scenes panel transition bar and the toolbar Go Live button.
+pub fn trigger_scene_transition(state: &mut AppState) {
+    let Some(to_id) = state.active_scene_id else {
+        return;
+    };
+    if state.active_transition.is_some() {
+        return;
+    }
     {
         let from_id = state.program_scene_id;
         let target_scene = state.scenes.iter().find(|s| s.id == to_id);
@@ -745,6 +756,8 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
         }
     }
 }
+
+
 
 /// Draw the solid-border "Add" card with a "+" icon and "Add" label.
 fn draw_add_card(

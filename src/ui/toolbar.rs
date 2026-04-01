@@ -7,6 +7,7 @@ use egui::{self, Color32, RichText, Sense, Vec2};
 
 use crate::gstreamer::EncoderConfig;
 use crate::renderer::compositor::parse_resolution;
+use crate::ui::scenes_panel::trigger_scene_transition;
 use crate::scene::SceneId;
 use crate::state::{AppState, RecordingStatus, StreamStatus};
 use crate::ui::theme::{BTN_PADDING, BTN_PILL_PADDING, active_theme};
@@ -96,10 +97,13 @@ fn divider(ui: &mut egui::Ui) {
 }
 
 /// Scene quick-switcher: shows only pinned scenes as pill-style buttons.
+/// The live (program) scene shows a red dot. When the active scene differs
+/// from the program scene, a "Transition" button appears.
 fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
     let theme = active_theme(ui.ctx());
     ui.spacing_mut().button_padding = BTN_PILL_PADDING;
     let active_id = state.active_scene_id;
+    let program_id = state.program_scene_id;
 
     // Collect pinned scenes to avoid borrow issues.
     let pinned_scenes: Vec<(SceneId, String)> = state
@@ -122,6 +126,7 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
 
     for (id, name) in &pinned_scenes {
         let is_active = active_id == Some(*id);
+        let is_live = program_id == Some(*id);
         let fill = if is_active {
             theme.bg_elevated
         } else {
@@ -138,8 +143,40 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
             .corner_radius(theme.radius_lg)
             .min_size(Vec2::new(0.0, 24.0));
 
-        if ui.add(btn).clicked() {
+        let response = ui.add(btn);
+
+        // Red dot for the live (program) scene.
+        if is_live {
+            let dot_center = egui::pos2(
+                response.rect.left() + 8.0,
+                response.rect.center().y,
+            );
+            ui.painter()
+                .circle_filled(dot_center, 3.0, theme.danger);
+        }
+
+        if response.clicked() {
             new_active = Some(*id);
+        }
+    }
+
+    // Transition button — shown when editing scene differs from live scene.
+    let can_transition = active_id != program_id
+        && active_id.is_some()
+        && state.active_transition.is_none();
+    if can_transition {
+        let btn = egui::Button::new(
+            RichText::new(format!("{} Go Live", egui_phosphor::regular::ARROW_RIGHT))
+                .size(11.0)
+                .strong()
+                .color(Color32::WHITE),
+        )
+        .fill(theme.danger)
+        .corner_radius(theme.radius_sm)
+        .min_size(Vec2::new(0.0, 24.0));
+
+        if ui.add(btn).clicked() {
+            trigger_scene_transition(state);
         }
     }
 

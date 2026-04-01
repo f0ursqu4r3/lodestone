@@ -20,7 +20,6 @@ pub struct TransitionDef {
     #[allow(dead_code)]
     pub description: String,
     /// Which color uniforms to expose in the UI, from `@params` header.
-    #[allow(dead_code)]
     pub params: Vec<TransitionParam>,
     /// Raw WGSL shader source.
     pub shader_source: String,

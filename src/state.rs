@@ -194,6 +194,8 @@ pub struct AppState {
     )>,
     /// Pending loop mode updates for GIF animations.
     pub pending_loop_mode_updates: Vec<(SourceId, crate::scene::LoopMode)>,
+    /// Registry of available transition shaders, scanned from transitions directory.
+    pub transition_registry: crate::transition_registry::TransitionRegistry,
 }
 
 impl Default for AppState {
@@ -249,6 +251,7 @@ impl Default for AppState {
             active_transition: None,
             pending_gif_animations: Vec::new(),
             pending_loop_mode_updates: Vec::new(),
+            transition_registry: crate::transition_registry::TransitionRegistry::empty(),
         }
     }
 }

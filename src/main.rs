@@ -280,6 +280,13 @@ impl AppManager {
         let saved_settings =
             settings::AppSettings::load_or_detect(&settings::settings_path(), detected_resolution);
 
+        // Seed built-in transition shaders on first launch.
+        settings::seed_builtin_transitions();
+
+        // Scan transitions directory and populate the registry.
+        let transition_registry =
+            crate::transition_registry::TransitionRegistry::scan(&settings::transitions_dir());
+
         let initial_state = AppState {
             scenes: collection.scenes,
             library: collection.library,
@@ -292,6 +299,7 @@ impl AppManager {
             available_displays,
             detected_resolution,
             settings: saved_settings,
+            transition_registry,
             ..AppState::default()
         };
 

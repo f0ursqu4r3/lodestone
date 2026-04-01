@@ -458,15 +458,21 @@ fn draw_scene_card(
             // --- Type selector ---
             ui.label("Type");
 
-            let type_label = match current_transition.as_deref() {
-                None => "Default",
-                Some(crate::transition::TRANSITION_FADE) => "Fade",
-                Some(crate::transition::TRANSITION_CUT) => "Cut",
-                Some(other) => other,
-            };
+            let type_label = current_transition
+                .as_ref()
+                .and_then(|id| state.transition_registry.get(id))
+                .map(|t| t.name.clone())
+                .unwrap_or_else(|| "Default".to_string());
+
+            let all_scene_transitions: Vec<_> = state
+                .transition_registry
+                .all()
+                .iter()
+                .map(|d| (d.id.clone(), d.name.clone()))
+                .collect();
 
             egui::ComboBox::from_id_salt(egui::Id::new(("scene_tx_type", scene_id.0)))
-                .selected_text(type_label)
+                .selected_text(&type_label)
                 .show_ui(ui, |ui| {
                     if ui
                         .selectable_label(current_transition.is_none(), "Default")
@@ -477,33 +483,20 @@ fn draw_scene_card(
                         }
                         state.mark_dirty();
                     }
-                    if ui
-                        .selectable_label(
-                            current_transition.as_deref()
-                                == Some(crate::transition::TRANSITION_FADE),
-                            "Fade",
-                        )
-                        .clicked()
-                    {
-                        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
-                            scene.transition_override.transition =
-                                Some(crate::transition::TRANSITION_FADE.to_string());
+                    for (id, name) in &all_scene_transitions {
+                        if ui
+                            .selectable_label(
+                                current_transition.as_deref() == Some(id.as_str()),
+                                name,
+                            )
+                            .clicked()
+                        {
+                            if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id)
+                            {
+                                scene.transition_override.transition = Some(id.clone());
+                            }
+                            state.mark_dirty();
                         }
-                        state.mark_dirty();
-                    }
-                    if ui
-                        .selectable_label(
-                            current_transition.as_deref()
-                                == Some(crate::transition::TRANSITION_CUT),
-                            "Cut",
-                        )
-                        .clicked()
-                    {
-                        if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
-                            scene.transition_override.transition =
-                                Some(crate::transition::TRANSITION_CUT.to_string());
-                        }
-                        state.mark_dirty();
                     }
                 });
 
@@ -596,99 +589,55 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
         egui::Stroke::new(1.0, theme.border),
     );
 
-    // ── Segmented control: Fade | Cut ──
-    let seg_btn_w = 36.0;
-    let seg_btn_h = 20.0;
-    let seg_y = bar_rect.center().y - seg_btn_h / 2.0;
-    let seg_x = bar_rect.left() + padding;
-
-    let fade_rect =
-        egui::Rect::from_min_size(egui::pos2(seg_x, seg_y), egui::vec2(seg_btn_w, seg_btn_h));
-    let cut_rect = egui::Rect::from_min_size(
-        egui::pos2(seg_x + seg_btn_w, seg_y),
-        egui::vec2(seg_btn_w, seg_btn_h),
+    // ── Transition selector dropdown ──
+    let btn_h = 20.0;
+    let btn_y = bar_rect.center().y - btn_h / 2.0;
+    let dropdown_w = 80.0;
+    let dropdown_x = bar_rect.left() + padding;
+    let dropdown_rect = egui::Rect::from_min_size(
+        egui::pos2(dropdown_x, btn_y),
+        egui::vec2(dropdown_w, btn_h),
     );
 
-    let is_fade =
-        state.settings.transitions.default_transition == crate::transition::TRANSITION_FADE;
+    let current_id = state.settings.transitions.default_transition.clone();
+    let current_name = state
+        .transition_registry
+        .get(&current_id)
+        .map(|t| t.name.clone())
+        .unwrap_or_else(|| "Fade".to_string());
+    let all_transitions: Vec<_> = state
+        .transition_registry
+        .all()
+        .iter()
+        .map(|d| (d.id.clone(), d.name.clone()))
+        .collect();
 
-    // Combined pill background.
-    let combined_seg_rect = egui::Rect::from_min_max(fade_rect.min, cut_rect.max);
-    painter.rect_filled(
-        combined_seg_rect,
-        CornerRadius::same(theme.radius_sm as u8),
-        theme.bg_elevated,
-    );
-    painter.rect_stroke(
-        combined_seg_rect,
-        CornerRadius::same(theme.radius_sm as u8),
-        egui::Stroke::new(1.0, theme.border),
-        egui::StrokeKind::Outside,
-    );
-
-    // Active segment highlight.
-    let active_seg_rect = if is_fade { fade_rect } else { cut_rect };
-    painter.rect_filled(
-        active_seg_rect.shrink(1.0),
-        CornerRadius::same((theme.radius_sm - 1.0).max(0.0) as u8),
-        theme.bg_surface,
+    let mut child_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(dropdown_rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
 
-    // Segment labels.
-    let fade_color = if is_fade {
-        theme.text_primary
-    } else {
-        theme.text_muted
-    };
-    let cut_color = if !is_fade {
-        theme.text_primary
-    } else {
-        theme.text_muted
-    };
-
-    painter.text(
-        fade_rect.center(),
-        egui::Align2::CENTER_CENTER,
-        "Fade",
-        egui::FontId::proportional(9.0),
-        fade_color,
-    );
-    painter.text(
-        cut_rect.center(),
-        egui::Align2::CENTER_CENTER,
-        "Cut",
-        egui::FontId::proportional(9.0),
-        cut_color,
-    );
-
-    // Hit-test segments.
-    let fade_response = ui.interact(
-        fade_rect,
-        egui::Id::new("transition_seg_fade"),
-        egui::Sense::click(),
-    );
-    let cut_response = ui.interact(
-        cut_rect,
-        egui::Id::new("transition_seg_cut"),
-        egui::Sense::click(),
-    );
-
-    if fade_response.clicked() {
-        state.settings.transitions.default_transition =
-            crate::transition::TRANSITION_FADE.to_string();
-        state.mark_dirty();
-    }
-    if cut_response.clicked() {
-        state.settings.transitions.default_transition =
-            crate::transition::TRANSITION_CUT.to_string();
-        state.mark_dirty();
-    }
+    egui::ComboBox::from_id_salt("transition_default_selector")
+        .selected_text(&current_name)
+        .width(dropdown_w - 16.0)
+        .show_ui(&mut child_ui, |ui| {
+            for (id, name) in &all_transitions {
+                if ui
+                    .selectable_label(&current_id == id, name)
+                    .clicked()
+                {
+                    state.settings.transitions.default_transition = id.clone();
+                    state.mark_dirty();
+                }
+            }
+        });
 
     // ── Duration input ──
-    let dur_x = seg_x + seg_btn_w * 2.0 + 6.0;
+    let dur_x = dropdown_x + dropdown_w + 6.0;
     let dur_w = 46.0;
     let dur_rect =
-        egui::Rect::from_min_size(egui::pos2(dur_x, seg_y), egui::vec2(dur_w, seg_btn_h));
+        egui::Rect::from_min_size(egui::pos2(dur_x, btn_y), egui::vec2(dur_w, btn_h));
 
     painter.rect_filled(
         dur_rect,
@@ -761,8 +710,8 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
     let trans_btn_w = 64.0;
     let trans_btn_x = right_edge - trans_btn_w;
     let trans_btn_rect = egui::Rect::from_min_size(
-        egui::pos2(trans_btn_x, seg_y),
-        egui::vec2(trans_btn_w, seg_btn_h),
+        egui::pos2(trans_btn_x, btn_y),
+        egui::vec2(trans_btn_w, btn_h),
     );
 
     let can_transition = state.active_scene_id != state.program_scene_id

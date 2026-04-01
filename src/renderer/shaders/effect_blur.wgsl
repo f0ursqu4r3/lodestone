@@ -2,7 +2,6 @@
 // @author: Lodestone
 // @description: Gaussian blur (run as two passes: H then V)
 // @param: radius 5.0 0.0 50.0
-// @param: direction 0.0 0.0 1.0
 
 struct Uniforms {
     time: f32,

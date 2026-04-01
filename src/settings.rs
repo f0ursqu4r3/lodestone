@@ -409,6 +409,53 @@ pub fn transitions_dir() -> PathBuf {
     config_dir().join("transitions")
 }
 
+pub fn effects_dir() -> PathBuf {
+    config_dir().join("effects")
+}
+
+/// Write built-in effect shaders to the effects directory (if not already present).
+pub fn seed_builtin_effects() {
+    let dir = effects_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        log::warn!("Failed to create effects directory: {e}");
+        return;
+    }
+    let builtins: &[(&str, &str)] = &[
+        (
+            "circle_crop.wgsl",
+            include_str!("renderer/shaders/effect_circle_crop.wgsl"),
+        ),
+        (
+            "rounded_corners.wgsl",
+            include_str!("renderer/shaders/effect_rounded_corners.wgsl"),
+        ),
+        (
+            "gradient_fade.wgsl",
+            include_str!("renderer/shaders/effect_gradient_fade.wgsl"),
+        ),
+        (
+            "color_correction.wgsl",
+            include_str!("renderer/shaders/effect_color_correction.wgsl"),
+        ),
+        (
+            "chroma_key.wgsl",
+            include_str!("renderer/shaders/effect_chroma_key.wgsl"),
+        ),
+        (
+            "blur.wgsl",
+            include_str!("renderer/shaders/effect_blur.wgsl"),
+        ),
+    ];
+    for (filename, content) in builtins {
+        let path = dir.join(filename);
+        if !path.exists() {
+            if let Err(e) = std::fs::write(&path, content) {
+                log::warn!("Failed to write built-in effect {filename}: {e}");
+            }
+        }
+    }
+}
+
 /// Seed the transitions directory with built-in shaders on first launch.
 /// Only writes files that don't already exist, so user modifications are preserved.
 pub fn seed_builtin_transitions() {

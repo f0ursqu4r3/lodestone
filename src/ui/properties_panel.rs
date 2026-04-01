@@ -101,6 +101,10 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 
     ui.add_space(12.0);
 
+    changed |= draw_effects_section(ui, state, selected_id, lib_idx, in_active_scene);
+
+    ui.add_space(12.0);
+
     changed |= draw_source_properties(ui, state, selected_id, lib_idx);
 
     if changed {
@@ -468,6 +472,252 @@ fn draw_opacity_section(
                     .size(10.0),
             );
         });
+    }
+
+    changed
+}
+
+/// Draw the EFFECTS section — add, remove, toggle, and configure shader effects on a source.
+///
+/// In scene mode, edits scene overrides (with override dot). In library mode, edits library
+/// defaults directly.
+///
+/// Returns `true` if any value changed.
+fn draw_effects_section(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    selected_id: SourceId,
+    lib_idx: usize,
+    in_active_scene: bool,
+) -> bool {
+    let theme = active_theme(ui.ctx());
+    let mut changed = false;
+
+    // Resolve current effects chain and determine override state.
+    let (effects, is_overridden) = if in_active_scene {
+        let lib = &state.library[lib_idx];
+        let scene_source = state
+            .active_scene()
+            .and_then(|s| s.find_source(selected_id));
+        let overridden = scene_source
+            .map(|ss| ss.is_effects_overridden())
+            .unwrap_or(false);
+        let fx = scene_source
+            .map(|ss| ss.resolve_effects(lib))
+            .unwrap_or_else(|| lib.effects.clone());
+        (fx, overridden)
+    } else {
+        (state.library[lib_idx].effects.clone(), false)
+    };
+
+    // ── Header row ──────────────────────────────────────────────────────
+    ui.horizontal(|ui| {
+        if in_active_scene {
+            let reset = override_dot(ui, is_overridden);
+            if reset {
+                if let Some(scene) = state.active_scene_mut() {
+                    if let Some(ss) = scene.find_source_mut(selected_id) {
+                        ss.overrides.effects = None;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        section_label(ui, "EFFECTS");
+    });
+
+    // "+ Add" button row.
+    let add_popup_id = ui.make_persistent_id("add_effect_popup");
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let btn = ui.small_button(
+                egui::RichText::new("+ Add").color(theme.accent).size(10.0),
+            );
+            if btn.clicked() {
+                ui.memory_mut(|m| m.toggle_popup(add_popup_id));
+            }
+            egui::popup_below_widget(ui, add_popup_id, &btn, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+                ui.set_min_width(140.0);
+                let all_effects = state.effect_registry.all().to_vec();
+                if all_effects.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No effects found")
+                            .color(theme.text_muted)
+                            .size(11.0),
+                    );
+                } else {
+                    for def in &all_effects {
+                        if ui.button(&def.name).clicked() {
+                            let instance = crate::scene::EffectInstance {
+                                effect_id: def.id.clone(),
+                                params: std::collections::HashMap::new(),
+                                enabled: true,
+                            };
+                            if in_active_scene {
+                                // Ensure override chain exists, then append.
+                                if let Some(scene) = state.active_scene_mut() {
+                                    if let Some(ss) = scene.find_source_mut(selected_id) {
+                                        let chain = ss
+                                            .overrides
+                                            .effects
+                                            .get_or_insert_with(|| effects.clone());
+                                        chain.push(instance);
+                                    }
+                                }
+                            } else {
+                                state.library[lib_idx].effects.push(instance);
+                            }
+                            changed = true;
+                        }
+                    }
+                }
+            });
+        });
+    });
+
+    ui.add_space(4.0);
+
+    // ── Effect cards ────────────────────────────────────────────────────
+    if effects.is_empty() {
+        ui.label(
+            egui::RichText::new("No effects applied")
+                .color(theme.text_muted)
+                .size(10.0),
+        );
+    } else {
+        let mut remove_idx: Option<usize> = None;
+
+        for (idx, effect) in effects.iter().enumerate() {
+            let effect_name = state
+                .effect_registry
+                .get(&effect.effect_id)
+                .map(|d| d.name.clone())
+                .unwrap_or_else(|| effect.effect_id.clone());
+
+            let expand_id = ui.make_persistent_id(format!("effect_expand_{}_{}", selected_id.0, idx));
+            let expanded: bool = ui.data(|d| d.get_temp(expand_id).unwrap_or(false));
+
+            // Card background.
+            ui.horizontal(|ui| {
+                // Toggle switch.
+                let mut enabled = effect.enabled;
+                if crate::ui::widgets::toggle::toggle_switch(ui, &mut enabled) {
+                    // Write the toggle state.
+                    if in_active_scene {
+                        if let Some(scene) = state.active_scene_mut() {
+                            if let Some(ss) = scene.find_source_mut(selected_id) {
+                                let chain = ss
+                                    .overrides
+                                    .effects
+                                    .get_or_insert_with(|| effects.clone());
+                                if let Some(inst) = chain.get_mut(idx) {
+                                    inst.enabled = enabled;
+                                }
+                            }
+                        }
+                    } else if let Some(inst) = state.library[lib_idx].effects.get_mut(idx) {
+                        inst.enabled = enabled;
+                    }
+                    changed = true;
+                }
+
+                // Name label — clickable to toggle expand.
+                let name_response = ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(effect_name)
+                            .color(if effect.enabled {
+                                theme.text_primary
+                            } else {
+                                theme.text_muted
+                            })
+                            .size(11.0),
+                    )
+                    .sense(egui::Sense::click()),
+                );
+                if name_response.clicked() {
+                    ui.data_mut(|d| d.insert_temp(expand_id, !expanded));
+                }
+
+                // Spacer + remove button.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .small_button(egui::RichText::new("✕").color(theme.text_muted).size(10.0))
+                        .clicked()
+                    {
+                        remove_idx = Some(idx);
+                    }
+                });
+            });
+
+            // ── Expanded params ─────────────────────────────────────────
+            if expanded {
+                if let Some(def) = state.effect_registry.get(&effect.effect_id) {
+                    let params_def = def.params.clone();
+                    for param_def in &params_def {
+                        let current = effect
+                            .params
+                            .get(&param_def.name)
+                            .copied()
+                            .unwrap_or(param_def.default);
+                        let mut val = current;
+
+                        ui.horizontal(|ui| {
+                            ui.add_space(24.0); // indent
+                            ui.label(
+                                egui::RichText::new(&param_def.name)
+                                    .color(theme.text_secondary)
+                                    .size(10.0),
+                            );
+                            let slider = egui::Slider::new(&mut val, param_def.min..=param_def.max)
+                                .show_value(true);
+                            if ui.add(slider).changed() {
+                                // Write param value.
+                                if in_active_scene {
+                                    if let Some(scene) = state.active_scene_mut() {
+                                        if let Some(ss) = scene.find_source_mut(selected_id) {
+                                            let chain = ss
+                                                .overrides
+                                                .effects
+                                                .get_or_insert_with(|| effects.clone());
+                                            if let Some(inst) = chain.get_mut(idx) {
+                                                inst.params
+                                                    .insert(param_def.name.clone(), val);
+                                            }
+                                        }
+                                    }
+                                } else if let Some(inst) =
+                                    state.library[lib_idx].effects.get_mut(idx)
+                                {
+                                    inst.params.insert(param_def.name.clone(), val);
+                                }
+                                changed = true;
+                            }
+                        });
+                    }
+                }
+                ui.add_space(4.0);
+            }
+        }
+
+        // Handle remove.
+        if let Some(idx) = remove_idx {
+            if in_active_scene {
+                if let Some(scene) = state.active_scene_mut() {
+                    if let Some(ss) = scene.find_source_mut(selected_id) {
+                        let chain = ss
+                            .overrides
+                            .effects
+                            .get_or_insert_with(|| effects.clone());
+                        if idx < chain.len() {
+                            chain.remove(idx);
+                        }
+                    }
+                }
+            } else if idx < state.library[lib_idx].effects.len() {
+                state.library[lib_idx].effects.remove(idx);
+            }
+            changed = true;
+        }
     }
 
     changed

@@ -474,6 +474,12 @@ fn draw_source_row(
     // Selection highlight.
     if is_selected && !is_being_dragged {
         draw_selection_highlight(ui.painter(), paint_rect, selected_bg);
+    } else if row_response.hovered() && !is_being_dragged {
+        ui.painter().rect_filled(
+            paint_rect,
+            CornerRadius::same(theme.radius_sm as u8),
+            theme.bg_elevated,
+        );
     }
 
     // Flash highlight.
@@ -520,6 +526,8 @@ fn draw_source_row(
     let mut cursor_x = paint_rect.left() + 4.0;
     let center_y = paint_rect.center().y;
 
+    let row_text_color = if is_selected { theme.accent } else { theme.text_primary };
+
     // Icon.
     let icon_size = 16.0;
     let icon_rect = Rect::from_center_size(
@@ -536,7 +544,7 @@ fn draw_source_row(
         egui::Align2::CENTER_CENTER,
         source_icon(&row.source_type),
         egui::FontId::proportional(10.0),
-        with_opacity(theme.text_primary, effective_opacity),
+        with_opacity(row_text_color, effective_opacity),
     );
     cursor_x += icon_size + 6.0;
 
@@ -546,7 +554,7 @@ fn draw_source_row(
         egui::Align2::LEFT_CENTER,
         &row.name,
         egui::FontId::proportional(11.0),
-        with_opacity(theme.text_primary, effective_opacity),
+        with_opacity(row_text_color, effective_opacity),
     );
 
     // Audio indicator: small speaker icon after the name for audio sources.
@@ -564,30 +572,29 @@ fn draw_source_row(
     // Eye and lock icons (right-aligned, lock then eye from right).
     let right_x = paint_rect.right() - 4.0;
 
-    // Eye icon — only shown when source is hidden (or hovered for toggle).
+    // Eye icon — always visible.
     let eye_rect =
         Rect::from_center_size(egui::pos2(right_x - 8.0, center_y), vec2(16.0, row_height));
     let eye_hovered = ui.rect_contains_pointer(eye_rect);
-    if !row.visible || eye_hovered {
-        let eye_text = if row.visible {
-            egui_phosphor::regular::EYE
-        } else {
-            egui_phosphor::regular::EYE_SLASH
-        };
-        let eye_color = if eye_hovered {
-            with_opacity(theme.text_primary, effective_opacity)
-        } else {
-            // Hidden sources get a prominent icon so the state is obvious
-            with_opacity(theme.text_secondary, effective_opacity)
-        };
-        painter.text(
-            eye_rect.center(),
-            egui::Align2::CENTER_CENTER,
-            eye_text,
-            egui::FontId::proportional(11.0),
-            eye_color,
-        );
-    }
+    let eye_text = if row.visible {
+        egui_phosphor::regular::EYE
+    } else {
+        egui_phosphor::regular::EYE_SLASH
+    };
+    let eye_color = if eye_hovered {
+        with_opacity(theme.text_primary, effective_opacity)
+    } else if !row.visible {
+        with_opacity(theme.text_secondary, effective_opacity)
+    } else {
+        with_opacity(theme.text_muted, effective_opacity)
+    };
+    painter.text(
+        eye_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        eye_text,
+        egui::FontId::proportional(11.0),
+        eye_color,
+    );
 
     // Lock icon (to the left of the eye icon).
     let lock_text = if row.locked {

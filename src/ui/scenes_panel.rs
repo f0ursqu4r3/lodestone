@@ -239,8 +239,11 @@ fn draw_scene_card(
 
     // Draw miniature source rectangles inside the thumbnail.
     if let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id) {
-        let canvas_w = 1920.0_f32;
-        let canvas_h = 1080.0_f32;
+        let (cw, ch) = crate::renderer::compositor::parse_resolution(
+            &state.settings.video.base_resolution,
+        );
+        let canvas_w = cw as f32;
+        let canvas_h = ch as f32;
         let scale_x = thumb_rect.width() / canvas_w;
         let scale_y = thumb_rect.height() / canvas_h;
 

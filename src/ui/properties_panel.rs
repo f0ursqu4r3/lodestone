@@ -183,8 +183,9 @@ fn draw_transform_section(
             let label_w = 16.0;
             let spacing = 4.0;
             let extra_buttons = 36.0;
-            let total_labels = label_w * 2.0 + spacing + extra_buttons;
-            let field_w = ((ui.available_width() - total_labels) / 2.0).max(30.0);
+            let item_sp = ui.spacing().item_spacing.x;
+            let overhead = label_w * 2.0 + spacing + extra_buttons + item_sp * 5.0;
+            let field_w = ((ui.available_width() - overhead) / 2.0).max(30.0);
 
             ui.label(egui::RichText::new("W").color(text_color).size(10.0));
             transform_changed |= ui
@@ -1765,9 +1766,11 @@ fn transform_row_2(
     let mut changed = false;
     ui.horizontal(|ui| {
         let label_w = 16.0;
-        let spacing = 8.0;
-        let total_labels = label_w * 2.0 + spacing;
-        let field_w = ((ui.available_width() - total_labels) / 2.0).max(30.0);
+        let gap = 8.0;
+        let item_sp = ui.spacing().item_spacing.x;
+        // 4 items = 3 implicit gaps + 1 explicit gap
+        let overhead = label_w * 2.0 + gap + item_sp * 3.0;
+        let field_w = ((ui.available_width() - overhead) / 2.0).max(30.0);
 
         ui.label(egui::RichText::new(label_a).color(label_color).size(10.0));
         changed |= ui
@@ -1778,7 +1781,7 @@ fn transform_row_2(
                     .update_while_editing(false),
             )
             .changed();
-        ui.add_space(spacing);
+        ui.add_space(gap);
         ui.label(egui::RichText::new(label_b).color(label_color).size(10.0));
         changed |= ui
             .add_sized(

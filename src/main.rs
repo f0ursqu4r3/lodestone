@@ -9,6 +9,7 @@ mod state;
 mod system_extension;
 mod text_source;
 mod transition;
+mod transition_registry;
 mod ui;
 mod window;
 mod window_actions;

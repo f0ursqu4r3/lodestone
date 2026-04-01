@@ -1,4 +1,5 @@
 mod color_source;
+mod effect_registry;
 mod gstreamer;
 mod image_source;
 mod renderer;

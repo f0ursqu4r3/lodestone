@@ -594,10 +594,8 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
     let btn_y = bar_rect.center().y - btn_h / 2.0;
     let dropdown_w = 80.0;
     let dropdown_x = bar_rect.left() + padding;
-    let dropdown_rect = egui::Rect::from_min_size(
-        egui::pos2(dropdown_x, btn_y),
-        egui::vec2(dropdown_w, btn_h),
-    );
+    let dropdown_rect =
+        egui::Rect::from_min_size(egui::pos2(dropdown_x, btn_y), egui::vec2(dropdown_w, btn_h));
 
     let current_id = state.settings.transitions.default_transition.clone();
     let current_name = state
@@ -623,10 +621,7 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
         .width(dropdown_w - 16.0)
         .show_ui(&mut child_ui, |ui| {
             for (id, name) in &all_transitions {
-                if ui
-                    .selectable_label(&current_id == id, name)
-                    .clicked()
-                {
+                if ui.selectable_label(&current_id == id, name).clicked() {
                     state.settings.transitions.default_transition = id.clone();
                     state.mark_dirty();
                 }
@@ -636,8 +631,7 @@ fn draw_transition_bar(ui: &mut egui::Ui, state: &mut AppState, theme: &crate::u
     // ── Duration input ──
     let dur_x = dropdown_x + dropdown_w + 6.0;
     let dur_w = 46.0;
-    let dur_rect =
-        egui::Rect::from_min_size(egui::pos2(dur_x, btn_y), egui::vec2(dur_w, btn_h));
+    let dur_rect = egui::Rect::from_min_size(egui::pos2(dur_x, btn_y), egui::vec2(dur_w, btn_h));
 
     painter.rect_filled(
         dur_rect,

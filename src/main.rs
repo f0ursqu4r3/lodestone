@@ -1545,6 +1545,7 @@ impl ApplicationHandler for AppManager {
                 }
                 // Update detached window title to match the active panel name
                 if Some(window_id) != self.main_window_id
+                    && Some(window_id) != self.settings_window_id
                     && let Some(win) = self.windows.get(&window_id)
                 {
                     let title = win

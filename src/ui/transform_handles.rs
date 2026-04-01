@@ -637,16 +637,17 @@ pub fn draw_transform_handles(
 
     let pointer = ui.input(|i| i.pointer.hover_pos());
     let primary_down = ui.input(|i| i.pointer.primary_down());
+    let primary_pressed = ui.input(|i| i.pointer.primary_pressed());
     let primary_clicked = ui.input(|i| i.pointer.primary_clicked());
     let primary_released = ui.input(|i| i.pointer.primary_released());
 
-    // Track whether the current drag originated inside the preview panel.
+    // Track whether the current press originated inside the preview panel.
     // This prevents drags that start outside (e.g. resizing a dock splitter)
     // from triggering marquee selection or source moves when entering the panel.
     let drag_origin_id = egui::Id::new("transform_drag_inside_panel");
     let mut drag_started_inside: bool =
         ui.data(|d| d.get_temp(drag_origin_id).unwrap_or(false));
-    if primary_clicked {
+    if primary_pressed {
         drag_started_inside = pointer.map_or(false, |p| panel_rect.contains(p));
     }
     if primary_released || !primary_down {

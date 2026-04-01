@@ -586,6 +586,12 @@ fn draw_effects_section(
         );
     } else {
         let mut remove_idx: Option<usize> = None;
+        let mut reorder: Option<(usize, usize)> = None; // (from, to)
+
+        // Drag-to-reorder state.
+        let drag_id = ui.make_persistent_id(format!("effect_drag_{}", selected_id.0));
+        let dragging_idx: Option<usize> = ui.data(|d| d.get_temp(drag_id));
+        let row_height = 24.0;
 
         for (idx, effect) in effects.iter().enumerate() {
             let effect_name = state
@@ -597,106 +603,202 @@ fn draw_effects_section(
             let expand_id = ui.make_persistent_id(format!("effect_expand_{}_{}", selected_id.0, idx));
             let expanded: bool = ui.data(|d| d.get_temp(expand_id).unwrap_or(false));
 
-            // Card background.
-            ui.horizontal(|ui| {
-                // Toggle switch.
-                let mut enabled = effect.enabled;
-                if crate::ui::widgets::toggle::toggle_switch(ui, &mut enabled) {
-                    // Write the toggle state.
-                    if in_active_scene {
-                        if let Some(scene) = state.active_scene_mut() {
-                            if let Some(ss) = scene.find_source_mut(selected_id) {
-                                let chain = ss
-                                    .overrides
-                                    .effects
-                                    .get_or_insert_with(|| effects.clone());
-                                if let Some(inst) = chain.get_mut(idx) {
-                                    inst.enabled = enabled;
-                                }
-                            }
-                        }
-                    } else if let Some(inst) = state.library[lib_idx].effects.get_mut(idx) {
-                        inst.enabled = enabled;
-                    }
-                    changed = true;
-                }
+            let is_dragging = dragging_idx == Some(idx);
+            let opacity = if is_dragging { 0.5 } else { 1.0 };
 
-                // Name label — clickable to toggle expand.
-                let name_response = ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(effect_name)
-                            .color(if effect.enabled {
-                                theme.text_primary
-                            } else {
-                                theme.text_muted
-                            })
-                            .size(11.0),
-                    )
-                    .sense(egui::Sense::click()),
-                );
-                if name_response.clicked() {
-                    ui.data_mut(|d| d.insert_temp(expand_id, !expanded));
-                }
-
-                // Spacer + remove button.
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .small_button(egui::RichText::new("✕").color(theme.text_muted).size(10.0))
-                        .clicked()
-                    {
-                        remove_idx = Some(idx);
-                    }
-                });
-            });
-
-            // ── Expanded params ─────────────────────────────────────────
-            if expanded {
-                if let Some(def) = state.effect_registry.get(&effect.effect_id) {
-                    let params_def = def.params.clone();
-                    for param_def in &params_def {
-                        let current = effect
-                            .params
-                            .get(&param_def.name)
-                            .copied()
-                            .unwrap_or(param_def.default);
-                        let mut val = current;
-
-                        ui.horizontal(|ui| {
-                            ui.add_space(24.0); // indent
-                            ui.label(
-                                egui::RichText::new(&param_def.name)
-                                    .color(theme.text_secondary)
+            // Card container with subtle background.
+            let card_fill = if is_dragging {
+                theme.bg_elevated
+            } else {
+                theme.bg_surface
+            };
+            egui::Frame::NONE
+                .fill(card_fill)
+                .corner_radius(theme.radius_sm)
+                .stroke(egui::Stroke::new(1.0, theme.border_subtle))
+                .inner_margin(egui::Margin::symmetric(6, 2))
+                .show(ui, |ui| {
+                    // Header row.
+                    ui.horizontal(|ui| {
+                        // Drag grip.
+                        let grip_response = ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(egui_phosphor::regular::DOTS_SIX_VERTICAL)
+                                    .color(crate::ui::draw_helpers::with_opacity(theme.text_muted, opacity))
                                     .size(10.0),
-                            );
-                            let slider = egui::Slider::new(&mut val, param_def.min..=param_def.max)
-                                .show_value(true);
-                            if ui.add(slider).changed() {
-                                // Write param value.
-                                if in_active_scene {
-                                    if let Some(scene) = state.active_scene_mut() {
-                                        if let Some(ss) = scene.find_source_mut(selected_id) {
-                                            let chain = ss
-                                                .overrides
-                                                .effects
-                                                .get_or_insert_with(|| effects.clone());
-                                            if let Some(inst) = chain.get_mut(idx) {
-                                                inst.params
-                                                    .insert(param_def.name.clone(), val);
-                                            }
+                            )
+                            .sense(egui::Sense::drag()),
+                        );
+                        if grip_response.drag_started() {
+                            ui.data_mut(|d| d.insert_temp(drag_id, idx));
+                        }
+
+                        // Toggle switch.
+                        let mut enabled = effect.enabled;
+                        if crate::ui::widgets::toggle::toggle_switch(ui, &mut enabled) {
+                            if in_active_scene {
+                                if let Some(scene) = state.active_scene_mut() {
+                                    if let Some(ss) = scene.find_source_mut(selected_id) {
+                                        let chain = ss
+                                            .overrides
+                                            .effects
+                                            .get_or_insert_with(|| effects.clone());
+                                        if let Some(inst) = chain.get_mut(idx) {
+                                            inst.enabled = enabled;
                                         }
                                     }
-                                } else if let Some(inst) =
-                                    state.library[lib_idx].effects.get_mut(idx)
-                                {
-                                    inst.params.insert(param_def.name.clone(), val);
                                 }
-                                changed = true;
+                            } else if let Some(inst) = state.library[lib_idx].effects.get_mut(idx) {
+                                inst.enabled = enabled;
+                            }
+                            changed = true;
+                        }
+
+                        // Name label — clickable to toggle expand.
+                        let name_response = ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&effect_name)
+                                    .color(crate::ui::draw_helpers::with_opacity(
+                                        if effect.enabled { theme.text_primary } else { theme.text_muted },
+                                        opacity,
+                                    ))
+                                    .size(11.0),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if name_response.clicked() {
+                            ui.data_mut(|d| d.insert_temp(expand_id, !expanded));
+                        }
+
+                        // Spacer + expand arrow + remove button.
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .small_button(
+                                    egui::RichText::new(egui_phosphor::regular::X)
+                                        .color(theme.text_muted)
+                                        .size(10.0),
+                                )
+                                .clicked()
+                            {
+                                remove_idx = Some(idx);
+                            }
+
+                            // Expand/collapse chevron.
+                            let chevron = if expanded {
+                                egui_phosphor::regular::CARET_DOWN
+                            } else {
+                                egui_phosphor::regular::CARET_RIGHT
+                            };
+                            let chevron_resp = ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(chevron)
+                                        .color(theme.text_muted)
+                                        .size(10.0),
+                                )
+                                .sense(egui::Sense::click()),
+                            );
+                            if chevron_resp.clicked() {
+                                ui.data_mut(|d| d.insert_temp(expand_id, !expanded));
                             }
                         });
+                    });
+
+                    // ── Expanded params ─────────────────────────────────
+                    if expanded {
+                        if let Some(def) = state.effect_registry.get(&effect.effect_id) {
+                            let params_def = def.params.clone();
+                            for param_def in &params_def {
+                                let current = effect
+                                    .params
+                                    .get(&param_def.name)
+                                    .copied()
+                                    .unwrap_or(param_def.default);
+                                let mut val = current;
+
+                                ui.horizontal(|ui| {
+                                    ui.add_space(16.0);
+                                    ui.label(
+                                        egui::RichText::new(&param_def.name)
+                                            .color(theme.text_secondary)
+                                            .size(10.0),
+                                    );
+                                    let slider =
+                                        egui::Slider::new(&mut val, param_def.min..=param_def.max)
+                                            .show_value(true);
+                                    if ui.add(slider).changed() {
+                                        if in_active_scene {
+                                            if let Some(scene) = state.active_scene_mut() {
+                                                if let Some(ss) =
+                                                    scene.find_source_mut(selected_id)
+                                                {
+                                                    let chain = ss
+                                                        .overrides
+                                                        .effects
+                                                        .get_or_insert_with(|| effects.clone());
+                                                    if let Some(inst) = chain.get_mut(idx) {
+                                                        inst.params
+                                                            .insert(param_def.name.clone(), val);
+                                                    }
+                                                }
+                                            }
+                                        } else if let Some(inst) =
+                                            state.library[lib_idx].effects.get_mut(idx)
+                                        {
+                                            inst.params.insert(param_def.name.clone(), val);
+                                        }
+                                        changed = true;
+                                    }
+                                });
+                            }
+                        }
+                        ui.add_space(2.0);
+                    }
+                });
+
+            ui.add_space(2.0);
+
+            // Drop zone detection: if dragging and pointer is over this card, mark as drop target.
+            if let Some(from_idx) = dragging_idx {
+                if from_idx != idx {
+                    let last_response = ui.interact(
+                        ui.min_rect(),
+                        ui.make_persistent_id(format!("effect_drop_{idx}")),
+                        egui::Sense::hover(),
+                    );
+                    if last_response.hovered() && ui.input(|i| i.pointer.any_released()) {
+                        reorder = Some((from_idx, idx));
                     }
                 }
-                ui.add_space(4.0);
             }
+        }
+
+        // Clear drag state on release.
+        if ui.input(|i| i.pointer.any_released()) {
+            ui.data_mut(|d| d.remove_temp::<usize>(drag_id));
+        }
+
+        // Handle reorder.
+        if let Some((from, to)) = reorder {
+            let mutate = |chain: &mut Vec<crate::scene::EffectInstance>| {
+                if from < chain.len() && to < chain.len() {
+                    let item = chain.remove(from);
+                    chain.insert(to, item);
+                }
+            };
+            if in_active_scene {
+                if let Some(scene) = state.active_scene_mut() {
+                    if let Some(ss) = scene.find_source_mut(selected_id) {
+                        let chain = ss
+                            .overrides
+                            .effects
+                            .get_or_insert_with(|| effects.clone());
+                        mutate(chain);
+                    }
+                }
+            } else {
+                mutate(&mut state.library[lib_idx].effects);
+            }
+            changed = true;
         }
 
         // Handle remove.

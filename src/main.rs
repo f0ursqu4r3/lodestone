@@ -1636,7 +1636,7 @@ impl ApplicationHandler for AppManager {
         };
         let had_new_frames = !drained_frames.is_empty();
         if had_new_frames && let Some(ref mut gpu) = self.gpu {
-            // Update native_size on sources when we first see their frame dimensions.
+            // Update native_size on sources when frame dimensions change.
             {
                 let mut app_state = self.state.lock().expect("lock AppState");
                 for (source_id, frame) in &drained_frames {
@@ -1644,18 +1644,16 @@ impl ApplicationHandler for AppManager {
                     if let Some(s) = app_state.library.iter_mut().find(|s| s.id == *source_id)
                         && s.native_size != new_size
                     {
-                        // Only update native_size from frame data if it was still the
-                        // default placeholder. Sources with eagerly-detected resolutions
-                        // (display via SCDisplay, camera via device caps) already have
-                        // the correct native_size and should not be overwritten by the
-                        // capture pipeline's output resolution.
-                        let was_default = s.native_size == (1920.0, 1080.0);
-                        if was_default {
-                            s.native_size = new_size;
-                            if new_size != (1920.0, 1080.0) {
-                                s.transform.width = new_size.0;
-                                s.transform.height = new_size.1;
-                            }
+                        let old_native = s.native_size;
+                        s.native_size = new_size;
+                        // Update transform dimensions if they still match the old
+                        // native_size (user hasn't manually resized).
+                        let matches_old = (s.transform.width - old_native.0).abs() < 1.0
+                            && (s.transform.height - old_native.1).abs() < 1.0;
+                        let was_default = old_native == (1920.0, 1080.0);
+                        if matches_old || was_default {
+                            s.transform.width = new_size.0;
+                            s.transform.height = new_size.1;
                         }
                     }
                 }

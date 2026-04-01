@@ -636,8 +636,26 @@ pub fn draw_transform_handles(
     }
 
     let pointer = ui.input(|i| i.pointer.hover_pos());
+    let primary_down = ui.input(|i| i.pointer.primary_down());
     let primary_clicked = ui.input(|i| i.pointer.primary_clicked());
     let primary_released = ui.input(|i| i.pointer.primary_released());
+
+    // Track whether the current drag originated inside the preview panel.
+    // This prevents drags that start outside (e.g. resizing a dock splitter)
+    // from triggering marquee selection or source moves when entering the panel.
+    let drag_origin_id = egui::Id::new("transform_drag_inside_panel");
+    let mut drag_started_inside: bool =
+        ui.data(|d| d.get_temp(drag_origin_id).unwrap_or(false));
+    if primary_clicked {
+        drag_started_inside = pointer.map_or(false, |p| panel_rect.contains(p));
+    }
+    if primary_released || !primary_down {
+        drag_started_inside = false;
+    }
+    ui.data_mut(|d| d.insert_temp(drag_origin_id, drag_started_inside));
+
+    // Only allow drag interactions if the press originated inside the panel.
+    let can_start_drag = primary_down && drag_started_inside;
     let shift_held = ui.input(|i| i.modifiers.shift);
     let alt_held = ui.input(|i| i.modifiers.alt);
     let secondary_clicked = ui.input(|i| i.pointer.secondary_clicked());
@@ -898,7 +916,7 @@ pub fn draw_transform_handles(
         if let Some(mouse_pos) = pointer {
             match &drag_mode {
                 DragMode::None => {
-                    if primary_clicked && panel_rect.contains(mouse_pos) && !ctx_menu_open {
+                    if can_start_drag && panel_rect.contains(mouse_pos) && !ctx_menu_open {
                         // No source hit, no selection — start marquee.
                         let hit = active_scene_sources
                             .iter()
@@ -983,7 +1001,7 @@ pub fn draw_transform_handles(
     if let Some(mouse_pos) = pointer {
         match &mut drag_mode {
             DragMode::None => {
-                if primary_clicked && panel_rect.contains(mouse_pos) && !ctx_menu_open && !is_locked {
+                if can_start_drag && panel_rect.contains(mouse_pos) && !ctx_menu_open && !is_locked {
                     if let Some(handle) =
                         hit_test_handles(mouse_pos, screen_rect, transform.rotation)
                     {

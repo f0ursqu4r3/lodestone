@@ -614,6 +614,7 @@ impl ApplicationHandler for AppManager {
         }
 
         // Send initial capture commands for all sources in the active scene
+        let mut startup_gif_animations = Vec::new();
         {
             let state = self.state.lock().unwrap();
             if let Some(scene_id) = state.active_scene_id
@@ -656,9 +657,22 @@ impl ApplicationHandler for AppManager {
                                     });
                                 }
                             }
-                            crate::scene::SourceProperties::Image { .. } => {
-                                // Image sources don't use a capture pipeline;
-                                // frames are loaded via LoadImageFrame.
+                            crate::scene::SourceProperties::Image { path, loop_mode } => {
+                                if let Some(ref tx) = state.command_tx {
+                                    if !path.is_empty() {
+                                        let mut pending_anims = Vec::new();
+                                        crate::ui::scenes_panel::load_image_for_source(
+                                            tx,
+                                            src_id,
+                                            path,
+                                            *loop_mode,
+                                            &mut pending_anims,
+                                        );
+                                        // Can't push to state here (immutable borrow),
+                                        // store for later.
+                                        startup_gif_animations.extend(pending_anims);
+                                    }
+                                }
                             }
                             _ => {
                                 // Text, Color, Audio, Browser sources don't use a capture pipeline yet.
@@ -667,6 +681,11 @@ impl ApplicationHandler for AppManager {
                     }
                 }
             }
+        }
+        // Push any GIF animations collected during startup image loading.
+        if !startup_gif_animations.is_empty() {
+            let mut state = self.state.lock().unwrap();
+            state.pending_gif_animations.extend(startup_gif_animations);
         }
 
         log::info!("Window and renderer initialized");

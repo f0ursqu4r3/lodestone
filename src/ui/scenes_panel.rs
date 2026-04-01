@@ -934,7 +934,7 @@ pub fn start_capture_source(
 
 /// Load an image file and send its frame to the GStreamer thread.
 /// For animated GIFs, sends the first frame and appends animation data to `pending`.
-fn load_image_for_source(
+pub(crate) fn load_image_for_source(
     tx: &tokio::sync::mpsc::Sender<GstCommand>,
     source_id: SourceId,
     path: &str,

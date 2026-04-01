@@ -31,8 +31,7 @@ impl Default for TransitionColors {
 }
 
 /// Global transition defaults, persisted in settings TOML.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TransitionSettings {
     /// Transition ID string (file stem, e.g. "fade", "dip_to_color").
     pub default_transition: String,
@@ -50,9 +49,54 @@ impl Default for TransitionSettings {
     }
 }
 
+impl<'de> serde::Deserialize<'de> for TransitionSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(default)]
+        struct Raw {
+            default_transition: Option<String>,
+            default_type: Option<String>,
+            default_duration_ms: u32,
+            default_colors: TransitionColors,
+        }
+
+        impl Default for Raw {
+            fn default() -> Self {
+                Self {
+                    default_transition: None,
+                    default_type: None,
+                    default_duration_ms: 300,
+                    default_colors: TransitionColors::default(),
+                }
+            }
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+
+        let default_transition = raw
+            .default_transition
+            .or_else(|| {
+                raw.default_type.map(|old| match old.as_str() {
+                    "Cut" => TRANSITION_CUT.to_string(),
+                    _ => TRANSITION_FADE.to_string(),
+                })
+            })
+            .unwrap_or_else(|| TRANSITION_FADE.to_string());
+
+        Ok(TransitionSettings {
+            default_transition,
+            default_duration_ms: raw.default_duration_ms,
+            default_colors: raw.default_colors,
+        })
+    }
+}
+
 /// Per-scene transition override. Controls the transition used when
 /// transitioning *into* this scene. `None` fields inherit from global defaults.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct SceneTransitionOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transition: Option<String>,
@@ -60,6 +104,38 @@ pub struct SceneTransitionOverride {
     pub duration_ms: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub colors: Option<TransitionColors>,
+}
+
+impl<'de> serde::Deserialize<'de> for SceneTransitionOverride {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize, Default)]
+        #[serde(default)]
+        struct Raw {
+            transition: Option<String>,
+            transition_type: Option<String>,
+            duration_ms: Option<u32>,
+            colors: Option<TransitionColors>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+
+        let transition = raw.transition.or_else(|| {
+            raw.transition_type.map(|old| match old.as_str() {
+                "Cut" => TRANSITION_CUT.to_string(),
+                "Fade" => TRANSITION_FADE.to_string(),
+                other => other.to_lowercase(),
+            })
+        });
+
+        Ok(SceneTransitionOverride {
+            transition,
+            duration_ms: raw.duration_ms,
+            colors: raw.colors,
+        })
+    }
 }
 
 /// Fully resolved transition parameters (global defaults merged with per-scene overrides).
@@ -231,5 +307,77 @@ mod tests {
         assert!(o.transition.is_none());
         assert!(o.duration_ms.is_none());
         assert!(o.colors.is_none());
+    }
+
+    #[test]
+    fn settings_deserialize_new_format() {
+        let toml = r#"
+default_transition = "fade"
+default_duration_ms = 500
+
+[default_colors]
+color = [1.0, 0.0, 0.0, 1.0]
+from_color = [0.0, 0.0, 0.0, 1.0]
+to_color = [0.0, 0.0, 0.0, 1.0]
+"#;
+        let settings: TransitionSettings = toml::from_str(toml).unwrap();
+        assert_eq!(settings.default_transition, "fade");
+        assert_eq!(settings.default_duration_ms, 500);
+        assert_eq!(settings.default_colors.color, [1.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn settings_deserialize_old_format_fade() {
+        let toml = r#"
+default_type = "Fade"
+default_duration_ms = 300
+"#;
+        let settings: TransitionSettings = toml::from_str(toml).unwrap();
+        assert_eq!(settings.default_transition, "fade");
+        assert_eq!(settings.default_duration_ms, 300);
+    }
+
+    #[test]
+    fn settings_deserialize_old_format_cut() {
+        let toml = r#"
+default_type = "Cut"
+default_duration_ms = 0
+"#;
+        let settings: TransitionSettings = toml::from_str(toml).unwrap();
+        assert_eq!(settings.default_transition, "cut");
+    }
+
+    #[test]
+    fn settings_deserialize_empty() {
+        let settings: TransitionSettings = toml::from_str("").unwrap();
+        assert_eq!(settings.default_transition, "fade");
+        assert_eq!(settings.default_duration_ms, 300);
+    }
+
+    #[test]
+    fn override_deserialize_new_format() {
+        let toml = r#"
+transition = "dip_to_color"
+duration_ms = 1000
+
+[colors]
+color = [1.0, 1.0, 1.0, 1.0]
+from_color = [0.0, 0.0, 0.0, 1.0]
+to_color = [0.0, 0.0, 0.0, 1.0]
+"#;
+        let o: SceneTransitionOverride = toml::from_str(toml).unwrap();
+        assert_eq!(o.transition.as_deref(), Some("dip_to_color"));
+        assert_eq!(o.duration_ms, Some(1000));
+        assert_eq!(o.colors.unwrap().color, [1.0, 1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn override_deserialize_old_format() {
+        let toml = r#"
+transition_type = "Fade"
+duration_ms = 500
+"#;
+        let o: SceneTransitionOverride = toml::from_str(toml).unwrap();
+        assert_eq!(o.transition.as_deref(), Some("fade"));
     }
 }

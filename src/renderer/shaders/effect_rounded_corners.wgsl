@@ -8,7 +8,8 @@ struct Uniforms {
     time: f32,
     _pad: f32,
     resolution: vec2<f32>,
-    params: array<f32, 8>,
+    params_a: vec4<f32>,
+    params_b: vec4<f32>,
 }
 
 @group(0) @binding(0) var t_input: texture_2d<f32>;
@@ -17,8 +18,8 @@ struct Uniforms {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let radius = u.params[0];
-    let feather = u.params[1];
+    let radius = u.params_a.x;
+    let feather = u.params_a.y;
     let color = textureSample(t_input, s_input, in.uv);
     let half = vec2(0.5);
     let p = abs(in.uv - half) - half + vec2(radius);

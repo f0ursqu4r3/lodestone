@@ -11,7 +11,8 @@ struct Uniforms {
     time: f32,
     _pad: f32,
     resolution: vec2<f32>,
-    params: array<f32, 8>,
+    params_a: vec4<f32>,
+    params_b: vec4<f32>,
 }
 
 @group(0) @binding(0) var t_input: texture_2d<f32>;
@@ -20,9 +21,9 @@ struct Uniforms {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let key = vec3(u.params[0], u.params[1], u.params[2]);
-    let threshold = u.params[3];
-    let smooth_width = u.params[4];
+    let key = vec3(u.params_a.x, u.params_a.y, u.params_a.z);
+    let threshold = u.params_a.w;
+    let smooth_width = u.params_b.x;
     let color = textureSample(t_input, s_input, in.uv);
     let diff = distance(color.rgb, key);
     let alpha = smoothstep(threshold, threshold + smooth_width, diff);

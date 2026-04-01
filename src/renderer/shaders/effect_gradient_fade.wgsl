@@ -9,7 +9,8 @@ struct Uniforms {
     time: f32,
     _pad: f32,
     resolution: vec2<f32>,
-    params: array<f32, 8>,
+    params_a: vec4<f32>,
+    params_b: vec4<f32>,
 }
 
 @group(0) @binding(0) var t_input: texture_2d<f32>;
@@ -18,9 +19,9 @@ struct Uniforms {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let angle_deg = u.params[0];
-    let fade_start = u.params[1];
-    let fade_end = u.params[2];
+    let angle_deg = u.params_a.x;
+    let fade_start = u.params_a.y;
+    let fade_end = u.params_a.z;
     let angle = radians(angle_deg);
     let dir = vec2(cos(angle), sin(angle));
     let t = dot(in.uv - vec2(0.5), dir) + 0.5;

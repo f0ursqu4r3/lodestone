@@ -25,8 +25,10 @@ pub struct EffectUniforms {
     pub _pad: f32,
     /// Input texture dimensions (width, height).
     pub resolution: [f32; 2],
-    /// Named shader parameters (up to 8 floats).
-    pub params: [f32; 8],
+    /// Named shader parameters 0–3 (packed as vec4 for uniform alignment).
+    pub params_a: [f32; 4],
+    /// Named shader parameters 4–7 (packed as vec4 for uniform alignment).
+    pub params_b: [f32; 4],
 }
 
 /// An effect to apply, as resolved by the compositor before rendering.
@@ -361,7 +363,8 @@ impl EffectPipeline {
                 time,
                 _pad: 0.0,
                 resolution: [source_size.0 as f32, source_size.1 as f32],
-                params: *params,
+                params_a: [params[0], params[1], params[2], params[3]],
+                params_b: [params[4], params[5], params[6], params[7]],
             };
             queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 

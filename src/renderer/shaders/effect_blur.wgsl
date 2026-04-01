@@ -8,7 +8,8 @@ struct Uniforms {
     time: f32,
     _pad: f32,
     resolution: vec2<f32>,
-    params: array<f32, 8>,
+    params_a: vec4<f32>,
+    params_b: vec4<f32>,
 }
 
 @group(0) @binding(0) var t_input: texture_2d<f32>;
@@ -17,8 +18,8 @@ struct Uniforms {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let radius = u.params[0];
-    let direction = u.params[1];
+    let radius = u.params_a.x;
+    let direction = u.params_a.y;
     let texel = vec2(1.0 / u.resolution.x, 1.0 / u.resolution.y);
     let dir = select(vec2(texel.x, 0.0), vec2(0.0, texel.y), direction > 0.5);
     let steps = i32(clamp(radius, 1.0, 50.0));

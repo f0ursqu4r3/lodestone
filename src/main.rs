@@ -219,6 +219,8 @@ struct AppManager {
     settings_window_id: Option<WindowId>,
     pending_settings_window: bool,
     gif_animations: std::collections::HashMap<crate::scene::SourceId, AnimationState>,
+    /// Tracks the last serialized layout to detect changes for debounced saving.
+    last_saved_layout: Option<String>,
 }
 
 impl AppManager {
@@ -322,6 +324,7 @@ impl AppManager {
             settings_window_id: None,
             pending_settings_window: false,
             gif_animations: std::collections::HashMap::new(),
+            last_saved_layout: None,
         }
     }
 
@@ -388,7 +391,7 @@ impl AppManager {
     }
 
     /// Save the current main window layout to disk.
-    fn save_layout(&self) {
+    fn save_layout(&mut self) {
         let Some(main_id) = self.main_window_id else {
             return;
         };
@@ -405,13 +408,42 @@ impl AppManager {
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
-                if let Err(e) = std::fs::write(&path, toml_str) {
+                if let Err(e) = std::fs::write(&path, &toml_str) {
                     log::warn!("Failed to save layout: {e}");
                 }
+                self.last_saved_layout = Some(toml_str);
             }
             Err(e) => {
                 log::warn!("Failed to serialize layout: {e}");
             }
+        }
+    }
+
+    /// Save layout only if it has changed since the last save.
+    fn save_layout_if_changed(&mut self) {
+        let Some(main_id) = self.main_window_id else {
+            return;
+        };
+        let Some(main_win) = self.windows.get(&main_id) else {
+            return;
+        };
+        let detached = Vec::new();
+        let Ok(toml_str) = serialize_full_layout(&main_win.layout, &detached) else {
+            return;
+        };
+        let changed = self
+            .last_saved_layout
+            .as_ref()
+            .map_or(true, |prev| *prev != toml_str);
+        if changed {
+            let path = settings::config_dir().join("layout.toml");
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Err(e) = std::fs::write(&path, &toml_str) {
+                log::warn!("Failed to save layout: {e}");
+            }
+            self.last_saved_layout = Some(toml_str);
         }
     }
 
@@ -1440,17 +1472,15 @@ impl ApplicationHandler for AppManager {
                     self.save_layout();
                     {
                         let app_state = self.state.lock().unwrap();
-                        if app_state.scenes_dirty {
-                            let collection = crate::scene::SceneCollection {
-                                scenes: app_state.scenes.clone(),
-                                library: app_state.library.clone(),
-                                active_scene_id: app_state.active_scene_id,
-                                next_scene_id: app_state.next_scene_id,
-                                next_source_id: app_state.next_source_id,
-                            };
-                            if let Err(e) = collection.save_to(&settings::scenes_path()) {
-                                log::warn!("Failed to save scenes on exit: {e}");
-                            }
+                        let collection = crate::scene::SceneCollection {
+                            scenes: app_state.scenes.clone(),
+                            library: app_state.library.clone(),
+                            active_scene_id: app_state.active_scene_id,
+                            next_scene_id: app_state.next_scene_id,
+                            next_source_id: app_state.next_source_id,
+                        };
+                        if let Err(e) = collection.save_to(&settings::scenes_path()) {
+                            log::warn!("Failed to save scenes on exit: {e}");
                         }
                     }
                     event_loop.exit();
@@ -1558,6 +1588,9 @@ impl ApplicationHandler for AppManager {
                                 app_state.scenes_dirty = false;
                             }
                             drop(app_state);
+
+                            // Debounced layout persistence — compare with last saved.
+                            self.save_layout_if_changed();
                         }
                     }
 

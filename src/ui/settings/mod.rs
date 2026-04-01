@@ -10,8 +10,7 @@ mod video;
 use std::time::Instant;
 
 use egui::{
-    Align, Color32, CornerRadius, CursorIcon, Id, Layout, Rect, Response, Sense, Stroke,
-    StrokeKind, Ui, Vec2, Widget,
+    Align, Color32, CornerRadius, CursorIcon, Id, Layout, Rect, Response, Sense, Ui, Vec2, Widget,
 };
 
 use crate::state::AppState;
@@ -345,7 +344,7 @@ pub(super) fn toggle_switch(on: &mut bool) -> impl Widget + '_ {
             let bg_color = if *on {
                 toggle_theme.accent
             } else {
-                toggle_theme.bg_elevated
+                toggle_theme.border_subtle
             };
 
             let knob_radius = 7.0;
@@ -359,19 +358,10 @@ pub(super) fn toggle_switch(on: &mut bool) -> impl Widget + '_ {
             ui.painter()
                 .rect_filled(rect, CornerRadius::same(10), bg_color);
 
-            // Track border
-            if !*on {
-                ui.painter().rect_stroke(
-                    rect,
-                    CornerRadius::same(10),
-                    Stroke::new(1.0, toggle_theme.text_muted),
-                    StrokeKind::Outside,
-                );
-            }
-
-            // Knob
+            // Knob: white when on, muted when off
+            let knob_color = if *on { Color32::WHITE } else { toggle_theme.text_muted };
             ui.painter()
-                .circle_filled(knob_center, knob_radius, Color32::WHITE);
+                .circle_filled(knob_center, knob_radius, knob_color);
         }
 
         response

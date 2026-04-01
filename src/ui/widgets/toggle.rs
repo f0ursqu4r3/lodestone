@@ -1,7 +1,7 @@
 //! Toggle widgets: pill-shaped toggle row and iOS-style toggle switch.
 #![allow(dead_code)]
 
-use egui::{Color32, CornerRadius, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Color32, CornerRadius, Sense, Ui, Vec2};
 
 use crate::ui::theme::active_theme;
 
@@ -98,7 +98,7 @@ pub fn toggle_switch(ui: &mut Ui, on: &mut bool) -> bool {
         let anim_id = response.id.with("toggle_anim");
         let t = ui.ctx().animate_bool_with_time(anim_id, *on, 0.15);
 
-        let bg_color = if *on { theme.accent } else { theme.bg_elevated };
+        let bg_color = if *on { theme.accent } else { theme.border_subtle };
 
         let knob_radius = 7.0;
         let knob_x = egui::lerp(
@@ -111,19 +111,10 @@ pub fn toggle_switch(ui: &mut Ui, on: &mut bool) -> bool {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(10), bg_color);
 
-        // Track border when off
-        if !*on {
-            ui.painter().rect_stroke(
-                rect,
-                CornerRadius::same(10),
-                Stroke::new(1.0, theme.text_muted),
-                StrokeKind::Outside,
-            );
-        }
-
-        // Knob
+        // Knob: white when on, muted when off
+        let knob_color = if *on { Color32::WHITE } else { theme.text_muted };
         ui.painter()
-            .circle_filled(knob_center, knob_radius, Color32::WHITE);
+            .circle_filled(knob_center, knob_radius, knob_color);
     }
 
     response.changed()

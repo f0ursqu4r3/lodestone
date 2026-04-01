@@ -202,12 +202,14 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
         let pulsed = Color32::from_rgb(r, g, b);
         ("LIVE", pulsed, Color32::WHITE)
     } else {
-        ("Go Live", Color32::TRANSPARENT, theme.danger)
+        ("Go Live", theme.bg_elevated, theme.text_secondary)
     };
+
+    let stroke_color = if is_live { theme.danger } else { theme.border };
 
     let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
         .fill(fill)
-        .stroke(egui::Stroke::new(1.0, theme.danger))
+        .stroke(egui::Stroke::new(1.0, stroke_color))
         .corner_radius(theme.radius_sm)
         .min_size(Vec2::new(64.0, 26.0));
 
@@ -250,12 +252,14 @@ fn draw_virtual_camera_button(ui: &mut egui::Ui, state: &mut AppState) {
     let (label, fill, text_color) = if is_active {
         (format!("{icon} V-Cam"), theme.success, Color32::WHITE)
     } else {
-        (format!("{icon} V-Cam"), Color32::TRANSPARENT, theme.success)
+        (format!("{icon} V-Cam"), theme.bg_elevated, theme.text_secondary)
     };
+
+    let stroke_color = if is_active { theme.success } else { theme.border };
 
     let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
         .fill(fill)
-        .stroke(egui::Stroke::new(1.0, theme.success))
+        .stroke(egui::Stroke::new(1.0, stroke_color))
         .corner_radius(theme.radius_sm)
         .min_size(Vec2::new(64.0, 26.0));
 
@@ -294,12 +298,14 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
     let (fill, text_color) = if is_recording {
         (theme.danger, Color32::WHITE)
     } else {
-        (Color32::TRANSPARENT, theme.danger)
+        (theme.bg_elevated, theme.text_secondary)
     };
+
+    let stroke_color = if is_recording { theme.danger } else { theme.border };
 
     let btn = egui::Button::new(RichText::new(&label).size(11.0).strong().color(text_color))
         .fill(fill)
-        .stroke(egui::Stroke::new(1.0, theme.danger))
+        .stroke(egui::Stroke::new(1.0, stroke_color))
         .corner_radius(theme.radius_sm)
         .min_size(Vec2::new(64.0, 26.0));
 

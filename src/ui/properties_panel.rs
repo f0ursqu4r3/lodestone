@@ -591,7 +591,17 @@ fn draw_effects_section(
         // Drag-to-reorder state.
         let drag_id = ui.make_persistent_id(format!("effect_drag_{}", selected_id.0));
         let dragging_idx: Option<usize> = ui.data(|d| d.get_temp(drag_id));
-        let row_height = 24.0;
+
+        // Disable text selection while dragging to prevent accidental text highlights.
+        if dragging_idx.is_some() {
+            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
+        }
+
+        // Collect card rects for drop indicator positioning.
+        let mut card_rects: Vec<egui::Rect> = Vec::new();
+        // Track which slot the pointer is nearest to (for drop indicator).
+        let pointer_pos = ui.input(|i| i.pointer.hover_pos());
+        let mut drop_target_idx: Option<usize> = None;
 
         for (idx, effect) in effects.iter().enumerate() {
             let effect_name = state
@@ -631,6 +641,12 @@ fn draw_effects_section(
                         );
                         if grip_response.drag_started() {
                             ui.data_mut(|d| d.insert_temp(drag_id, idx));
+                        }
+                        // Cursor feedback on grip.
+                        if grip_response.dragged() {
+                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
+                        } else if grip_response.hovered() {
+                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grab);
                         }
 
                         // Toggle switch.
@@ -755,19 +771,46 @@ fn draw_effects_section(
                     }
                 });
 
-            ui.add_space(2.0);
+            // Record this card's rect for drop indicator calculation.
+            let card_rect = ui.min_rect();
+            card_rects.push(card_rect);
 
-            // Drop zone detection: if dragging and pointer is over this card, mark as drop target.
-            if let Some(from_idx) = dragging_idx {
-                if from_idx != idx {
-                    let last_response = ui.interact(
-                        ui.min_rect(),
-                        ui.make_persistent_id(format!("effect_drop_{idx}")),
-                        egui::Sense::hover(),
-                    );
-                    if last_response.hovered() && ui.input(|i| i.pointer.any_released()) {
-                        reorder = Some((from_idx, idx));
-                    }
+            ui.add_space(2.0);
+        }
+
+        // Compute drop target from pointer position relative to card rects.
+        if let (Some(from_idx), Some(pos)) = (dragging_idx, pointer_pos) {
+            let mut best_slot = effects.len(); // default: end of list
+            for (i, rect) in card_rects.iter().enumerate() {
+                if pos.y < rect.center().y {
+                    best_slot = i;
+                    break;
+                }
+            }
+            // Don't show indicator at the dragged item's own position.
+            if best_slot != from_idx && best_slot != from_idx + 1 {
+                drop_target_idx = Some(best_slot);
+            }
+
+            // Draw drop indicator line.
+            if let Some(slot) = drop_target_idx {
+                let left = card_rects.first().map_or(0.0, |r| r.left());
+                let right = card_rects.first().map_or(100.0, |r| r.right());
+                let y = if slot < card_rects.len() {
+                    card_rects[slot].top() - 2.0
+                } else {
+                    card_rects.last().map_or(0.0, |r| r.bottom() + 2.0)
+                };
+                ui.painter().line_segment(
+                    [egui::pos2(left, y), egui::pos2(right, y)],
+                    egui::Stroke::new(2.0, theme.accent),
+                );
+            }
+
+            // Detect drop on release.
+            if ui.input(|i| i.pointer.any_released()) {
+                if let Some(to) = drop_target_idx {
+                    reorder = Some((from_idx, to));
                 }
             }
         }
@@ -780,9 +823,11 @@ fn draw_effects_section(
         // Handle reorder.
         if let Some((from, to)) = reorder {
             let mutate = |chain: &mut Vec<crate::scene::EffectInstance>| {
-                if from < chain.len() && to < chain.len() {
+                if from < chain.len() && to <= chain.len() {
                     let item = chain.remove(from);
-                    chain.insert(to, item);
+                    // After remove, indices shift: if from < to, target decrements by 1.
+                    let insert_at = if from < to { to - 1 } else { to };
+                    chain.insert(insert_at.min(chain.len()), item);
                 }
             };
             if in_active_scene {

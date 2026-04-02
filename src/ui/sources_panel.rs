@@ -685,7 +685,7 @@ fn start_capture_from_properties(
     match properties {
         SourceProperties::Display { screen_index } => {
             let capture_size = crate::renderer::compositor::parse_resolution(
-                &state.settings.video.output_resolution,
+                &state.settings.video.base_resolution,
             );
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
@@ -699,7 +699,7 @@ fn start_capture_from_properties(
         }
         SourceProperties::Window { mode, .. } => {
             let capture_size = crate::renderer::compositor::parse_resolution(
-                &state.settings.video.output_resolution,
+                &state.settings.video.base_resolution,
             );
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,

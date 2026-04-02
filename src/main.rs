@@ -585,7 +585,7 @@ impl AppManager {
         if let Some(scene) = app_state.active_scene() {
             let scene = scene.clone();
             let capture_size = crate::renderer::compositor::parse_resolution(
-                &app_state.settings.video.output_resolution,
+                &app_state.settings.video.base_resolution,
             );
             let anims = crate::ui::scenes_panel::send_capture_for_scene(
                 cmd_tx,
@@ -698,7 +698,7 @@ impl ApplicationHandler for AppManager {
                 && let Some(scene) = state.scenes.iter().find(|s| s.id == scene_id)
             {
                 let capture_size = crate::renderer::compositor::parse_resolution(
-                    &state.settings.video.output_resolution,
+                    &state.settings.video.base_resolution,
                 );
                 for src_id in scene.source_ids() {
                     if let Some(source) = state.library.iter().find(|s| s.id == src_id) {
@@ -1229,7 +1229,7 @@ impl ApplicationHandler for AppManager {
                             // Stop sources that were exclusive to the old program scene
                             // (not needed by the current active/editing scene).
                             let capture_size = crate::renderer::compositor::parse_resolution(
-                                &app_state.settings.video.output_resolution,
+                                &app_state.settings.video.base_resolution,
                             );
                             let anims = crate::ui::scenes_panel::apply_scene_diff(
                                 &cmd_tx,
@@ -1269,7 +1269,7 @@ impl ApplicationHandler for AppManager {
                             let exclude_self = app_state.settings.general.exclude_self_from_capture;
                             let cmd_tx = app_state.command_tx.clone();
                             let capture_size = crate::renderer::compositor::parse_resolution(
-                                &app_state.settings.video.output_resolution,
+                                &app_state.settings.video.base_resolution,
                             );
 
                             let target_scene =
@@ -1393,7 +1393,7 @@ impl ApplicationHandler for AppManager {
                             let exclude_self = app_state.settings.general.exclude_self_from_capture;
                             let cmd_tx = app_state.command_tx.clone();
                             let capture_size = crate::renderer::compositor::parse_resolution(
-                                &app_state.settings.video.output_resolution,
+                                &app_state.settings.video.base_resolution,
                             );
 
                             let old_scene = old_active
@@ -1961,7 +1961,13 @@ impl ApplicationHandler for AppManager {
                         crate::state::RecordingStatus::Recording { .. }
                     )
                     || app_state.virtual_camera_active;
-                let encode_fps = app_state.settings.video.fps;
+                // Use the highest FPS across all encode targets so no target is starved.
+                let encode_fps = app_state
+                    .settings
+                    .video
+                    .fps
+                    .max(app_state.settings.stream.fps)
+                    .max(app_state.settings.record.fps);
                 (
                     active,
                     program,

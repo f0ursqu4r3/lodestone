@@ -837,7 +837,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                 match &properties {
                     crate::scene::SourceProperties::Display { screen_index } => {
                         let capture_size = crate::renderer::compositor::parse_resolution(
-                            &state.settings.video.output_resolution,
+                            &state.settings.video.base_resolution,
                         );
                         let _ = cmd_tx.try_send(crate::gstreamer::GstCommand::AddCaptureSource {
                             source_id: src_id,
@@ -851,7 +851,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                     }
                     crate::scene::SourceProperties::Window { mode, .. } => {
                         let capture_size = crate::renderer::compositor::parse_resolution(
-                            &state.settings.video.output_resolution,
+                            &state.settings.video.base_resolution,
                         );
                         let _ = cmd_tx.try_send(crate::gstreamer::GstCommand::AddCaptureSource {
                             source_id: src_id,

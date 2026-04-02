@@ -28,7 +28,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     for (var i = -steps; i <= steps; i = i + 1) {
         let offset = dir * f32(i);
         let w = exp(-0.5 * f32(i * i) / (sigma * sigma + 0.0001));
-        color += textureSample(t_input, s_input, in.uv + offset) * w;
+        // Use textureSampleLevel with explicit LOD 0 — textureSample uses
+        // implicit derivatives which produce undefined results in a loop
+        // with dynamic UV offsets.
+        color += textureSampleLevel(t_input, s_input, in.uv + offset, 0.0) * w;
         total_weight += w;
     }
     return color / total_weight;

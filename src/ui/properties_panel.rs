@@ -931,7 +931,7 @@ fn draw_source_properties(
                             source_id: selected_id,
                         });
                         let capture_size = crate::renderer::compositor::parse_resolution(
-                            &state.settings.video.base_resolution,
+                            &state.settings.video.output_resolution,
                         );
                         let _ = tx.try_send(GstCommand::AddCaptureSource {
                             source_id: selected_id,
@@ -1163,7 +1163,7 @@ fn draw_source_properties(
                     // Restart capture with the new mode.
                     if let Some(ref tx) = state.command_tx {
                         let capture_size = crate::renderer::compositor::parse_resolution(
-                            &state.settings.video.base_resolution,
+                            &state.settings.video.output_resolution,
                         );
                         let _ = tx.try_send(GstCommand::RemoveCaptureSource {
                             source_id: selected_id,
@@ -1368,7 +1368,7 @@ fn draw_source_properties(
                 }
                 if let Some(ref tx) = cmd_tx {
                     let capture_size = crate::renderer::compositor::parse_resolution(
-                        &state.settings.video.base_resolution,
+                        &state.settings.video.output_resolution,
                     );
                     let _ = tx.try_send(GstCommand::RemoveCaptureSource {
                         source_id: selected_id,

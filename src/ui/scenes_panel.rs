@@ -151,7 +151,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 // Diff sources: stop sources no longer needed, start new ones.
                 // Then re-start any sources that were stopped but are needed by the program scene.
                 let capture_size = crate::renderer::compositor::parse_resolution(
-                    &state.settings.video.base_resolution,
+                    &state.settings.video.output_resolution,
                 );
                 let anims = apply_scene_diff(
                     &cmd_tx,
@@ -699,7 +699,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
 
             let cmd_tx = state.command_tx.clone();
             let capture_size = crate::renderer::compositor::parse_resolution(
-                &state.settings.video.base_resolution,
+                &state.settings.video.output_resolution,
             );
             let anims = apply_scene_diff(
                 &cmd_tx,
@@ -723,7 +723,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
             if let Some(ref new_s) = new_scene {
                 let cmd_tx = state.command_tx.clone();
                 let capture_size = crate::renderer::compositor::parse_resolution(
-                    &state.settings.video.base_resolution,
+                    &state.settings.video.output_resolution,
                 );
                 for &src_id in &new_s.source_ids() {
                     let already_running = old_scene
@@ -1036,7 +1036,7 @@ fn delete_scene_by_id(
             state.program_scene_id = Some(scene.id);
         }
         let capture_size = crate::renderer::compositor::parse_resolution(
-            &state.settings.video.base_resolution,
+            &state.settings.video.output_resolution,
         );
         let anims = send_capture_for_scene(
             cmd_tx,

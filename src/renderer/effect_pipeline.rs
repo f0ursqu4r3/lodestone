@@ -122,16 +122,22 @@ impl EffectPipeline {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<EffectUniforms>() as u64,
+                        ),
                     },
                     count: None,
                 }],
             });
 
+        // Allocate space for up to MAX_EFFECT_PASSES sets of uniforms.
+        // Each slot is 256-byte aligned (wgpu minUniformBufferOffsetAlignment).
+        let uniform_slot_size = 256u64; // conservative alignment
+        let max_passes = 16u32;
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("effect_uniform_buffer"),
-            size: std::mem::size_of::<EffectUniforms>() as u64,
+            size: uniform_slot_size * max_passes as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -141,7 +147,11 @@ impl EffectPipeline {
             layout: &uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &uniform_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(std::mem::size_of::<EffectUniforms>() as u64),
+                }),
             }],
         });
 
@@ -361,13 +371,12 @@ impl EffectPipeline {
         // Pass 2: read A, write B. Pass 3: read B, write A. Etc.
         let mut last_output_index: usize = 0;
 
-        for (pass_idx, (effect_id, params)) in passes.iter().enumerate() {
-            let pipeline = match self.compiled.get(effect_id.as_str()) {
-                Some(p) => p,
-                None => continue,
-            };
-
-            // Upload uniforms for this pass.
+        // Write ALL pass uniforms to the buffer at once with 256-byte aligned slots.
+        // This avoids the issue where queue.write_buffer calls are batched and only
+        // the last write is visible to all render passes.
+        let slot_size = 256usize;
+        let mut uniform_data = vec![0u8; slot_size * passes.len()];
+        for (pass_idx, (_effect_id, params)) in passes.iter().enumerate() {
             let uniforms = EffectUniforms {
                 time,
                 _pad: 0.0,
@@ -375,9 +384,21 @@ impl EffectPipeline {
                 params_a: [params[0], params[1], params[2], params[3]],
                 params_b: [params[4], params[5], params[6], params[7]],
             };
-            queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+            let bytes = bytemuck::bytes_of(&uniforms);
+            let offset = pass_idx * slot_size;
+            uniform_data[offset..offset + bytes.len()].copy_from_slice(bytes);
+        }
+        queue.write_buffer(&self.uniform_buffer, 0, &uniform_data);
 
-            // Determine input bind group and output texture view.
+        for (pass_idx, (effect_id, _params)) in passes.iter().enumerate() {
+            let pipeline = match self.compiled.get(effect_id.as_str()) {
+                Some(p) => p,
+                None => {
+                    log::warn!("Effect shader not compiled: {effect_id}, skipping pass {pass_idx}");
+                    continue;
+                }
+            };
+
             let write_index = if pass_idx % 2 == 0 { 0 } else { 1 };
             last_output_index = write_index;
 
@@ -392,6 +413,9 @@ impl EffectPipeline {
                 let read_index = 1 - write_index;
                 &tt.bind_groups[read_index]
             };
+
+            // Dynamic offset into the uniform buffer for this pass.
+            let dynamic_offset = (pass_idx * slot_size) as u32;
 
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("effect_pass"),
@@ -411,7 +435,7 @@ impl EffectPipeline {
 
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, input_bind_group, &[]);
-            pass.set_bind_group(1, &self.uniform_bind_group, &[]);
+            pass.set_bind_group(1, &self.uniform_bind_group, &[dynamic_offset]);
             pass.draw(0..4, 0..1);
         }
 

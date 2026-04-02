@@ -22,7 +22,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let texel = 1.0 / u.resolution;
     let dir = select(vec2(texel.x, 0.0), vec2(0.0, texel.y), direction > 0.5);
 
-    // Fixed 9-tap Gaussian kernel (sigma ≈ radius/3, scaled by step size).
+    // Fixed 9-tap Gaussian kernel, step size scales with radius.
     let step = dir * max(radius / 4.0, 1.0);
     let w0 = 0.2270270;
     let w1 = 0.1945946;

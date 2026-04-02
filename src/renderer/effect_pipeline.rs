@@ -78,6 +78,10 @@ pub struct EffectPipeline {
     uniform_bind_group: wgpu::BindGroup,
     sampler: wgpu::Sampler,
     target_format: wgpu::TextureFormat,
+    /// Format for intermediate temp textures (linear, no sRGB).
+    /// Effect passes work in linear color space to avoid double-gamma from
+    /// sRGB encode/decode on each intermediate pass.
+    intermediate_format: wgpu::TextureFormat,
     /// Per-source ping-pong texture pairs.
     temp_textures: HashMap<SourceId, TempTextures>,
 }
@@ -167,6 +171,9 @@ impl EffectPipeline {
             uniform_bind_group,
             sampler,
             target_format,
+            // Use linear (non-sRGB) format for intermediate effect passes to avoid
+            // double-gamma from sRGB encode/decode on each pass.
+            intermediate_format: wgpu::TextureFormat::Rgba8Unorm,
             temp_textures: HashMap::new(),
         }
     }
@@ -196,7 +203,7 @@ impl EffectPipeline {
                 module: &shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: self.target_format,
+                    format: self.intermediate_format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],

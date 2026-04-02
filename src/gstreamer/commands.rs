@@ -280,7 +280,7 @@ pub(crate) struct GstThreadChannels {
 pub fn create_channels() -> (GstChannels, GstThreadChannels) {
     let (command_tx, command_rx) = mpsc::channel(64);
     let latest_frames = Arc::new(Mutex::new(HashMap::new()));
-    let (composited_frame_tx, composited_frame_rx) = mpsc::channel(2);
+    let (composited_frame_tx, composited_frame_rx) = mpsc::channel(16);
     let (stats_tx, stats_rx) = watch::channel(PipelineStats::default());
     let (error_tx, error_rx) = mpsc::unbounded_channel();
     let (audio_level_tx, audio_level_rx) = watch::channel(AudioLevelUpdate::default());

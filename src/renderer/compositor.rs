@@ -720,10 +720,15 @@ impl Compositor {
     /// (used when the program scene has been blitted to the output texture
     /// via `scale_from_bind_group`).
     pub fn start_readback(&mut self, device: &Device, queue: &Queue, force_output: bool) {
-        // If a previous readback is still in flight, skip — we'll collect it
-        // next frame and start a fresh one after that.
-        if self.readback_inflight.is_some() {
-            return;
+        // If a previous readback is still in flight, poll until it completes
+        // rather than skipping. Skipping causes frame drops in recordings.
+        while self.readback_inflight.is_some() {
+            let _ = device.poll(wgpu::PollType::Poll);
+            if let Some(ref inflight) = self.readback_inflight {
+                if inflight.ready.load(std::sync::atomic::Ordering::Acquire) {
+                    break;
+                }
+            }
         }
 
         let (read_texture, read_width, read_height) = if force_output

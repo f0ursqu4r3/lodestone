@@ -41,22 +41,46 @@ fn make_audio_appsrc_caps(config: &AudioEncoderConfig) -> gstreamer::Caps {
 }
 
 /// Create a GStreamer H.264 encoder element for the given encoder type.
-fn make_encoder(encoder_type: EncoderType, bitrate_kbps: u32) -> Result<gstreamer::Element> {
+///
+/// `for_streaming` selects low-latency settings (realtime, zerolatency).
+/// Recording uses higher quality settings (no realtime constraint, better
+/// rate control).
+fn make_encoder(
+    encoder_type: EncoderType,
+    bitrate_kbps: u32,
+    for_streaming: bool,
+) -> Result<gstreamer::Element> {
     match encoder_type {
-        EncoderType::H264VideoToolbox => gstreamer::ElementFactory::make("vtenc_h264")
-            .name("encoder")
-            .property("bitrate", bitrate_kbps)
-            .property("realtime", true)
-            .property("allow-frame-reordering", false)
-            .build()
-            .context("Failed to create vtenc_h264"),
+        EncoderType::H264VideoToolbox => {
+            let mut builder = gstreamer::ElementFactory::make("vtenc_h264")
+                .name("encoder")
+                .property("bitrate", bitrate_kbps)
+                .property("allow-frame-reordering", !for_streaming)
+                .property("realtime", for_streaming);
+            // For recording, allow higher quality (max-keyframe-interval
+            // defaults to 0 = auto which is good for file playback).
+            if !for_streaming {
+                builder = builder.property("max-keyframe-interval", 60i32);
+            } else {
+                // Streaming: keyframe every 2 seconds for seekability.
+                builder = builder.property("max-keyframe-interval", 60i32);
+            }
+            builder.build().context("Failed to create vtenc_h264")
+        }
         EncoderType::H264x264 => {
             let el = gstreamer::ElementFactory::make("x264enc")
                 .name("encoder")
                 .property("bitrate", bitrate_kbps)
+                .property("key-int-max", 60u32)
                 .build()
                 .context("Failed to create x264enc")?;
-            el.set_property_from_str("tune", "zerolatency");
+            if for_streaming {
+                el.set_property_from_str("tune", "zerolatency");
+                el.set_property_from_str("speed-preset", "veryfast");
+            } else {
+                // Recording: better quality, no zero-latency constraint.
+                el.set_property_from_str("speed-preset", "medium");
+            }
             Ok(el)
         }
         EncoderType::H264Nvenc => gstreamer::ElementFactory::make("nvh264enc")
@@ -82,6 +106,7 @@ fn make_encoder(encoder_type: EncoderType, bitrate_kbps: u32) -> Result<gstreame
 fn build_encode_chain(
     config: &EncoderConfig,
     pipeline_name: &str,
+    for_streaming: bool,
 ) -> Result<(gstreamer::Pipeline, AppSrc, String)> {
     let pipeline = gstreamer::Pipeline::with_name(pipeline_name);
 
@@ -98,7 +123,7 @@ fn build_encode_chain(
         .build()
         .context("Failed to create videoconvert")?;
 
-    let encoder = make_encoder(config.encoder_type, config.bitrate_kbps)?;
+    let encoder = make_encoder(config.encoder_type, config.bitrate_kbps, for_streaming)?;
 
     let parser = gstreamer::ElementFactory::make("h264parse")
         .name("parser")
@@ -127,7 +152,7 @@ pub fn build_stream_pipeline_with_audio(
     has_system_audio: bool,
 ) -> Result<StreamPipelineHandles> {
     let (pipeline, video_appsrc, video_last_name) =
-        build_encode_chain(video_config, "encode-stream-audio-pipeline")?;
+        build_encode_chain(video_config, "encode-stream-audio-pipeline", true)?;
 
     // Mux and sink
     let mux = gstreamer::ElementFactory::make("flvmux")
@@ -268,7 +293,7 @@ pub fn build_record_pipeline_with_audio(
     has_system_audio: bool,
 ) -> Result<RecordPipelineHandles> {
     let (pipeline, video_appsrc, video_last_name) =
-        build_encode_chain(video_config, "encode-record-audio-pipeline")?;
+        build_encode_chain(video_config, "encode-record-audio-pipeline", false)?;
 
     let mux = match format {
         RecordingFormat::Mkv => gstreamer::ElementFactory::make("matroskamux")
@@ -437,7 +462,7 @@ mod tests {
     #[test]
     fn make_encoder_creates_element_for_available_type() {
         gstreamer::init().unwrap();
-        let encoder = super::make_encoder(crate::gstreamer::EncoderType::H264x264, 4500);
+        let encoder = super::make_encoder(crate::gstreamer::EncoderType::H264x264, 4500, true);
         assert!(encoder.is_ok(), "x264enc should be available");
     }
 

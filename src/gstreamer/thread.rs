@@ -628,7 +628,9 @@ impl GstThread {
             let mut map = buffer_ref.map_writable().unwrap();
             map.as_mut_slice().copy_from_slice(data);
         }
-        let _ = appsrc.push_buffer(buffer);
+        if let Err(e) = appsrc.push_buffer(buffer) {
+            log::warn!("Failed to push frame to encoder: {e}");
+        }
     }
 
     fn handle_command(&mut self, cmd: GstCommand) -> bool {
@@ -1131,23 +1133,24 @@ impl GstThread {
                 }
             }
 
-            // Forward the latest composited frame to encode pipelines.
-            // Drain the channel first (fast) to avoid starvation: if
-            // write_frame is slow (e.g. debug-mode VCam pixel swizzle), the
-            // main thread refills the channel during processing, turning the
-            // old `while try_recv` into an infinite loop that blocks capture
-            // pulls above.
+            // Forward composited frames to encode pipelines.
+            // Drain the channel to a Vec first (bounded snapshot) to avoid
+            // starvation from the main thread refilling during processing.
+            // Process ALL frames in order to avoid choppiness — every frame
+            // gets a correct PTS based on elapsed time.
             {
-                let mut latest: Option<RgbaFrame> = None;
+                let mut frames: Vec<RgbaFrame> = Vec::new();
                 while let Ok(frame) = self.channels.composited_frame_rx.try_recv() {
-                    latest = Some(frame);
+                    frames.push(frame);
                 }
-                if let Some(frame) = latest {
+                for frame in &frames {
+                    let frame_pts =
+                        gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);
                     if let Some(ref handles) = self.stream_handles {
-                        Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
+                        Self::push_to_encode(&handles.video_appsrc, &frame.data, frame_pts);
                     }
                     if let Some(ref handles) = self.record_handles {
-                        Self::push_to_encode(&handles.video_appsrc, &frame.data, pts);
+                        Self::push_to_encode(&handles.video_appsrc, &frame.data, frame_pts);
                     }
                     #[cfg(target_os = "macos")]
                     if let Some(ref handle) = self.virtual_camera_handle

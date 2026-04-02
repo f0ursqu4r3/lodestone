@@ -251,6 +251,8 @@ struct AppManager {
     gif_animations: std::collections::HashMap<crate::scene::SourceId, AnimationState>,
     /// Tracks the last serialized layout to detect changes for debounced saving.
     last_saved_layout: Option<String>,
+    /// Throttles readback to the recording/streaming FPS instead of display refresh rate.
+    last_readback_at: std::time::Instant,
 }
 
 impl AppManager {
@@ -363,6 +365,7 @@ impl AppManager {
             pending_settings_window: false,
             gif_animations: std::collections::HashMap::new(),
             last_saved_layout: None,
+            last_readback_at: std::time::Instant::now(),
         }
     }
 
@@ -1887,6 +1890,7 @@ impl ApplicationHandler for AppManager {
                 program_id,
                 transition_info,
                 is_encoding,
+                encode_fps,
                 transition_registry,
                 registry_changed,
                 effect_registry,
@@ -1957,11 +1961,13 @@ impl ApplicationHandler for AppManager {
                         crate::state::RecordingStatus::Recording { .. }
                     )
                     || app_state.virtual_camera_active;
+                let encode_fps = app_state.settings.video.fps;
                 (
                     active,
                     program,
                     trans,
                     encoding,
+                    encode_fps,
                     transition_registry,
                     registry_changed,
                     effect_registry,
@@ -2196,11 +2202,19 @@ impl ApplicationHandler for AppManager {
 
                 gpu.queue.submit(std::iter::once(encoder.finish()));
 
-                // Start async readback — the result is collected at the top of
-                // the next about_to_wait() call, keeping the render loop free.
+                // Start async readback at the target encode FPS, not the display
+                // refresh rate. Without throttling, the encoder receives frames at
+                // 60-120fps but the video is configured for 30fps, causing
+                // choppiness and duplicate frame issues.
                 if is_encoding {
-                    gpu.compositor
-                        .start_readback(&gpu.device, &gpu.queue, force_output_readback);
+                    let target_interval = std::time::Duration::from_secs_f64(
+                        1.0 / encode_fps.max(1) as f64,
+                    );
+                    if self.last_readback_at.elapsed() >= target_interval {
+                        self.last_readback_at = std::time::Instant::now();
+                        gpu.compositor
+                            .start_readback(&gpu.device, &gpu.queue, force_output_readback);
+                    }
                 }
 
                 // Complete transition if done.

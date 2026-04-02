@@ -19,20 +19,26 @@ struct Uniforms {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let radius = u.params_a.x;
     let direction = u.params_a.y;
-    let texel = vec2(1.0 / u.resolution.x, 1.0 / u.resolution.y);
+    let texel = 1.0 / u.resolution;
     let dir = select(vec2(texel.x, 0.0), vec2(0.0, texel.y), direction > 0.5);
-    let steps = i32(clamp(radius, 1.0, 50.0));
-    var color = vec4(0.0);
-    var total_weight = 0.0;
-    let sigma = radius * 0.33333;
-    for (var i = -steps; i <= steps; i = i + 1) {
-        let offset = dir * f32(i);
-        let w = exp(-0.5 * f32(i * i) / (sigma * sigma + 0.0001));
-        // Use textureSampleLevel with explicit LOD 0 — textureSample uses
-        // implicit derivatives which produce undefined results in a loop
-        // with dynamic UV offsets.
-        color += textureSampleLevel(t_input, s_input, in.uv + offset, 0.0) * w;
-        total_weight += w;
-    }
-    return color / total_weight;
+
+    // Fixed 9-tap Gaussian kernel (sigma ≈ radius/3, scaled by step size).
+    let step = dir * max(radius / 4.0, 1.0);
+    let w0 = 0.2270270;
+    let w1 = 0.1945946;
+    let w2 = 0.1216216;
+    let w3 = 0.0540540;
+    let w4 = 0.0162162;
+
+    var color = textureSampleLevel(t_input, s_input, in.uv, 0.0) * w0;
+    color += textureSampleLevel(t_input, s_input, in.uv + step * 1.0, 0.0) * w1;
+    color += textureSampleLevel(t_input, s_input, in.uv - step * 1.0, 0.0) * w1;
+    color += textureSampleLevel(t_input, s_input, in.uv + step * 2.0, 0.0) * w2;
+    color += textureSampleLevel(t_input, s_input, in.uv - step * 2.0, 0.0) * w2;
+    color += textureSampleLevel(t_input, s_input, in.uv + step * 3.0, 0.0) * w3;
+    color += textureSampleLevel(t_input, s_input, in.uv - step * 3.0, 0.0) * w3;
+    color += textureSampleLevel(t_input, s_input, in.uv + step * 4.0, 0.0) * w4;
+    color += textureSampleLevel(t_input, s_input, in.uv - step * 4.0, 0.0) * w4;
+
+    return color;
 }

@@ -445,6 +445,46 @@ pub fn seed_builtin_effects() {
             "blur.wgsl",
             include_str!("renderer/shaders/effect_blur.wgsl"),
         ),
+        (
+            "vignette.wgsl",
+            include_str!("renderer/shaders/effect_vignette.wgsl"),
+        ),
+        (
+            "pixelate.wgsl",
+            include_str!("renderer/shaders/effect_pixelate.wgsl"),
+        ),
+        (
+            "sepia.wgsl",
+            include_str!("renderer/shaders/effect_sepia.wgsl"),
+        ),
+        (
+            "invert.wgsl",
+            include_str!("renderer/shaders/effect_invert.wgsl"),
+        ),
+        (
+            "mirror.wgsl",
+            include_str!("renderer/shaders/effect_mirror.wgsl"),
+        ),
+        (
+            "scanlines.wgsl",
+            include_str!("renderer/shaders/effect_scanlines.wgsl"),
+        ),
+        (
+            "rgb_shift.wgsl",
+            include_str!("renderer/shaders/effect_rgb_shift.wgsl"),
+        ),
+        (
+            "film_grain.wgsl",
+            include_str!("renderer/shaders/effect_film_grain.wgsl"),
+        ),
+        (
+            "outline.wgsl",
+            include_str!("renderer/shaders/effect_outline.wgsl"),
+        ),
+        (
+            "zoom_blur.wgsl",
+            include_str!("renderer/shaders/effect_zoom_blur.wgsl"),
+        ),
     ];
     for (filename, content) in builtins {
         let path = dir.join(filename);

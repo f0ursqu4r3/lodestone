@@ -100,6 +100,8 @@ impl TransitionPipeline {
 
     /// Compile a shader and store its pipeline. Returns true on success.
     fn compile_shader(&mut self, device: &Device, id: &str, wgsl_source: &str) -> bool {
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(&format!("transition_{id}_shader")),
             source: wgpu::ShaderSource::Wgsl(wgsl_source.into()),
@@ -137,6 +139,12 @@ impl TransitionPipeline {
             cache: None,
         });
 
+        if let Some(err) = pollster::block_on(device.pop_error_scope()) {
+            log::error!("Transition shader '{id}' compilation failed: {err}");
+            return false;
+        }
+
+        log::info!("Compiled transition shader '{id}'");
         self.compiled.insert(id.to_string(), render_pipeline);
         true
     }

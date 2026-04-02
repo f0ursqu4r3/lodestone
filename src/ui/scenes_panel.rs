@@ -4,7 +4,7 @@
 //! The active scene is highlighted with a `TEXT_PRIMARY` border.
 //! An "Add" card with a dashed border creates new scenes.
 
-use crate::gstreamer::{CaptureSourceConfig, GstCommand};
+use crate::gstreamer::{resolve_camera_index, CaptureSourceConfig, GstCommand};
 use crate::scene::{Scene, SceneId, SourceId};
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
@@ -156,6 +156,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 let anims = apply_scene_diff(
                     &cmd_tx,
                     &state.library,
+                    &state.available_cameras,
                     old_scene.as_ref(),
                     new_scene.as_ref(),
                     state.settings.general.exclude_self_from_capture,
@@ -178,6 +179,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                         let anims = start_capture_source(
                             &cmd_tx,
                             &state.library,
+                            &state.available_cameras,
                             src_id,
                             state.settings.general.exclude_self_from_capture,
                             capture_size,
@@ -419,39 +421,38 @@ fn draw_scene_card(
 
     // Context menu.
     response.context_menu(|ui| {
-        // Pin / Unpin
-        let pin_label = if is_pinned {
-            "Unpin from toolbar"
-        } else {
-            "Pin to toolbar"
-        };
-        if ui.button(pin_label).clicked() {
-            if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
-                scene.pinned = !scene.pinned;
+        use crate::ui::widgets::menu::{menu_item, styled_menu};
+        styled_menu(ui, |ui| {
+            // Pin / Unpin
+            let pin_label = if is_pinned {
+                "Unpin from toolbar"
+            } else {
+                "Pin to toolbar"
+            };
+            if menu_item(ui, pin_label) {
+                if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                    scene.pinned = !scene.pinned;
+                }
+                state.mark_dirty();
+                ui.close();
             }
-            state.mark_dirty();
-            ui.close();
-        }
-        if ui.button("Rename").clicked() {
-            state.renaming_scene_id = Some(scene_id);
-            state.rename_buffer = scene_name.to_owned();
-            let gen_id = egui::Id::new("scene_rename_gen");
-            ui.data_mut(|d| {
-                let g: u64 = d.get_temp(gen_id).unwrap_or(0);
-                d.insert_temp(gen_id, g + 1);
-            });
-            ui.close();
-        }
-        if ui.button("Delete").clicked() {
-            // Context menu closures can't return values; we rely on the outer
-            // `pending_action` being set via a workaround. Since closures here
-            // don't have access to the outer `action`, delete is handled by
-            // storing intent in egui temp storage and reading it back.
-            ui.data_mut(|d| {
-                d.insert_temp::<bool>(egui::Id::new(("scene_delete", scene_id.0)), true)
-            });
-            ui.close();
-        }
+            if menu_item(ui, "Rename") {
+                state.renaming_scene_id = Some(scene_id);
+                state.rename_buffer = scene_name.to_owned();
+                let gen_id = egui::Id::new("scene_rename_gen");
+                ui.data_mut(|d| {
+                    let g: u64 = d.get_temp(gen_id).unwrap_or(0);
+                    d.insert_temp(gen_id, g + 1);
+                });
+                ui.close();
+            }
+            if menu_item(ui, "Delete") {
+                ui.data_mut(|d| {
+                    d.insert_temp::<bool>(egui::Id::new(("scene_delete", scene_id.0)), true)
+                });
+                ui.close();
+            }
+        });
     });
 
     // Check for a delete that was set via temp storage from the context menu.
@@ -704,6 +705,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
             let anims = apply_scene_diff(
                 &cmd_tx,
                 &state.library,
+                &state.available_cameras,
                 old_scene.as_ref(),
                 new_scene.as_ref(),
                 state.settings.general.exclude_self_from_capture,
@@ -734,6 +736,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
                         start_capture_source(
                             &cmd_tx,
                             &state.library,
+                            &state.available_cameras,
                             src_id,
                             state.settings.general.exclude_self_from_capture,
                             capture_size,
@@ -819,6 +822,7 @@ fn draw_add_card(
 pub fn apply_scene_diff(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     library: &[crate::scene::LibrarySource],
+    available_cameras: &[crate::gstreamer::CameraDevice],
     old_scene: Option<&Scene>,
     new_scene: Option<&Scene>,
     exclude_self: bool,
@@ -857,11 +861,12 @@ pub fn apply_scene_diff(
                         config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
                     });
                 }
-                crate::scene::SourceProperties::Camera { device_index, .. } => {
+                crate::scene::SourceProperties::Camera { device_index, device_name, device_uid } => {
+                    let idx = resolve_camera_index(available_cameras, device_uid, device_name, *device_index);
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
                         config: CaptureSourceConfig::Camera {
-                            device_index: *device_index,
+                            device_index: idx,
                         },
                     });
                 }
@@ -901,6 +906,7 @@ pub fn apply_scene_diff(
 pub fn start_capture_source(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     library: &[crate::scene::LibrarySource],
+    available_cameras: &[crate::gstreamer::CameraDevice],
     source_id: SourceId,
     exclude_self: bool,
     capture_size: (u32, u32),
@@ -928,11 +934,12 @@ pub fn start_capture_source(
                 config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
             });
         }
-        crate::scene::SourceProperties::Camera { device_index, .. } => {
+        crate::scene::SourceProperties::Camera { device_index, device_name, device_uid } => {
+            let idx = resolve_camera_index(available_cameras, device_uid, device_name, *device_index);
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
                 config: CaptureSourceConfig::Camera {
-                    device_index: *device_index,
+                    device_index: idx,
                 },
             });
         }
@@ -1041,6 +1048,7 @@ fn delete_scene_by_id(
         let anims = send_capture_for_scene(
             cmd_tx,
             &state.library,
+            &state.available_cameras,
             scene,
             state.settings.general.exclude_self_from_capture,
             capture_size,
@@ -1060,6 +1068,7 @@ fn delete_scene_by_id(
 pub(crate) fn send_capture_for_scene(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     library: &[crate::scene::LibrarySource],
+    available_cameras: &[crate::gstreamer::CameraDevice],
     scene: &Scene,
     exclude_self: bool,
     capture_size: (u32, u32),
@@ -1088,11 +1097,12 @@ pub(crate) fn send_capture_for_scene(
                     });
                     any_started = true;
                 }
-                crate::scene::SourceProperties::Camera { device_index, .. } => {
+                crate::scene::SourceProperties::Camera { device_index, device_name, device_uid } => {
+                    let idx = resolve_camera_index(available_cameras, device_uid, device_name, *device_index);
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
                         config: CaptureSourceConfig::Camera {
-                            device_index: *device_index,
+                            device_index: idx,
                         },
                     });
                     any_started = true;

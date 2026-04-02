@@ -527,51 +527,51 @@ fn draw_effects_section(
     });
 
     // "+ Add" button row.
-    let add_popup_id = ui.make_persistent_id("add_effect_popup");
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let btn = ui.small_button(
                 egui::RichText::new("+ Add").color(theme.accent).size(10.0),
             );
-            if btn.clicked() {
-                ui.memory_mut(|m| m.toggle_popup(add_popup_id));
-            }
-            egui::popup_below_widget(ui, add_popup_id, &btn, egui::PopupCloseBehavior::CloseOnClick, |ui| {
-                ui.set_min_width(140.0);
-                let all_effects = state.effect_registry.all().to_vec();
-                if all_effects.is_empty() {
-                    ui.label(
-                        egui::RichText::new("No effects found")
-                            .color(theme.text_muted)
-                            .size(11.0),
-                    );
-                } else {
-                    for def in &all_effects {
-                        if ui.button(&def.name).clicked() {
-                            let instance = crate::scene::EffectInstance {
-                                effect_id: def.id.clone(),
-                                params: std::collections::HashMap::new(),
-                                enabled: true,
-                            };
-                            if in_active_scene {
-                                // Ensure override chain exists, then append.
-                                if let Some(scene) = state.active_scene_mut() {
-                                    if let Some(ss) = scene.find_source_mut(selected_id) {
-                                        let chain = ss
-                                            .overrides
-                                            .effects
-                                            .get_or_insert_with(|| effects.clone());
-                                        chain.push(instance);
+            egui::Popup::from_toggle_button_response(&btn)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+                .show(|ui| {
+                    use crate::ui::widgets::menu::{menu_item, styled_menu};
+                    styled_menu(ui, |ui| {
+                        let all_effects = state.effect_registry.all().to_vec();
+                        if all_effects.is_empty() {
+                            ui.label(
+                                egui::RichText::new("No effects found")
+                                    .color(theme.text_muted)
+                                    .size(11.0),
+                            );
+                        } else {
+                            for def in &all_effects {
+                                if menu_item(ui, &def.name) {
+                                    let instance = crate::scene::EffectInstance {
+                                        effect_id: def.id.clone(),
+                                        params: std::collections::HashMap::new(),
+                                        enabled: true,
+                                    };
+                                    if in_active_scene {
+                                        // Ensure override chain exists, then append.
+                                        if let Some(scene) = state.active_scene_mut() {
+                                            if let Some(ss) = scene.find_source_mut(selected_id) {
+                                                let chain = ss
+                                                    .overrides
+                                                    .effects
+                                                    .get_or_insert_with(|| effects.clone());
+                                                chain.push(instance);
+                                            }
+                                        }
+                                    } else {
+                                        state.library[lib_idx].effects.push(instance);
                                     }
+                                    changed = true;
                                 }
-                            } else {
-                                state.library[lib_idx].effects.push(instance);
                             }
-                            changed = true;
                         }
-                    }
-                }
-            });
+                    });
+                });
         });
     });
 
@@ -1393,12 +1393,13 @@ fn draw_source_properties(
             let SourceProperties::Camera {
                 ref mut device_index,
                 ref mut device_name,
+                ref mut device_uid,
             } = source.properties
             else {
                 return changed;
             };
 
-            let prev_device_index = *device_index;
+            let prev_uid = device_uid.clone();
             let selected_label = if device_name.is_empty() {
                 "Select a camera...".to_string()
             } else {
@@ -1411,16 +1412,17 @@ fn draw_source_properties(
                 .show_ui(ui, |ui| {
                     for cam in &cameras {
                         if ui
-                            .selectable_label(*device_index == cam.device_index, &cam.name)
+                            .selectable_label(*device_uid == cam.uid, &cam.name)
                             .clicked()
                         {
                             *device_index = cam.device_index;
                             *device_name = cam.name.clone();
+                            *device_uid = cam.uid.clone();
                         }
                     }
                 });
 
-            if *device_index != prev_device_index {
+            if *device_uid != prev_uid {
                 // Update native_size and transform to match the new camera.
                 let new_idx = *device_index;
                 if let Some(cam) = cameras.iter().find(|c| c.device_index == new_idx) {
@@ -2131,10 +2133,13 @@ fn override_dot(ui: &mut egui::Ui, is_overridden: bool) -> bool {
     let mut reset = false;
     if is_overridden {
         response.context_menu(|ui| {
-            if ui.button("Reset to library default").clicked() {
-                reset = true;
-                ui.close();
-            }
+            use crate::ui::widgets::menu::{menu_item, styled_menu};
+            styled_menu(ui, |ui| {
+                if menu_item(ui, "Reset to library default") {
+                    reset = true;
+                    ui.close();
+                }
+            });
         });
     }
     reset

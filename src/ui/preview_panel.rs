@@ -862,11 +862,12 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                         });
                         state.capture_active = true;
                     }
-                    crate::scene::SourceProperties::Camera { device_index, .. } => {
+                    crate::scene::SourceProperties::Camera { device_index, device_name, device_uid } => {
+                        let idx = crate::gstreamer::resolve_camera_index(&state.available_cameras, device_uid, device_name, *device_index);
                         let _ = cmd_tx.try_send(crate::gstreamer::GstCommand::AddCaptureSource {
                             source_id: src_id,
                             config: crate::gstreamer::CaptureSourceConfig::Camera {
-                                device_index: *device_index,
+                                device_index: idx,
                             },
                         });
                         state.capture_active = true;

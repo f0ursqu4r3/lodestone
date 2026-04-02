@@ -97,7 +97,7 @@ define_class!(
             sample_buffer: &CMSampleBuffer,
             _of_type: SCStreamOutputType,
         ) {
-            if let Some(frame) = extract_rgba_frame(sample_buffer) {
+            if let Some(frame) = extract_bgra_frame(sample_buffer) {
                 let _ = self.ivars().frame_tx.send(frame);
             }
         }
@@ -527,11 +527,13 @@ fn build_stream_config(
     Ok(config)
 }
 
-/// Extract an `RgbaFrame` from a `CMSampleBuffer`.
+/// Extract raw BGRA pixel data from a `CMSampleBuffer`.
 ///
-/// Reads the pixel data from the backing `CVPixelBuffer`, copies it row-by-row
-/// (to handle stride/padding), and converts BGRA to RGBA.
-fn extract_rgba_frame(sample_buffer: &CMSampleBuffer) -> Option<RgbaFrame> {
+/// Copies the pixel data from the backing `CVPixelBuffer`, handling row
+/// stride/padding. Returns raw BGRA bytes — the GStreamer `videoconvert`
+/// element handles BGRA→RGBA conversion using SIMD, which is far faster
+/// than a per-pixel Rust loop.
+fn extract_bgra_frame(sample_buffer: &CMSampleBuffer) -> Option<RgbaFrame> {
     unsafe {
         // Get the CVImageBuffer (which is a CVPixelBuffer for video)
         let pixel_buffer = sample_buffer.image_buffer()?;
@@ -555,26 +557,28 @@ fn extract_rgba_frame(sample_buffer: &CMSampleBuffer) -> Option<RgbaFrame> {
         }
 
         let stride = width * 4;
-        let mut rgba = Vec::with_capacity(width * height * 4);
+        let total_bytes = width * height * 4;
         let base = base_addr as *const u8;
 
-        for row in 0..height {
-            let row_start = row * bytes_per_row;
-            let row_ptr = base.add(row_start);
-            let row_slice = std::slice::from_raw_parts(row_ptr, stride);
-            // BGRA -> RGBA: swap B and R channels
-            for pixel in row_slice.chunks_exact(4) {
-                rgba.push(pixel[2]); // R
-                rgba.push(pixel[1]); // G
-                rgba.push(pixel[0]); // B
-                rgba.push(pixel[3]); // A
+        let bgra = if bytes_per_row == stride {
+            // No padding — single memcpy.
+            let src = std::slice::from_raw_parts(base, total_bytes);
+            src.to_vec()
+        } else {
+            // Row padding present — copy row-by-row to strip padding.
+            let mut buf = Vec::with_capacity(total_bytes);
+            for row in 0..height {
+                let row_ptr = base.add(row * bytes_per_row);
+                let row_slice = std::slice::from_raw_parts(row_ptr, stride);
+                buf.extend_from_slice(row_slice);
             }
-        }
+            buf
+        };
 
         CVPixelBufferUnlockBaseAddress(&pixel_buffer, CVPixelBufferLockFlags::ReadOnly);
 
         Some(RgbaFrame {
-            data: rgba,
+            data: bgra,
             width: width as u32,
             height: height as u32,
         })

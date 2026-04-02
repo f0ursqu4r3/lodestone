@@ -41,7 +41,7 @@ pub struct ResolvedEffect {
 
 /// Ping-pong texture pair for a single source's effect chain.
 struct TempTextures {
-    textures: [wgpu::Texture; 2],
+    _textures: [wgpu::Texture; 2],
     views: [wgpu::TextureView; 2],
     bind_groups: [wgpu::BindGroup; 2],
     size: (u32, u32),
@@ -72,12 +72,9 @@ pub struct EffectPipeline {
     compiled: HashMap<String, wgpu::RenderPipeline>,
     pipeline_layout: wgpu::PipelineLayout,
     texture_bind_group_layout: wgpu::BindGroupLayout,
-    #[allow(dead_code)]
     uniform_bind_group_layout: wgpu::BindGroupLayout,
-    uniform_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
     sampler: wgpu::Sampler,
-    target_format: wgpu::TextureFormat,
+    _target_format: wgpu::TextureFormat,
     /// Format for intermediate temp textures (linear, no sRGB).
     /// Effect passes work in linear color space to avoid double-gamma from
     /// sRGB encode/decode on each intermediate pass.
@@ -122,7 +119,7 @@ impl EffectPipeline {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
+                        has_dynamic_offset: false,
                         min_binding_size: wgpu::BufferSize::new(
                             std::mem::size_of::<EffectUniforms>() as u64,
                         ),
@@ -130,30 +127,6 @@ impl EffectPipeline {
                     count: None,
                 }],
             });
-
-        // Allocate space for up to MAX_EFFECT_PASSES sets of uniforms.
-        // Each slot is 256-byte aligned (wgpu minUniformBufferOffsetAlignment).
-        let uniform_slot_size = 256u64; // conservative alignment
-        let max_passes = 16u32;
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("effect_uniform_buffer"),
-            size: uniform_slot_size * max_passes as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("effect_uniform_bind_group"),
-            layout: &uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &uniform_buffer,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(std::mem::size_of::<EffectUniforms>() as u64),
-                }),
-            }],
-        });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("effect_pipeline_layout"),
@@ -177,10 +150,8 @@ impl EffectPipeline {
             pipeline_layout,
             texture_bind_group_layout,
             uniform_bind_group_layout,
-            uniform_buffer,
-            uniform_bind_group,
             sampler,
-            target_format,
+            _target_format: target_format,
             // Use linear (non-sRGB) format for intermediate effect passes to avoid
             // double-gamma from sRGB encode/decode on each pass.
             intermediate_format: wgpu::TextureFormat::Rgba8Unorm,
@@ -194,6 +165,10 @@ impl EffectPipeline {
     /// effect shaders only need to define `fs_main`.
     pub fn compile_shader(&mut self, device: &Device, id: &str, wgsl_source: &str) -> bool {
         let full_source = format!("{VERTEX_PREAMBLE}\n{wgsl_source}");
+
+        // Push an error scope so we can catch shader compilation failures
+        // without panicking (wgpu's default uncaptured-error handler panics).
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(&format!("effect_{id}_shader")),
@@ -232,6 +207,13 @@ impl EffectPipeline {
             cache: None,
         });
 
+        // Check whether the shader/pipeline creation produced a validation error.
+        if let Some(err) = pollster::block_on(device.pop_error_scope()) {
+            log::error!("Effect shader '{id}' compilation failed: {err}");
+            return false;
+        }
+
+        log::info!("Compiled effect shader '{id}' ({} bytes)", wgsl_source.len());
         self.compiled.insert(id.to_string(), render_pipeline);
         true
     }
@@ -309,6 +291,7 @@ impl EffectPipeline {
     }
 
     /// Remove temp textures for a source that no longer exists.
+    #[allow(dead_code)]
     pub fn remove_temp_textures(&mut self, source_id: SourceId) {
         self.temp_textures.remove(&source_id);
     }
@@ -323,7 +306,7 @@ impl EffectPipeline {
     pub fn apply_chain(
         &mut self,
         device: &Device,
-        queue: &wgpu::Queue,
+        _queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         source_id: SourceId,
         source_bind_group: &wgpu::BindGroup,
@@ -367,28 +350,42 @@ impl EffectPipeline {
         self.ensure_temp_textures(device, source_id, source_size);
 
         // Run each pass, ping-ponging between temp textures A (0) and B (1).
-        // First pass reads from source_bind_group, writes to A.
-        // Pass 2: read A, write B. Pass 3: read B, write A. Etc.
         let mut last_output_index: usize = 0;
 
-        // Write ALL pass uniforms to the buffer at once with 256-byte aligned slots.
-        // This avoids the issue where queue.write_buffer calls are batched and only
-        // the last write is visible to all render passes.
-        let slot_size = 256usize;
-        let mut uniform_data = vec![0u8; slot_size * passes.len()];
-        for (pass_idx, (_effect_id, params)) in passes.iter().enumerate() {
-            let uniforms = EffectUniforms {
-                time,
-                _pad: 0.0,
-                resolution: [source_size.0 as f32, source_size.1 as f32],
-                params_a: [params[0], params[1], params[2], params[3]],
-                params_b: [params[4], params[5], params[6], params[7]],
-            };
-            let bytes = bytemuck::bytes_of(&uniforms);
-            let offset = pass_idx * slot_size;
-            uniform_data[offset..offset + bytes.len()].copy_from_slice(bytes);
-        }
-        queue.write_buffer(&self.uniform_buffer, 0, &uniform_data);
+        // Pre-create per-pass uniform buffers and bind groups.
+        // Each pass gets its own 48-byte buffer created via create_buffer_init
+        // (no dynamic offsets, no queue.write_buffer — both have Metal issues).
+        use wgpu::util::DeviceExt;
+        let uniform_size = std::mem::size_of::<EffectUniforms>();
+        let pass_bind_groups: Vec<wgpu::BindGroup> = passes
+            .iter()
+            .map(|(_effect_id, params)| {
+                let uniforms = EffectUniforms {
+                    time,
+                    _pad: 0.0,
+                    resolution: [source_size.0 as f32, source_size.1 as f32],
+                    params_a: [params[0], params[1], params[2], params[3]],
+                    params_b: [params[4], params[5], params[6], params[7]],
+                };
+                let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("effect_pass_uniforms"),
+                    contents: bytemuck::bytes_of(&uniforms),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("effect_pass_uniform_bg"),
+                    layout: &self.uniform_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &buffer,
+                            offset: 0,
+                            size: wgpu::BufferSize::new(uniform_size as u64),
+                        }),
+                    }],
+                })
+            })
+            .collect();
 
         for (pass_idx, (effect_id, _params)) in passes.iter().enumerate() {
             let pipeline = match self.compiled.get(effect_id.as_str()) {
@@ -414,9 +411,6 @@ impl EffectPipeline {
                 &tt.bind_groups[read_index]
             };
 
-            // Dynamic offset into the uniform buffer for this pass.
-            let dynamic_offset = (pass_idx * slot_size) as u32;
-
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("effect_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -435,7 +429,7 @@ impl EffectPipeline {
 
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, input_bind_group, &[]);
-            pass.set_bind_group(1, &self.uniform_bind_group, &[dynamic_offset]);
+            pass.set_bind_group(1, &pass_bind_groups[pass_idx], &[]);
             pass.draw(0..4, 0..1);
         }
 
@@ -444,6 +438,7 @@ impl EffectPipeline {
 
     /// After `apply_chain` returns `Some(index)`, call this to get the bind group
     /// for the resulting texture.
+    #[allow(dead_code)]
     pub fn result_bind_group(&self, source_id: SourceId, index: usize) -> Option<&wgpu::BindGroup> {
         self.temp_textures
             .get(&source_id)
@@ -487,7 +482,7 @@ impl EffectPipeline {
         let bg_b = self.create_bind_group_for_view(device, &view_b);
 
         TempTextures {
-            textures: [tex_a, tex_b],
+            _textures: [tex_a, tex_b],
             views: [view_a, view_b],
             bind_groups: [bg_a, bg_b],
             size,

@@ -19,7 +19,7 @@ pub use commands::{
     EncoderType, GstChannels, GstCommand, QualityPreset, RecordingFormat, StreamDestination,
     create_channels,
 };
-pub use devices::{CameraDevice, DisplayInfo};
+pub use devices::{resolve_camera_index, CameraDevice, DisplayInfo};
 pub use error::GstError;
 pub use thread::spawn_gstreamer_thread;
 #[allow(unused_imports)]

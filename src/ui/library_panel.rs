@@ -226,19 +226,9 @@ fn draw_add_button(ui: &mut egui::Ui, state: &mut AppState) {
         .button(egui_phosphor::regular::PLUS)
         .on_hover_text("Create source");
 
-    let popup_id = ui.make_persistent_id("library_add_menu");
-    if add_response.clicked() {
-        #[allow(deprecated)]
-        ui.memory_mut(|m: &mut egui::Memory| m.toggle_popup(popup_id));
-    }
-
-    #[allow(deprecated)]
-    egui::popup_below_widget(
-        ui,
-        popup_id,
-        &add_response,
-        egui::PopupCloseBehavior::CloseOnClickOutside,
-        |ui: &mut egui::Ui| {
+    egui::Popup::from_toggle_button_response(&add_response)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui: &mut egui::Ui| {
             use crate::ui::widgets::menu::{menu_item_icon, styled_menu};
             styled_menu(ui, |ui| {
                 let capture_items: &[(&str, SourceType)] = &[
@@ -257,19 +247,16 @@ fn draw_add_button(ui: &mut egui::Ui, state: &mut AppState) {
                 for (label, source_type) in capture_items {
                     if menu_item_icon(ui, source_icon(source_type), label) {
                         add_library_source(state, source_type.clone());
-                        ui.memory_mut(|m| m.close_popup(popup_id));
                     }
                 }
                 ui.separator();
                 for (label, source_type) in synthetic_items {
                     if menu_item_icon(ui, source_icon(source_type), label) {
                         add_library_source(state, source_type.clone());
-                        ui.memory_mut(|m| m.close_popup(popup_id));
                     }
                 }
             });
-        },
-    );
+        });
 }
 
 /// Create a new library source of the given type.
@@ -314,6 +301,7 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
                 SourceProperties::Camera {
                     device_index: 0,
                     device_name: String::new(),
+                    device_uid: String::new(),
                 },
             )
         }
@@ -772,14 +760,17 @@ fn draw_source_grid(
 
                     // Context menu.
                     tile_response.context_menu(|ui| {
-                        if ui.button("Rename").clicked() {
-                            start_rename_source(ui, state, row.id, &row.name);
-                            ui.close();
-                        }
-                        if ui.button("Delete").clicked() {
-                            *delete_source = Some(row.id);
-                            ui.close();
-                        }
+                        use crate::ui::widgets::menu::{menu_item, styled_menu};
+                        styled_menu(ui, |ui| {
+                            if menu_item(ui, "Rename") {
+                                start_rename_source(ui, state, row.id, &row.name);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Delete") {
+                                *delete_source = Some(row.id);
+                                ui.close();
+                            }
+                        });
                     });
 
                     // Inline rename for grid tile: overlay a TextEdit on the name area.
@@ -890,14 +881,17 @@ fn draw_source_row(
 
         // Context menu (right-click).
         row_response.context_menu(|ui| {
-            if ui.button("Rename").clicked() {
-                start_rename_source(ui, state, row.id, &row.name);
-                ui.close();
-            }
-            if ui.button("Delete").clicked() {
-                *delete_source = Some(row.id);
-                ui.close();
-            }
+            use crate::ui::widgets::menu::{menu_item, styled_menu};
+            styled_menu(ui, |ui| {
+                if menu_item(ui, "Rename") {
+                    start_rename_source(ui, state, row.id, &row.name);
+                    ui.close();
+                }
+                if menu_item(ui, "Delete") {
+                    *delete_source = Some(row.id);
+                    ui.close();
+                }
+            });
         });
 
         // Paint the row contents.

@@ -8,8 +8,29 @@ use super::types::AudioDevice;
 pub struct CameraDevice {
     pub device_index: u32,
     pub name: String,
+    /// Stable unique identifier from GStreamer device properties. Used for
+    /// persistence so the correct camera is selected across runs even if
+    /// enumeration order changes.
+    pub uid: String,
     /// Native resolution (width, height) from device caps. Falls back to (1920, 1080).
     pub resolution: (u32, u32),
+}
+
+/// Resolve a camera UID to its current device index.
+///
+/// Falls back to matching by name, then to `fallback_index` if neither matches.
+pub fn resolve_camera_index(cameras: &[CameraDevice], uid: &str, name: &str, fallback_index: u32) -> u32 {
+    if !uid.is_empty() {
+        if let Some(cam) = cameras.iter().find(|c| c.uid == uid) {
+            return cam.device_index;
+        }
+    }
+    if !name.is_empty() {
+        if let Some(cam) = cameras.iter().find(|c| c.name == name) {
+            return cam.device_index;
+        }
+    }
+    fallback_index
 }
 
 /// A window available for capture, discovered via ScreenCaptureKit.
@@ -202,8 +223,18 @@ fn is_window_fullscreen(
     false
 }
 
-/// Name substrings that indicate a screen-capture source rather than a real camera.
-const SCREEN_CAPTURE_HINTS: &[&str] = &["Screen", "Capture screen", "Display"];
+/// Name prefixes that indicate a screen-capture source rather than a real camera.
+/// On macOS, avfvideosrc screen sources are named "Capture screen 0", etc.
+/// Keep patterns specific to avoid false-positives on real cameras (e.g.
+/// "LG UltraFine Display Camera").
+///
+/// NOTE: When adding Windows/Linux support, add platform-specific patterns here
+/// (e.g. Windows screen capture sources use different naming). The `unique-id`
+/// device property and `DeviceMonitor` enumeration are cross-platform GStreamer
+/// APIs, but `avfvideosrc` / `device-index` in `capture.rs` must be replaced
+/// with platform-appropriate elements (`ksvideosrc`/`mfvideosrc` on Windows,
+/// `v4l2src` on Linux).
+const SCREEN_CAPTURE_HINTS: &[&str] = &["Capture screen"];
 
 /// Known virtual audio device names used for system audio loopback.
 const LOOPBACK_DEVICE_NAMES: &[&str] = &["BlackHole", "Soundflower", "Loopback"];
@@ -235,11 +266,13 @@ fn max_resolution_from_device(device: &gstreamer::Device) -> Option<(u32, u32)> 
 ///
 /// Filters out screen-capture sources by name heuristics. If no real cameras
 /// remain, all `Video/Source` devices are returned so the user can choose.
+/// Each device gets a stable UID from GStreamer properties for persistence.
 pub fn enumerate_cameras() -> Result<Vec<CameraDevice>> {
     let monitor = gstreamer::DeviceMonitor::new();
 
-    let caps = gstreamer::Caps::new_empty_simple("video/x-raw");
-    monitor.add_filter(Some("Video/Source"), Some(&caps));
+    // Don't restrict caps to video/x-raw — some cameras only advertise
+    // compressed formats (MJPEG, H.264) and would be hidden otherwise.
+    monitor.add_filter(Some("Video/Source"), None);
 
     monitor.start().context("Failed to start device monitor")?;
     let devices = monitor.devices();
@@ -250,9 +283,15 @@ pub fn enumerate_cameras() -> Result<Vec<CameraDevice>> {
         .enumerate()
         .map(|(i, device)| {
             let resolution = max_resolution_from_device(device).unwrap_or((1920, 1080));
+            let name = device.display_name().to_string();
+            let uid = device
+                .properties()
+                .and_then(|props| props.get::<String>("unique-id").ok())
+                .unwrap_or_else(|| name.clone());
             CameraDevice {
                 device_index: i as u32,
-                name: device.display_name().to_string(),
+                name,
+                uid,
                 resolution,
             }
         })

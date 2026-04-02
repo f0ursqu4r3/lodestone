@@ -68,6 +68,12 @@ enum DragMode {
         start_mouse: Pos2,
         start_transform: Transform,
         aspect_ratio: f32,
+        /// Unsnapped resize result (tracks true mouse intent).
+        raw_transform: Transform,
+        /// Active X snap: (snap line, which edge snapped).
+        snapped_x: Option<(f32, SnapEdgeX)>,
+        /// Active Y snap: (snap line, which edge snapped).
+        snapped_y: Option<(f32, SnapEdgeY)>,
     },
     /// Rotation via Cmd+corner drag.
     Rotate {
@@ -534,6 +540,160 @@ fn raw_edge_y(raw_y: f32, height: f32, edge: SnapEdgeY) -> f32 {
         SnapEdgeY::Top => raw_y,
         SnapEdgeY::Bottom => raw_y + height,
         SnapEdgeY::Center => raw_y + height / 2.0,
+    }
+}
+
+/// Which X edge moves when dragging a given resize handle.
+fn resize_active_x_edge(handle: HandlePosition) -> Option<SnapEdgeX> {
+    match handle {
+        HandlePosition::TopLeft | HandlePosition::Left | HandlePosition::BottomLeft => {
+            Some(SnapEdgeX::Left)
+        }
+        HandlePosition::TopRight | HandlePosition::Right | HandlePosition::BottomRight => {
+            Some(SnapEdgeX::Right)
+        }
+        _ => None,
+    }
+}
+
+/// Which Y edge moves when dragging a given resize handle.
+fn resize_active_y_edge(handle: HandlePosition) -> Option<SnapEdgeY> {
+    match handle {
+        HandlePosition::TopLeft | HandlePosition::Top | HandlePosition::TopRight => {
+            Some(SnapEdgeY::Top)
+        }
+        HandlePosition::BottomLeft | HandlePosition::Bottom | HandlePosition::BottomRight => {
+            Some(SnapEdgeY::Bottom)
+        }
+        _ => None,
+    }
+}
+
+/// Compute snap for a resize operation, only considering edges being dragged.
+fn compute_resize_snap(
+    transform: &Transform,
+    handle: HandlePosition,
+    canvas_size: Vec2,
+    grid_size: f32,
+    other_sources: &[&Transform],
+    attract: f32,
+    extra_x: &[f32],
+    extra_y: &[f32],
+) -> SnapResult {
+    let mut x_targets = Vec::new();
+    let mut y_targets = Vec::new();
+
+    x_targets.extend_from_slice(&[0.0, canvas_size.x, canvas_size.x / 2.0]);
+    y_targets.extend_from_slice(&[0.0, canvas_size.y, canvas_size.y / 2.0]);
+
+    if grid_size > 0.0 {
+        let mut gx = 0.0;
+        while gx <= canvas_size.x {
+            x_targets.push(gx);
+            gx += grid_size;
+        }
+        let mut gy = 0.0;
+        while gy <= canvas_size.y {
+            y_targets.push(gy);
+            gy += grid_size;
+        }
+    }
+
+    x_targets.extend_from_slice(extra_x);
+    y_targets.extend_from_slice(extra_y);
+
+    for other in other_sources {
+        x_targets.extend_from_slice(&[other.x, other.x + other.width, other.x + other.width / 2.0]);
+        y_targets.extend_from_slice(&[
+            other.y,
+            other.y + other.height,
+            other.y + other.height / 2.0,
+        ]);
+    }
+
+    // Only check the edge being dragged.
+    let left = transform.x;
+    let right = transform.x + transform.width;
+    let top = transform.y;
+    let bottom = transform.y + transform.height;
+
+    let mut snapped_x = None;
+    let mut offset_x = 0.0f32;
+
+    if let Some(active_edge) = resize_active_x_edge(handle) {
+        let edge_val = match active_edge {
+            SnapEdgeX::Left => left,
+            SnapEdgeX::Right => right,
+            SnapEdgeX::Center => unreachable!(),
+        };
+        let mut best: Option<(f32, f32)> = None; // (target, distance)
+        for &target in &x_targets {
+            let dist = (edge_val - target).abs();
+            if dist < attract && best.is_none_or(|(_, bd)| dist < bd) {
+                best = Some((target, dist));
+            }
+        }
+        if let Some((target, _)) = best {
+            snapped_x = Some((target, active_edge));
+            offset_x = target - edge_val;
+        }
+    }
+
+    let mut snapped_y = None;
+    let mut offset_y = 0.0f32;
+
+    if let Some(active_edge) = resize_active_y_edge(handle) {
+        let edge_val = match active_edge {
+            SnapEdgeY::Top => top,
+            SnapEdgeY::Bottom => bottom,
+            SnapEdgeY::Center => unreachable!(),
+        };
+        let mut best: Option<(f32, f32)> = None;
+        for &target in &y_targets {
+            let dist = (edge_val - target).abs();
+            if dist < attract && best.is_none_or(|(_, bd)| dist < bd) {
+                best = Some((target, dist));
+            }
+        }
+        if let Some((target, _)) = best {
+            snapped_y = Some((target, active_edge));
+            offset_y = target - edge_val;
+        }
+    }
+
+    SnapResult {
+        snapped_x,
+        snapped_y,
+        offset_x,
+        offset_y,
+    }
+}
+
+/// Apply a snap offset to a resize transform, adjusting position/size for the active edge.
+fn apply_resize_snap_offset(transform: &mut Transform, edge_x: Option<SnapEdgeX>, offset_x: f32, edge_y: Option<SnapEdgeY>, offset_y: f32) {
+    if let Some(edge) = edge_x {
+        match edge {
+            SnapEdgeX::Left => {
+                transform.x += offset_x;
+                transform.width -= offset_x;
+            }
+            SnapEdgeX::Right => {
+                transform.width += offset_x;
+            }
+            SnapEdgeX::Center => {}
+        }
+    }
+    if let Some(edge) = edge_y {
+        match edge {
+            SnapEdgeY::Top => {
+                transform.y += offset_y;
+                transform.height -= offset_y;
+            }
+            SnapEdgeY::Bottom => {
+                transform.height += offset_y;
+            }
+            SnapEdgeY::Center => {}
+        }
     }
 }
 
@@ -1030,6 +1190,9 @@ pub fn draw_transform_handles(
                                 start_mouse: mouse_pos,
                                 start_transform: transform,
                                 aspect_ratio: transform.width / transform.height.max(1.0),
+                                raw_transform: transform,
+                                snapped_x: None,
+                                snapped_y: None,
                             };
                         }
                     } else {
@@ -1281,6 +1444,9 @@ pub fn draw_transform_handles(
                 start_mouse,
                 start_transform,
                 aspect_ratio,
+                raw_transform,
+                snapped_x,
+                snapped_y,
             } => {
                 let delta = screen_to_canvas(mouse_pos, viewport_rect, canvas_size)
                     - screen_to_canvas(*start_mouse, viewport_rect, canvas_size);
@@ -1291,14 +1457,147 @@ pub fn draw_transform_handles(
                     .find(|s| s.id == selected_id)
                     .map(|s| s.aspect_ratio_locked)
                     .unwrap_or(false);
+                let constrain = shift_held || locked;
                 apply_resize(
                     &mut new_transform,
                     start_transform,
                     *handle,
                     delta,
-                    shift_held || locked,
+                    constrain,
                     *aspect_ratio,
                 );
+
+                // Track the unsnapped result.
+                *raw_transform = new_transform;
+
+                // Apply magnetic snapping if enabled and Alt is not held.
+                let snap_enabled = state.settings.general.snap_to_grid && !alt_held;
+                if snap_enabled && !constrain {
+                    let grid = state.settings.general.snap_grid_size;
+                    let scale = 1.0 / zoom;
+                    let attract = SNAP_ATTRACT * scale;
+                    let dead = SNAP_DEAD * scale;
+
+                    let other_transforms: Vec<Transform> = state
+                        .active_scene()
+                        .map(|scene| {
+                            scene
+                                .sources
+                                .iter()
+                                .filter_map(|ss| {
+                                    if state.is_source_selected(ss.source_id) {
+                                        return None;
+                                    }
+                                    state
+                                        .library
+                                        .iter()
+                                        .find(|s| s.id == ss.source_id)
+                                        .and_then(|lib| {
+                                            if !ss.resolve_visible(lib) {
+                                                return None;
+                                            }
+                                            Some(ss.resolve_transform(lib))
+                                        })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let other_refs: Vec<&Transform> = other_transforms.iter().collect();
+
+                    let mut extra_x: Vec<f32> = Vec::new();
+                    let mut extra_y: Vec<f32> = Vec::new();
+
+                    if state.settings.general.show_thirds {
+                        let cw = canvas_size.x;
+                        let ch = canvas_size.y;
+                        extra_x.extend_from_slice(&[cw / 3.0, 2.0 * cw / 3.0]);
+                        extra_y.extend_from_slice(&[ch / 3.0, 2.0 * ch / 3.0]);
+                    }
+
+                    if state.settings.general.show_safe_zones {
+                        let cw = canvas_size.x;
+                        let ch = canvas_size.y;
+                        extra_x.extend_from_slice(&[cw * 0.05, cw * 0.95]);
+                        extra_y.extend_from_slice(&[ch * 0.05, ch * 0.95]);
+                        extra_x.extend_from_slice(&[cw * 0.10, cw * 0.90]);
+                        extra_y.extend_from_slice(&[ch * 0.10, ch * 0.90]);
+                    }
+
+                    let snap = compute_resize_snap(
+                        &new_transform,
+                        *handle,
+                        canvas_size,
+                        grid,
+                        &other_refs,
+                        attract,
+                        &extra_x,
+                        &extra_y,
+                    );
+
+                    // X axis: magnetic two-zone logic.
+                    if let Some((line, edge)) = snapped_x {
+                        let raw_edge = match edge {
+                            SnapEdgeX::Left => raw_transform.x,
+                            SnapEdgeX::Right => raw_transform.x + raw_transform.width,
+                            SnapEdgeX::Center => unreachable!(),
+                        };
+                        if (raw_edge - *line).abs() > dead {
+                            *snapped_x = None;
+                        } else {
+                            let offset = *line - raw_edge;
+                            apply_resize_snap_offset(
+                                &mut new_transform,
+                                Some(*edge),
+                                offset,
+                                None,
+                                0.0,
+                            );
+                        }
+                    } else if let Some((line, edge)) = snap.snapped_x {
+                        *snapped_x = Some((line, edge));
+                        apply_resize_snap_offset(
+                            &mut new_transform,
+                            Some(edge),
+                            snap.offset_x,
+                            None,
+                            0.0,
+                        );
+                    }
+
+                    // Y axis: magnetic two-zone logic.
+                    if let Some((line, edge)) = snapped_y {
+                        let raw_edge = match edge {
+                            SnapEdgeY::Top => raw_transform.y,
+                            SnapEdgeY::Bottom => raw_transform.y + raw_transform.height,
+                            SnapEdgeY::Center => unreachable!(),
+                        };
+                        if (raw_edge - *line).abs() > dead {
+                            *snapped_y = None;
+                        } else {
+                            let offset = *line - raw_edge;
+                            apply_resize_snap_offset(
+                                &mut new_transform,
+                                None,
+                                0.0,
+                                Some(*edge),
+                                offset,
+                            );
+                        }
+                    } else if let Some((line, edge)) = snap.snapped_y {
+                        *snapped_y = Some((line, edge));
+                        apply_resize_snap_offset(
+                            &mut new_transform,
+                            None,
+                            0.0,
+                            Some(edge),
+                            snap.offset_y,
+                        );
+                    }
+                } else {
+                    *snapped_x = None;
+                    *snapped_y = None;
+                }
+
                 if let Some(scene) = state.active_scene_mut()
                     && let Some(ss) = scene.find_source_mut(selected_id)
                 {
@@ -1351,16 +1650,17 @@ pub fn draw_transform_handles(
             }
         }
 
-        // Draw snap guides when actively snapped during a move.
-        if let DragMode::Move {
-            anchor_id,
-            snapped_x,
-            snapped_y,
-            ..
-        } = &drag_mode
-            && (snapped_x.is_some() || snapped_y.is_some())
-        {
-            let anchor = *anchor_id;
+        // Draw snap guides when actively snapped during a move or resize.
+        let has_active_snap = matches!(
+            &drag_mode,
+            DragMode::Move { snapped_x, snapped_y, .. }
+                if snapped_x.is_some() || snapped_y.is_some()
+        ) || matches!(
+            &drag_mode,
+            DragMode::Resize { snapped_x, snapped_y, .. }
+                if snapped_x.is_some() || snapped_y.is_some()
+        );
+        if has_active_snap {
             // Collect other source transforms for guide drawing (excluding selected).
             let other_transforms: Vec<Transform> = state
                 .active_scene()
@@ -1388,9 +1688,13 @@ pub fn draw_transform_handles(
                 .unwrap_or_default();
             let other_refs: Vec<&Transform> = other_transforms.iter().collect();
 
+            let guide_source_id = match &drag_mode {
+                DragMode::Move { anchor_id, .. } => *anchor_id,
+                _ => selected_id,
+            };
             if let Some(t) = state
                 .active_scene()
-                .and_then(|s| s.find_source(anchor))
+                .and_then(|s| s.find_source(guide_source_id))
                 .and_then(|ss| ss.overrides.transform)
             {
                 draw_snap_guides(ui.painter(), &t, canvas_size, viewport_rect, &other_refs);
@@ -1481,6 +1785,7 @@ pub fn show_source_context_menu_items(
         Stretch,
         Fill,
         Center,
+        ResetAspectRatio,
         ResetSize,
         Reset,
     }
@@ -1500,6 +1805,9 @@ pub fn show_source_context_menu_items(
         ui.separator();
         if menu_item(ui, "Center on Canvas") {
             action = Some(Action::Center);
+        }
+        if menu_item(ui, "Reset Aspect Ratio") {
+            action = Some(Action::ResetAspectRatio);
         }
         if menu_item(ui, "Reset Size") {
             action = Some(Action::ResetSize);
@@ -1546,6 +1854,16 @@ pub fn show_source_context_menu_items(
                     current.width,
                     current.height,
                 ),
+                Action::ResetAspectRatio => {
+                    let (nw, nh) = native_size;
+                    if nw > 0.0 {
+                        let aspect = nh / nw;
+                        let new_h = current.width * aspect;
+                        Transform::new(current.x, current.y, current.width, new_h)
+                    } else {
+                        current
+                    }
+                }
                 Action::ResetSize => {
                     let (nw, nh) = native_size;
                     Transform::new(current.x, current.y, nw, nh)

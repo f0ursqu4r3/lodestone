@@ -120,6 +120,8 @@ struct NativeMenu {
     add_audio_mixer: MenuId,
     add_stream_controls: MenuId,
     reset_layout: MenuId,
+    open_effects_folder: MenuId,
+    open_transitions_folder: MenuId,
 }
 
 impl NativeMenu {
@@ -141,6 +143,11 @@ impl NativeMenu {
 
         // File menu
         let file_menu = Submenu::new("File", true);
+        let open_effects_folder = MenuItem::new("Open Effects Folder", true, None);
+        let open_transitions_folder = MenuItem::new("Open Transitions Folder", true, None);
+        file_menu.append(&open_effects_folder).ok();
+        file_menu.append(&open_transitions_folder).ok();
+        file_menu.append(&PredefinedMenuItem::separator()).ok();
         file_menu
             .append(&PredefinedMenuItem::close_window(None))
             .ok();
@@ -213,6 +220,8 @@ impl NativeMenu {
             add_audio_mixer: add_audio_mixer.id().clone(),
             add_stream_controls: add_stream_controls.id().clone(),
             reset_layout: reset_layout.id().clone(),
+            open_effects_folder: open_effects_folder.id().clone(),
+            open_transitions_folder: open_transitions_folder.id().clone(),
         }
     }
 
@@ -253,6 +262,8 @@ struct AppManager {
     last_saved_layout: Option<String>,
     /// Throttles readback to the recording/streaming FPS instead of display refresh rate.
     last_readback_at: std::time::Instant,
+    /// App start time for effect animations (avoids f32 precision loss from epoch time).
+    start_time: std::time::Instant,
 }
 
 impl AppManager {
@@ -366,6 +377,7 @@ impl AppManager {
             gif_animations: std::collections::HashMap::new(),
             last_saved_layout: None,
             last_readback_at: std::time::Instant::now(),
+            start_time: std::time::Instant::now(),
         }
     }
 
@@ -514,6 +526,20 @@ impl AppManager {
             return;
         }
 
+        if *id == native_menu.open_effects_folder {
+            let dir = settings::effects_dir();
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::process::Command::new("open").arg(&dir).spawn();
+            return;
+        }
+
+        if *id == native_menu.open_transitions_folder {
+            let dir = settings::transitions_dir();
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::process::Command::new("open").arg(&dir).spawn();
+            return;
+        }
+
         if let Some(panel_type) = native_menu.panel_type_for_id(id) {
             // Add panel to the currently focused window, falling back to main
             let target_id = match self.focused_window_id.or(self.main_window_id) {
@@ -590,6 +616,7 @@ impl AppManager {
             let anims = crate::ui::scenes_panel::send_capture_for_scene(
                 cmd_tx,
                 &app_state.library,
+                &app_state.available_cameras,
                 &scene,
                 app_state.settings.general.exclude_self_from_capture,
                 capture_size,
@@ -729,12 +756,13 @@ impl ApplicationHandler for AppManager {
                                     });
                                 }
                             }
-                            crate::scene::SourceProperties::Camera { device_index, .. } => {
+                            crate::scene::SourceProperties::Camera { device_index, device_name, device_uid } => {
                                 if let Some(ref tx) = state.command_tx {
+                                    let idx = gstreamer::resolve_camera_index(&state.available_cameras, device_uid, device_name, *device_index);
                                     let _ = tx.try_send(gstreamer::GstCommand::AddCaptureSource {
                                         source_id: src_id,
                                         config: gstreamer::CaptureSourceConfig::Camera {
-                                            device_index: *device_index,
+                                            device_index: idx,
                                         },
                                     });
                                 }
@@ -1234,6 +1262,7 @@ impl ApplicationHandler for AppManager {
                             let anims = crate::ui::scenes_panel::apply_scene_diff(
                                 &cmd_tx,
                                 &app_state.library,
+                                &app_state.available_cameras,
                                 old_scene.as_ref(),
                                 new_scene.as_ref(),
                                 exclude_self,
@@ -1302,6 +1331,7 @@ impl ApplicationHandler for AppManager {
                                 let anims = crate::ui::scenes_panel::apply_scene_diff(
                                     &cmd_tx,
                                     &app_state.library,
+                                    &app_state.available_cameras,
                                     old_scene.as_ref(),
                                     new_scene.as_ref(),
                                     exclude_self,
@@ -1333,6 +1363,7 @@ impl ApplicationHandler for AppManager {
                                             let anims = crate::ui::scenes_panel::start_capture_source(
                                                 &cmd_tx,
                                                 &app_state.library,
+                                                &app_state.available_cameras,
                                                 src_id,
                                                 exclude_self,
                                                 capture_size,
@@ -1423,6 +1454,7 @@ impl ApplicationHandler for AppManager {
                                         let anims = crate::ui::scenes_panel::start_capture_source(
                                             &cmd_tx,
                                             &app_state.library,
+                                            &app_state.available_cameras,
                                             src_id,
                                             exclude_self,
                                             capture_size,
@@ -1982,9 +2014,14 @@ impl ApplicationHandler for AppManager {
             };
             // Invalidate compiled shader pipelines when the registry changed.
             if registry_changed {
+                log::info!("Invalidating transition pipelines — registry changed");
                 gpu.transition_pipeline.invalidate_user_shaders();
             }
             if effect_registry_changed {
+                log::info!(
+                    "Invalidating effect pipelines — registry changed ({} effects)",
+                    effect_registry.all().len()
+                );
                 gpu.effect_pipeline.invalidate_user_shaders();
             }
 
@@ -2055,11 +2092,10 @@ impl ApplicationHandler for AppManager {
                             label: Some("compositor_encoder"),
                         });
 
-                // Time value for animated effects (seconds since epoch).
-                let effect_time = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs_f32();
+                // Time value for animated effects (seconds since app start).
+                // Using Instant instead of epoch avoids f32 precision loss —
+                // epoch seconds (~1.7e9) leave only ~128s of fractional precision.
+                let effect_time = self.start_time.elapsed().as_secs_f32();
 
                 // Always compose active_scene_id onto primary canvas (Preview).
                 gpu.compositor.compose(

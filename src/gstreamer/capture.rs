@@ -101,6 +101,10 @@ pub fn build_capture_pipeline(
 ///
 /// No `videorate` — ScreenCaptureKit controls frame timing via
 /// `setMinimumFrameInterval`.
+///
+/// The appsrc accepts BGRA (native SCK pixel format) and `videoconvert`
+/// handles the BGRA→RGBA conversion using SIMD — much faster than a
+/// manual per-pixel Rust loop.
 #[cfg(target_os = "macos")]
 pub fn build_display_capture_pipeline(
     width: u32,
@@ -110,7 +114,7 @@ pub fn build_display_capture_pipeline(
     let pipeline = gstreamer::Pipeline::with_name("display-capture-pipeline");
 
     let src_caps = gstreamer_video::VideoCapsBuilder::new()
-        .format(gstreamer_video::VideoFormat::Rgba)
+        .format(gstreamer_video::VideoFormat::Bgra)
         .width(width as i32)
         .height(height as i32)
         .framerate(gstreamer::Fraction::new(fps as i32, 1))

@@ -213,6 +213,10 @@ pub enum SourceProperties {
     Camera {
         device_index: u32,
         device_name: String,
+        /// Stable unique identifier for the camera device, used for persistence.
+        /// Resolved to a `device_index` at runtime via `resolve_camera_index`.
+        #[serde(default)]
+        device_uid: String,
     },
     Image {
         path: String,

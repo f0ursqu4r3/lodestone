@@ -4,7 +4,7 @@
 //! Each source is shown as a row with an icon, name, and visibility toggle.
 //! Supports selection, reordering, add-from-library, and remove-from-scene.
 
-use crate::gstreamer::{CaptureSourceConfig, GstCommand};
+use crate::gstreamer::{resolve_camera_index, CaptureSourceConfig, GstCommand};
 use crate::scene::{SceneId, SceneSource, SourceId, SourceOverrides, SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::draw_helpers::{draw_selection_highlight, source_icon, with_opacity};
@@ -76,14 +76,8 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 ))
                 .on_hover_text("Add from library");
 
-            let popup_id = ui.make_persistent_id("add_source_menu");
-            if add_response.clicked() {
-                #[allow(deprecated)]
-                ui.memory_mut(|m: &mut egui::Memory| m.toggle_popup(popup_id));
-            }
-
             if let Some((src_id, props)) =
-                draw_add_from_library_popup(ui, state, active_id, popup_id, &add_response)
+                draw_add_from_library_popup(ui, state, active_id, &add_response)
             {
                 if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == active_id) {
                     scene.sources.push(SceneSource {
@@ -364,16 +358,14 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
 ///
 /// Returns `Some((source_id, properties))` if the user selected a source to add.
 /// The caller is responsible for mutating scene and app state.
-#[allow(deprecated)]
 fn draw_add_from_library_popup(
-    ui: &mut egui::Ui,
+    _ui: &mut egui::Ui,
     state: &AppState,
     scene_id: SceneId,
-    popup_id: egui::Id,
     anchor: &egui::Response,
 ) -> Option<(SourceId, SourceProperties)> {
     use crate::ui::widgets::menu::{menu_item_icon, styled_menu};
-    let theme = active_theme(ui.ctx());
+    let theme = active_theme(&anchor.ctx);
 
     // Snapshot library entries not already in the scene.
     let scene_source_ids: Vec<SourceId> = state
@@ -399,12 +391,9 @@ fn draw_add_from_library_popup(
 
     let mut selected: Option<(SourceId, SourceProperties)> = None;
 
-    egui::popup_below_widget(
-        ui,
-        popup_id,
-        anchor,
-        egui::PopupCloseBehavior::CloseOnClickOutside,
-        |ui: &mut egui::Ui| {
+    egui::Popup::from_toggle_button_response(anchor)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui: &mut egui::Ui| {
             styled_menu(ui, |ui| {
                 if available_sources.is_empty() {
                     ui.label(
@@ -416,13 +405,11 @@ fn draw_add_from_library_popup(
                     for (src_id, name, src_type, props) in &available_sources {
                         if menu_item_icon(ui, source_icon(src_type), name) {
                             selected = Some((*src_id, props.clone()));
-                            ui.memory_mut(|m| m.close_popup(popup_id));
                         }
                     }
                 }
             });
-        },
-    );
+        });
 
     selected
 }
@@ -707,11 +694,12 @@ fn start_capture_from_properties(
             });
             state.capture_active = true;
         }
-        SourceProperties::Camera { device_index, .. } => {
+        SourceProperties::Camera { device_index, device_name, device_uid } => {
+            let idx = resolve_camera_index(&state.available_cameras, device_uid, device_name, *device_index);
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
                 config: CaptureSourceConfig::Camera {
-                    device_index: *device_index,
+                    device_index: idx,
                 },
             });
             state.capture_active = true;

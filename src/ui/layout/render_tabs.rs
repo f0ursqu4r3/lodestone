@@ -175,57 +175,57 @@ pub(crate) fn render_tab_bar(
 
                 // Context menu
                 response.context_menu(|ui: &mut egui::Ui| {
-                    if tctx.is_floating {
-                        // Floating group inside main window — offer to dock back
-                        if ui.button("Dock to Grid").clicked() {
-                            actions.push(LayoutAction::DockFloatingToGrid { group_id: gid });
-                            ui.close();
+                    use crate::ui::widgets::menu::{menu_item, styled_menu};
+                    styled_menu(ui, |ui| {
+                        if tctx.is_floating {
+                            if menu_item(ui, "Dock to Grid") {
+                                actions.push(LayoutAction::DockFloatingToGrid { group_id: gid });
+                                ui.close();
+                            }
+                            if menu_item(ui, "Pop Out to Window") {
+                                actions.push(LayoutAction::DetachToWindow {
+                                    group_id: gid,
+                                    tab_index: tab_idx,
+                                });
+                                ui.close();
+                            }
+                        } else if tctx.is_main {
+                            if menu_item(ui, "Detach") {
+                                actions.push(LayoutAction::DetachToFloat {
+                                    group_id: gid,
+                                    tab_index: tab_idx,
+                                });
+                                ui.close();
+                            }
+                            if menu_item(ui, "Pop Out to Window") {
+                                actions.push(LayoutAction::DetachToWindow {
+                                    group_id: gid,
+                                    tab_index: tab_idx,
+                                });
+                                ui.close();
+                            }
+                        } else {
+                            if menu_item(ui, "Reattach to Main Window") {
+                                actions.push(LayoutAction::ReattachToMain);
+                                ui.close();
+                            }
                         }
-                        if ui.button("Pop Out to Window").clicked() {
-                            actions.push(LayoutAction::DetachToWindow {
+                        ui.separator();
+                        if tab_count > 1 && menu_item(ui, "Close Others") {
+                            actions.push(LayoutAction::CloseOthers {
                                 group_id: gid,
                                 tab_index: tab_idx,
                             });
                             ui.close();
                         }
-                    } else if tctx.is_main {
-                        // Grid group in main window
-                        if ui.button("Detach").clicked() {
-                            actions.push(LayoutAction::DetachToFloat {
+                        if menu_item(ui, "Close") {
+                            actions.push(LayoutAction::Close {
                                 group_id: gid,
                                 tab_index: tab_idx,
                             });
                             ui.close();
                         }
-                        if ui.button("Pop Out to Window").clicked() {
-                            actions.push(LayoutAction::DetachToWindow {
-                                group_id: gid,
-                                tab_index: tab_idx,
-                            });
-                            ui.close();
-                        }
-                    } else {
-                        // Detached OS window
-                        if ui.button("Reattach to Main Window").clicked() {
-                            actions.push(LayoutAction::ReattachToMain);
-                            ui.close();
-                        }
-                    }
-                    ui.separator();
-                    if tab_count > 1 && ui.button("Close Others").clicked() {
-                        actions.push(LayoutAction::CloseOthers {
-                            group_id: gid,
-                            tab_index: tab_idx,
-                        });
-                        ui.close();
-                    }
-                    if ui.button("Close").clicked() {
-                        actions.push(LayoutAction::Close {
-                            group_id: gid,
-                            tab_index: tab_idx,
-                        });
-                        ui.close();
-                    }
+                    });
                 });
             });
     }
@@ -347,39 +347,39 @@ pub(crate) fn render_tab_bar(
         ctx.data_mut(|d| d.insert_temp(group_drag_id, gid));
     }
     grip_resp.context_menu(|ui| {
-        if tctx.is_floating {
-            // Floating group — offer to dock back to grid
-            if ui.button("Dock to Grid").clicked() {
-                actions.push(LayoutAction::DockFloatingToGrid { group_id: gid });
-                ui.close();
-            }
-        } else if tctx.is_main {
-            // Docked group in main window — offer to detach
-            if ui.button("Detach to Float").clicked() {
-                actions.push(LayoutAction::DetachGroupToFloat { group_id: gid });
-                ui.close();
-            }
-        }
-        if ui.button("Pop Out to Window").clicked() {
-            // Pop out the active tab to an OS-level window
-            actions.push(LayoutAction::DetachToWindow {
-                group_id: gid,
-                tab_index: group.active_tab,
-            });
-            ui.close();
-        }
-        if tab_count > 0 {
-            ui.separator();
-            if ui.button("Close Group").clicked() {
-                for i in (0..tab_count).rev() {
-                    actions.push(LayoutAction::Close {
-                        group_id: gid,
-                        tab_index: i,
-                    });
+        use crate::ui::widgets::menu::{menu_item, styled_menu};
+        styled_menu(ui, |ui| {
+            if tctx.is_floating {
+                if menu_item(ui, "Dock to Grid") {
+                    actions.push(LayoutAction::DockFloatingToGrid { group_id: gid });
+                    ui.close();
                 }
-                ui.close();
+            } else if tctx.is_main {
+                if menu_item(ui, "Detach to Float") {
+                    actions.push(LayoutAction::DetachGroupToFloat { group_id: gid });
+                    ui.close();
+                }
             }
+            if menu_item(ui, "Pop Out to Window") {
+                actions.push(LayoutAction::DetachToWindow {
+                    group_id: gid,
+                    tab_index: group.active_tab,
+                });
+                ui.close();
         }
+            if tab_count > 0 {
+                ui.separator();
+                if menu_item(ui, "Close Group") {
+                    for i in (0..tab_count).rev() {
+                        actions.push(LayoutAction::Close {
+                            group_id: gid,
+                            tab_index: i,
+                        });
+                    }
+                    ui.close();
+                }
+            }
+        });
     });
 }
 

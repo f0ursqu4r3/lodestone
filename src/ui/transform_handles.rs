@@ -1135,6 +1135,12 @@ pub fn draw_transform_handles(
             }
         }
 
+        // Fallback: if mouse is up but drag state is stuck (e.g. hover_pos()
+        // returned None on the release frame), clear it.
+        if !primary_down && !matches!(drag_mode, DragMode::None) {
+            drag_mode = DragMode::None;
+        }
+
         ui.memory_mut(|m| m.data.insert_temp(drag_id, drag_mode));
         return;
     };
@@ -1724,6 +1730,19 @@ pub fn draw_transform_handles(
             state.mark_dirty();
             drag_mode = DragMode::None;
         }
+    }
+
+    // Fallback: if mouse is up but drag state is stuck (e.g. hover_pos()
+    // returned None on the release frame), clear it.
+    if !primary_down && !matches!(drag_mode, DragMode::None) {
+        if matches!(
+            drag_mode,
+            DragMode::Move { .. } | DragMode::Resize { .. } | DragMode::Rotate { .. }
+        ) {
+            state.end_continuous_edit();
+            state.mark_dirty();
+        }
+        drag_mode = DragMode::None;
     }
 
     ui.memory_mut(|m| m.data.insert_temp(drag_id, drag_mode));

@@ -211,7 +211,7 @@ pub(super) fn draw(
 
     layout::section(ui, "FRAME RATE", |ui| {
         ui.horizontal(|ui| {
-            ui.label("FPS (not yet implemented)");
+            ui.label("FPS");
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let combo = egui::ComboBox::from_id_salt("video_fps")
                     .selected_text(format!("{}", settings.fps))
@@ -233,7 +233,7 @@ pub(super) fn draw(
 
     layout::section(ui, "COLOR", |ui| {
         ui.horizontal(|ui| {
-            ui.label("Color Space (not yet implemented)");
+            ui.label("Color Space");
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let combo = egui::ComboBox::from_id_salt("color_space")
                     .selected_text(&settings.color_space)

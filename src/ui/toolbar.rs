@@ -326,7 +326,9 @@ fn draw_virtual_camera_button(ui: &mut egui::Ui, state: &mut AppState) {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopVirtualCamera);
             state.virtual_camera_active = false;
         } else {
-            let _ = tx.try_send(crate::gstreamer::GstCommand::StartVirtualCamera);
+            let _ = tx.try_send(crate::gstreamer::GstCommand::StartVirtualCamera {
+                fps: state.settings.video.fps,
+            });
             state.virtual_camera_active = true;
         }
     }
@@ -445,6 +447,7 @@ fn stream_encoder_config(state: &AppState) -> EncoderConfig {
         fps: state.settings.stream.fps,
         bitrate_kbps: bitrate,
         encoder_type: state.settings.stream.encoder,
+        color_space: state.settings.video.color_space.clone(),
     }
 }
 
@@ -463,5 +466,6 @@ fn record_encoder_config(state: &AppState) -> EncoderConfig {
         fps: state.settings.record.fps,
         bitrate_kbps: bitrate,
         encoder_type: state.settings.record.encoder,
+        color_space: state.settings.video.color_space.clone(),
     }
 }

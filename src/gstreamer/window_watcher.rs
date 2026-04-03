@@ -17,6 +17,8 @@ pub struct WatchedSource {
     pub current_window_id: Option<u32>,
     #[allow(dead_code)]
     pub current_window_size: Option<(u32, u32)>,
+    /// Capture FPS configured for this source.
+    pub fps: u32,
 }
 
 /// Resolves the best capture target for window sources.

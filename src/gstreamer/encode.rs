@@ -21,13 +21,24 @@ pub struct RecordPipelineHandles {
     pub system_appsrc: Option<AppSrc>,
 }
 
+/// Map a settings color-space name to a GStreamer colorimetry string.
+fn colorimetry_for(color_space: &str) -> &'static str {
+    match color_space {
+        "Rec. 709" => "bt709",
+        "Rec. 2100 (PQ)" => "bt2100-pq",
+        _ => "srgb",
+    }
+}
+
 /// Build an appsrc caps string for RGBA frames at the given encoder config.
 fn make_appsrc_caps(config: &EncoderConfig) -> gstreamer::Caps {
-    gstreamer_video::VideoCapsBuilder::new()
-        .format(gstreamer_video::VideoFormat::Rgba)
-        .width(config.width as i32)
-        .height(config.height as i32)
-        .framerate(gstreamer::Fraction::new(config.fps as i32, 1))
+    let colorimetry = colorimetry_for(&config.color_space);
+    gstreamer::Caps::builder("video/x-raw")
+        .field("format", gstreamer_video::VideoFormat::Rgba.to_str())
+        .field("width", config.width as i32)
+        .field("height", config.height as i32)
+        .field("framerate", gstreamer::Fraction::new(config.fps as i32, 1))
+        .field("colorimetry", colorimetry)
         .build()
 }
 

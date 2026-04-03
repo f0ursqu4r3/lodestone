@@ -681,6 +681,7 @@ fn start_capture_from_properties(
                     exclude_self: state.settings.general.exclude_self_from_capture,
                     capture_size,
                 },
+                fps: state.settings.video.fps,
             });
             state.capture_active = true;
         }
@@ -691,6 +692,7 @@ fn start_capture_from_properties(
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
                 config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
+                fps: state.settings.video.fps,
             });
             state.capture_active = true;
         }
@@ -701,6 +703,7 @@ fn start_capture_from_properties(
                 config: CaptureSourceConfig::Camera {
                     device_index: idx,
                 },
+                fps: state.settings.video.fps,
             });
             state.capture_active = true;
         }
@@ -718,7 +721,7 @@ fn start_capture_from_properties(
                     }
                 }
             };
-            let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config });
+            let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config, fps: state.settings.video.fps });
         }
         // Text, Color, Browser, Image: no capture pipeline
         _ => {}

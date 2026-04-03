@@ -99,7 +99,7 @@ impl GstThread {
     }
 
     /// Start capturing from the given source, keyed by source_id.
-    fn add_capture_source(&mut self, source_id: SourceId, config: &CaptureSourceConfig) {
+    fn add_capture_source(&mut self, source_id: SourceId, config: &CaptureSourceConfig, fps: u32) {
         self.remove_capture_source(source_id);
 
         // Display capture uses ScreenCaptureKit on macOS.
@@ -110,14 +110,20 @@ impl GstThread {
             capture_size,
         } = config
         {
-            self.add_display_capture_source(source_id, *screen_index, *exclude_self, *capture_size);
+            self.add_display_capture_source(
+                source_id,
+                *screen_index,
+                *exclude_self,
+                *capture_size,
+                fps,
+            );
             return;
         }
 
         // Window capture uses ScreenCaptureKit + WindowWatcher on macOS.
         #[cfg(target_os = "macos")]
         if let CaptureSourceConfig::Window { mode, capture_size } = config {
-            self.add_window_capture_source(source_id, mode.clone(), *capture_size);
+            self.add_window_capture_source(source_id, mode.clone(), *capture_size, fps);
             return;
         }
 
@@ -137,7 +143,7 @@ impl GstThread {
             return;
         }
 
-        match build_capture_pipeline(config, 1920, 1080, 30) {
+        match build_capture_pipeline(config, 1920, 1080, fps) {
             Ok((pipeline, appsink)) => {
                 if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
                     log::error!("Failed to start capture for source {source_id:?}: {e}");
@@ -168,11 +174,13 @@ impl GstThread {
         source_id: SourceId,
         mode: crate::scene::WindowCaptureMode,
         _capture_size: (u32, u32),
+        fps: u32,
     ) {
         let watched = WatchedSource {
             mode: mode.clone(),
             current_window_id: None,
             current_window_size: None,
+            fps,
         };
         self.watched_windows.insert(source_id, watched);
 
@@ -184,7 +192,7 @@ impl GstThread {
             return;
         };
 
-        self.start_sck_window_capture(source_id, window_id, width, height);
+        self.start_sck_window_capture(source_id, window_id, width, height, fps);
     }
 
     /// Start a ScreenCaptureKit-based window capture for the given window ID.
@@ -198,6 +206,7 @@ impl GstThread {
         window_id: u32,
         width: u32,
         height: u32,
+        fps: u32,
     ) {
         use super::capture::build_display_capture_pipeline;
         use super::screencapturekit;
@@ -205,7 +214,6 @@ impl GstThread {
         // Use actual window dimensions, with a minimum of 1px
         let width = width.max(1);
         let height = height.max(1);
-        let fps = 30u32;
 
         let (sck_handle, frame_rx) =
             match screencapturekit::start_window_capture(window_id, width, height, fps) {
@@ -310,8 +318,13 @@ impl GstThread {
                     }
                 }
                 // Fall back: tear down and rebuild.
+                let fps = self
+                    .watched_windows
+                    .get(&source_id)
+                    .map(|w| w.fps)
+                    .unwrap_or(30);
                 self.remove_capture_source(source_id);
-                self.start_sck_window_capture(source_id, wid, width, height);
+                self.start_sck_window_capture(source_id, wid, width, height, fps);
             }
             None => {
                 log::info!("Target window gone for {source_id:?}, holding last frame");
@@ -327,13 +340,13 @@ impl GstThread {
         screen_index: u32,
         exclude_self: bool,
         capture_size: (u32, u32),
+        fps: u32,
     ) {
         use super::capture::build_display_capture_pipeline;
         use super::screencapturekit;
 
         let width = capture_size.0;
         let height = capture_size.1;
-        let fps = 30u32;
 
         // 1. Start SCK capture
         let (sck_handle, frame_rx) = match screencapturekit::start_display_capture(
@@ -657,9 +670,11 @@ impl GstThread {
                 self.handle_set_audio_muted(source, muted)
             }
             GstCommand::StopCapture => self.handle_stop_capture(),
-            GstCommand::AddCaptureSource { source_id, config } => {
-                self.handle_add_capture_source(source_id, config)
-            }
+            GstCommand::AddCaptureSource {
+                source_id,
+                config,
+                fps,
+            } => self.handle_add_capture_source(source_id, config, fps),
             GstCommand::RemoveCaptureSource { source_id } => {
                 self.handle_remove_capture_source(source_id)
             }
@@ -669,7 +684,7 @@ impl GstThread {
             GstCommand::UpdateDisplayExclusion { exclude_self } => {
                 self.handle_update_display_exclusion(exclude_self)
             }
-            GstCommand::StartVirtualCamera => self.handle_start_virtual_camera(),
+            GstCommand::StartVirtualCamera { fps } => self.handle_start_virtual_camera(fps),
             GstCommand::StopVirtualCamera => self.handle_stop_virtual_camera(),
             GstCommand::SetSourceVolume { source_id, volume } => {
                 if let Some(audio) = self.audio_pipelines.get(&source_id) {
@@ -810,8 +825,13 @@ impl GstThread {
         log::info!("All captures stopped");
     }
 
-    fn handle_add_capture_source(&mut self, source_id: SourceId, config: CaptureSourceConfig) {
-        self.add_capture_source(source_id, &config);
+    fn handle_add_capture_source(
+        &mut self,
+        source_id: SourceId,
+        config: CaptureSourceConfig,
+        fps: u32,
+    ) {
+        self.add_capture_source(source_id, &config, fps);
     }
 
     fn handle_remove_capture_source(&mut self, source_id: SourceId) {
@@ -834,11 +854,10 @@ impl GstThread {
     fn handle_update_display_exclusion(&mut self, _exclude_self: bool) {}
 
     #[cfg(target_os = "macos")]
-    fn handle_start_virtual_camera(&mut self) {
+    fn handle_start_virtual_camera(&mut self, fps: u32) {
         use super::virtual_camera;
         let width = 1920u32;
         let height = 1080u32;
-        let fps = 30u32;
         match virtual_camera::start_virtual_camera(width, height, fps) {
             Ok(handle) => {
                 self.virtual_camera_handle = Some(handle);
@@ -862,7 +881,7 @@ impl GstThread {
     }
 
     #[cfg(not(target_os = "macos"))]
-    fn handle_start_virtual_camera(&mut self) {}
+    fn handle_start_virtual_camera(&mut self, _fps: u32) {}
     #[cfg(not(target_os = "macos"))]
     fn handle_stop_virtual_camera(&mut self) {}
 
@@ -1317,6 +1336,7 @@ mod tests {
                     exclude_self: false,
                     capture_size: (1920, 1080),
                 },
+                fps: 30,
             })
             .unwrap();
         main_ch

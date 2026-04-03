@@ -64,6 +64,7 @@ pub enum GstCommand {
     AddCaptureSource {
         source_id: SourceId,
         config: CaptureSourceConfig,
+        fps: u32,
     },
     RemoveCaptureSource {
         source_id: SourceId,
@@ -77,7 +78,7 @@ pub enum GstCommand {
     UpdateDisplayExclusion {
         exclude_self: bool,
     },
-    StartVirtualCamera,
+    StartVirtualCamera { fps: u32 },
     StopVirtualCamera,
     /// Per-source volume control (distinct from global SetAudioVolume).
     SetSourceVolume {
@@ -229,6 +230,7 @@ pub struct EncoderConfig {
     pub fps: u32,
     pub bitrate_kbps: u32,
     pub encoder_type: EncoderType,
+    pub color_space: String,
 }
 
 impl Default for EncoderConfig {
@@ -239,6 +241,7 @@ impl Default for EncoderConfig {
             fps: 30,
             bitrate_kbps: 4500,
             encoder_type: EncoderType::H264VideoToolbox,
+            color_space: "sRGB".to_string(),
         }
     }
 }
@@ -433,6 +436,9 @@ mod tests {
     #[test]
     fn create_channels_returns_valid_handles() {
         let (main_ch, _thread_ch) = create_channels();
-        main_ch.command_tx.try_send(GstCommand::Shutdown).unwrap();
+        main_ch
+            .command_tx
+            .try_send(GstCommand::Shutdown)
+            .unwrap();
     }
 }

@@ -946,6 +946,7 @@ fn draw_source_properties(
                                 exclude_self,
                                 capture_size,
                             },
+                            fps: state.settings.video.fps,
                         });
                     }
                     changed = true;
@@ -1177,6 +1178,7 @@ fn draw_source_properties(
                         let _ = tx.try_send(GstCommand::AddCaptureSource {
                             source_id: selected_id,
                             config: CaptureSourceConfig::Window { mode: new_mode, capture_size },
+                            fps: state.settings.video.fps,
                         });
                     }
                     // Refresh app list so the newly selected app shows up.
@@ -1382,6 +1384,7 @@ fn draw_source_properties(
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: selected_id,
                         config: CaptureSourceConfig::Window { mode: new_mode, capture_size },
+                        fps: state.settings.video.fps,
                     });
                 }
                 changed = true;
@@ -1447,6 +1450,7 @@ fn draw_source_properties(
                         config: CaptureSourceConfig::Camera {
                             device_index: new_idx,
                         },
+                        fps: state.settings.video.fps,
                     });
                 }
                 changed = true;
@@ -1959,6 +1963,7 @@ fn draw_source_properties(
                                         config: CaptureSourceConfig::AudioDevice {
                                             device_uid: device_uid.clone(),
                                         },
+                                        fps: state.settings.video.fps,
                                     });
                                 }
                             }
@@ -2005,6 +2010,7 @@ fn draw_source_properties(
                                         path: path.clone(),
                                         looping: *looping,
                                     },
+                                    fps: state.settings.video.fps,
                                 });
                             }
                         }

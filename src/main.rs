@@ -620,6 +620,7 @@ impl AppManager {
                 &scene,
                 app_state.settings.general.exclude_self_from_capture,
                 capture_size,
+                app_state.settings.video.fps,
             );
             app_state.pending_gif_animations.extend(anims);
         }
@@ -742,6 +743,7 @@ impl ApplicationHandler for AppManager {
                                                 .exclude_self_from_capture,
                                             capture_size,
                                         },
+                                        fps: state.settings.video.fps,
                                     });
                                 }
                             }
@@ -753,6 +755,7 @@ impl ApplicationHandler for AppManager {
                                             mode: mode.clone(),
                                             capture_size,
                                         },
+                                        fps: state.settings.video.fps,
                                     });
                                 }
                             }
@@ -764,6 +767,7 @@ impl ApplicationHandler for AppManager {
                                         config: gstreamer::CaptureSourceConfig::Camera {
                                             device_index: idx,
                                         },
+                                        fps: state.settings.video.fps,
                                     });
                                 }
                             }
@@ -1268,6 +1272,7 @@ impl ApplicationHandler for AppManager {
                                 new_scene.as_ref(),
                                 exclude_self,
                                 capture_size,
+                                app_state.settings.video.fps,
                                 &no_keep,
                             );
                             app_state.pending_gif_animations.extend(anims);
@@ -1340,6 +1345,7 @@ impl ApplicationHandler for AppManager {
                                     new_scene.as_ref(),
                                     exclude_self,
                                     capture_size,
+                                    app_state.settings.video.fps,
                                     &no_keep,
                                 );
                                 app_state.pending_gif_animations.extend(anims);
@@ -1372,6 +1378,7 @@ impl ApplicationHandler for AppManager {
                                                 src_id,
                                                 exclude_self,
                                                 capture_size,
+                                                app_state.settings.video.fps,
                                             );
                                             app_state.pending_gif_animations.extend(anims);
                                         }
@@ -1464,6 +1471,7 @@ impl ApplicationHandler for AppManager {
                                             src_id,
                                             exclude_self,
                                             capture_size,
+                                            app_state.settings.video.fps,
                                         );
                                         app_state.pending_gif_animations.extend(anims);
                                     }

@@ -846,6 +846,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                                 exclude_self: state.settings.general.exclude_self_from_capture,
                                 capture_size,
                             },
+                            fps: state.settings.video.fps,
                         });
                         state.capture_active = true;
                     }
@@ -859,6 +860,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                                 mode: mode.clone(),
                                 capture_size,
                             },
+                            fps: state.settings.video.fps,
                         });
                         state.capture_active = true;
                     }
@@ -869,6 +871,7 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
                             config: crate::gstreamer::CaptureSourceConfig::Camera {
                                 device_index: idx,
                             },
+                            fps: state.settings.video.fps,
                         });
                         state.capture_active = true;
                     }

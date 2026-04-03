@@ -161,6 +161,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     new_scene.as_ref(),
                     state.settings.general.exclude_self_from_capture,
                     capture_size,
+                    state.settings.video.fps,
                     &program_source_ids,
                 );
                 state.pending_gif_animations.extend(anims);
@@ -689,6 +690,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
                 new_scene.as_ref(),
                 state.settings.general.exclude_self_from_capture,
                 capture_size,
+                state.settings.video.fps,
                 &no_keep,
             );
             state.pending_gif_animations.extend(anims);
@@ -720,6 +722,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
                             src_id,
                             state.settings.general.exclude_self_from_capture,
                             capture_size,
+                            state.settings.video.fps,
                         );
                     }
                 }
@@ -812,6 +815,7 @@ pub fn apply_scene_diff(
     new_scene: Option<&Scene>,
     exclude_self: bool,
     capture_size: (u32, u32),
+    fps: u32,
     keep_source_ids: &std::collections::HashSet<SourceId>,
 ) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
     let mut pending_animations = Vec::new();
@@ -842,12 +846,14 @@ pub fn apply_scene_diff(
                             exclude_self,
                             capture_size,
                         },
+                        fps,
                     });
                 }
                 crate::scene::SourceProperties::Window { mode, .. } => {
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
                         config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
+                        fps,
                     });
                 }
                 crate::scene::SourceProperties::Camera { device_index, device_name, device_uid } => {
@@ -857,6 +863,7 @@ pub fn apply_scene_diff(
                         config: CaptureSourceConfig::Camera {
                             device_index: idx,
                         },
+                        fps,
                     });
                 }
                 crate::scene::SourceProperties::Audio { input } => {
@@ -876,6 +883,7 @@ pub fn apply_scene_diff(
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
                         config,
+                        fps,
                     });
                 }
                 crate::scene::SourceProperties::Image { path, loop_mode } => {
@@ -899,6 +907,7 @@ pub fn start_capture_source(
     source_id: SourceId,
     exclude_self: bool,
     capture_size: (u32, u32),
+    fps: u32,
 ) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
     let mut pending_animations = Vec::new();
     let Some(tx) = cmd_tx else { return pending_animations };
@@ -915,12 +924,14 @@ pub fn start_capture_source(
                     exclude_self,
                     capture_size,
                 },
+                fps,
             });
         }
         crate::scene::SourceProperties::Window { mode, .. } => {
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
                 config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
+                fps,
             });
         }
         crate::scene::SourceProperties::Camera { device_index, device_name, device_uid } => {
@@ -930,6 +941,7 @@ pub fn start_capture_source(
                 config: CaptureSourceConfig::Camera {
                     device_index: idx,
                 },
+                fps,
             });
         }
         crate::scene::SourceProperties::Audio { input } => {
@@ -946,7 +958,7 @@ pub fn start_capture_source(
                     }
                 }
             };
-            let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config });
+            let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config, fps });
         }
         crate::scene::SourceProperties::Image { path, loop_mode } => {
             if !path.is_empty() {
@@ -1041,6 +1053,7 @@ fn delete_scene_by_id(
             scene,
             state.settings.general.exclude_self_from_capture,
             capture_size,
+            state.settings.video.fps,
         );
         state.pending_gif_animations.extend(anims);
         state.capture_active = !scene.sources.is_empty();
@@ -1061,6 +1074,7 @@ pub(crate) fn send_capture_for_scene(
     scene: &Scene,
     exclude_self: bool,
     capture_size: (u32, u32),
+    fps: u32,
 ) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
     let mut pending_animations = Vec::new();
     let Some(tx) = cmd_tx else { return pending_animations };
@@ -1076,6 +1090,7 @@ pub(crate) fn send_capture_for_scene(
                             exclude_self,
                             capture_size,
                         },
+                        fps,
                     });
                     any_started = true;
                 }
@@ -1083,6 +1098,7 @@ pub(crate) fn send_capture_for_scene(
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
                         config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
+                        fps,
                     });
                     any_started = true;
                 }
@@ -1093,6 +1109,7 @@ pub(crate) fn send_capture_for_scene(
                         config: CaptureSourceConfig::Camera {
                             device_index: idx,
                         },
+                        fps,
                     });
                     any_started = true;
                 }
@@ -1113,6 +1130,7 @@ pub(crate) fn send_capture_for_scene(
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: src_id,
                         config,
+                        fps,
                     });
                     any_started = true;
                 }

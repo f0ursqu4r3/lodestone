@@ -1259,6 +1259,7 @@ impl ApplicationHandler for AppManager {
                             let capture_size = crate::renderer::compositor::parse_resolution(
                                 &app_state.settings.video.base_resolution,
                             );
+                            let no_keep = std::collections::HashSet::new();
                             let anims = crate::ui::scenes_panel::apply_scene_diff(
                                 &cmd_tx,
                                 &app_state.library,
@@ -1267,6 +1268,7 @@ impl ApplicationHandler for AppManager {
                                 new_scene.as_ref(),
                                 exclude_self,
                                 capture_size,
+                                &no_keep,
                             );
                             app_state.pending_gif_animations.extend(anims);
                             if let Some(ref scene) = new_scene {
@@ -1314,6 +1316,7 @@ impl ApplicationHandler for AppManager {
                                     transition: crate::transition::TRANSITION_FADE.to_string(),
                                     duration: std::time::Duration::from_millis(300),
                                     colors: crate::transition::TransitionColors::default(),
+                                    params: std::collections::HashMap::new(),
                                 });
 
                             if resolved.transition == crate::transition::TRANSITION_CUT {
@@ -1328,6 +1331,7 @@ impl ApplicationHandler for AppManager {
 
                                 app_state.program_scene_id = Some(new_program_id);
 
+                                let no_keep = std::collections::HashSet::new();
                                 let anims = crate::ui::scenes_panel::apply_scene_diff(
                                     &cmd_tx,
                                     &app_state.library,
@@ -1336,6 +1340,7 @@ impl ApplicationHandler for AppManager {
                                     new_scene.as_ref(),
                                     exclude_self,
                                     capture_size,
+                                    &no_keep,
                                 );
                                 app_state.pending_gif_animations.extend(anims);
                                 if let Some(ref scene) = new_scene {
@@ -1382,6 +1387,7 @@ impl ApplicationHandler for AppManager {
                                         started_at: std::time::Instant::now(),
                                         duration: resolved.duration,
                                         colors: resolved.colors,
+                                        params: resolved.params,
                                     });
                                 app_state.program_scene_id = Some(new_program_id);
                                 app_state.mark_dirty();
@@ -1975,6 +1981,7 @@ impl ApplicationHandler for AppManager {
                         t.progress(),
                         t.is_complete(),
                         t.colors,
+                        t.params.clone(),
                     )
                 });
                 let transition_registry = app_state.transition_registry.clone();
@@ -2048,7 +2055,7 @@ impl ApplicationHandler for AppManager {
                         None
                     };
                     let (trans_from, trans_to) =
-                        if let Some((from, to, _, _, _, _)) = transition_info {
+                        if let Some((from, to, _, _, _, _, _)) = transition_info {
                             // During transition, we need both from and to scenes composed.
                             // The from scene is the current program_scene_id.
                             // The to scene may or may not be active_scene_id.
@@ -2111,7 +2118,9 @@ impl ApplicationHandler for AppManager {
                 // Track whether we need to force readback from the output texture.
                 let mut force_output_readback = false;
 
-                if let Some((from, to, ref transition_id, progress, _, colors)) = transition_info {
+                if let Some((from, to, ref transition_id, progress, _, colors, ref params)) =
+                    transition_info
+                {
                     // --- Transition in progress ---
                     // We need the from-scene and to-scene composed onto separate
                     // targets so the blend pass can sample both.
@@ -2203,6 +2212,7 @@ impl ApplicationHandler for AppManager {
                                 progress,
                                 time,
                                 &colors,
+                                params,
                                 &transition_registry,
                             );
                             did_transition_blend = true;
@@ -2260,7 +2270,7 @@ impl ApplicationHandler for AppManager {
                 }
 
                 // Complete transition if done.
-                if let Some((from_scene, to_scene, _, _, is_complete, _)) = transition_info
+                if let Some((from_scene, to_scene, _, _, is_complete, _, _)) = transition_info
                     && is_complete
                 {
                     let mut app_state = self.state.lock().expect("lock AppState");

@@ -1196,26 +1196,18 @@ pub fn draw_transform_handles(
                             };
                         }
                     } else {
-                        // Check if we clicked on any selected source (for group move).
-                        let clicked_selected = selected_ids.iter().any(|&sid| {
-                            state
-                                .library
-                                .iter()
-                                .find(|s| s.id == sid)
-                                .map(|lib| {
-                                    let t = state
-                                        .active_scene()
-                                        .and_then(|s| s.find_source(sid))
-                                        .map(|ss| ss.resolve_transform(lib))
-                                        .unwrap_or(lib.transform);
-                                    let r =
-                                        transform_to_screen_rect(&t, viewport_rect, canvas_size);
-                                    r.contains(mouse_pos)
-                                })
-                                .unwrap_or(false)
-                        });
+                        // Only start a drag if the topmost source under the cursor
+                        // is part of the current selection. If a non-selected source
+                        // is on top, skip the drag and let click-to-select handle it
+                        // on the release frame — otherwise both sources respond.
+                        let topmost_hit = active_scene_sources
+                            .iter()
+                            .find(|(_, rect, rot)| point_in_rotated_rect(mouse_pos, *rect, *rot))
+                            .map(|(id, _, _)| *id);
+                        let topmost_is_selected =
+                            topmost_hit.map_or(false, |id| state.is_source_selected(id));
 
-                        if clicked_selected || screen_rect.contains(mouse_pos) {
+                        if topmost_is_selected {
                             // Determine which source is the anchor (the one under cursor).
                             let anchor = selected_ids
                                 .iter()
@@ -1272,10 +1264,12 @@ pub fn draw_transform_handles(
                                 snapped_x: None,
                                 snapped_y: None,
                             };
-                        } else {
+                        } else if topmost_hit.is_none() {
                             // Clicked empty space — start marquee.
                             drag_mode = DragMode::Marquee { start: mouse_pos };
                         }
+                        // else: non-selected source on top — do nothing, let
+                        // click-to-select handle reselection on release.
                     }
                 }
             }

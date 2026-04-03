@@ -8,7 +8,11 @@ use wgpu::Device;
 
 const TRANSITION_FADE_SHADER: &str = include_str!("shaders/transition_fade.wgsl");
 
-/// Uniform buffer for transition shaders. 48 bytes, 16-byte aligned.
+/// Uniform buffer for transition shaders. 96 bytes, 16-byte aligned.
+///
+/// `params_a` and `params_b` carry per-shader custom parameters declared via
+/// `@param` headers in the WGSL source. Shaders that don't use them simply
+/// ignore the trailing fields.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct TransitionUniforms {
@@ -18,6 +22,8 @@ pub struct TransitionUniforms {
     pub color: [f32; 4],
     pub from_color: [f32; 4],
     pub to_color: [f32; 4],
+    pub params_a: [f32; 4],
+    pub params_b: [f32; 4],
 }
 
 /// GPU resources for the transition blend pass.
@@ -199,8 +205,23 @@ impl TransitionPipeline {
         progress: f32,
         time: f32,
         colors: &crate::transition::TransitionColors,
+        params: &std::collections::HashMap<String, f32>,
         registry: &crate::transition_registry::TransitionRegistry,
     ) {
+        // Pack named params into the uniform arrays, ordered by shader_params definition.
+        let mut params_a = [0.0f32; 4];
+        let mut params_b = [0.0f32; 4];
+        if let Some(def) = registry.get(transition_id) {
+            for (i, p) in def.shader_params.iter().enumerate().take(8) {
+                let val = params.get(&p.name).copied().unwrap_or(p.default);
+                if i < 4 {
+                    params_a[i] = val;
+                } else {
+                    params_b[i - 4] = val;
+                }
+            }
+        }
+
         let uniforms = TransitionUniforms {
             progress,
             time,
@@ -208,6 +229,8 @@ impl TransitionPipeline {
             color: colors.color,
             from_color: colors.from_color,
             to_color: colors.to_color,
+            params_a,
+            params_b,
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 

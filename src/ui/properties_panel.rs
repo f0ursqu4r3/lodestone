@@ -594,6 +594,7 @@ fn draw_effects_section(
 
         // Disable text selection while dragging to prevent accidental text highlights.
         if dragging_idx.is_some() {
+            ui.style_mut().interaction.selectable_labels = false;
             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
         }
 
@@ -622,7 +623,7 @@ fn draw_effects_section(
             } else {
                 theme.bg_surface
             };
-            egui::Frame::NONE
+            let card_resp = egui::Frame::NONE
                 .fill(card_fill)
                 .corner_radius(theme.radius_sm)
                 .stroke(egui::Stroke::new(1.0, theme.border_subtle))
@@ -685,6 +686,9 @@ fn draw_effects_section(
                         if name_response.clicked() {
                             ui.data_mut(|d| d.insert_temp(expand_id, !expanded));
                         }
+                        if name_response.hovered() {
+                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+                        }
 
                         // Spacer + expand arrow + remove button.
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -715,6 +719,9 @@ fn draw_effects_section(
                             );
                             if chevron_resp.clicked() {
                                 ui.data_mut(|d| d.insert_temp(expand_id, !expanded));
+                            }
+                            if chevron_resp.hovered() {
+                                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                             }
                         });
                     });
@@ -772,8 +779,7 @@ fn draw_effects_section(
                 });
 
             // Record this card's rect for drop indicator calculation.
-            let card_rect = ui.min_rect();
-            card_rects.push(card_rect);
+            card_rects.push(card_resp.response.rect);
 
             ui.add_space(2.0);
         }
@@ -2687,5 +2693,70 @@ fn draw_scene_transition_override(
         }
     }
 
+    // ── Numeric parameter sliders ──
+    let shader_params: Vec<crate::transition_registry::TransitionParamDef> = state
+        .transition_registry
+        .get(effective_id)
+        .map(|d| d.shader_params.clone())
+        .unwrap_or_default();
+
+    if !shader_params.is_empty() {
+        ui.add_space(4.0);
+
+        let current_params = state
+            .scenes
+            .iter()
+            .find(|s| s.id == scene_id)
+            .and_then(|s| s.transition_override.params.clone())
+            .unwrap_or_else(|| state.settings.transitions.default_params.clone());
+
+        for param_def in &shader_params {
+            let display_name = title_case_underscore(&param_def.name);
+            ui.label(
+                egui::RichText::new(&display_name)
+                    .color(theme.text_muted)
+                    .size(9.0),
+            );
+            ui.add_space(2.0);
+
+            let mut val = current_params
+                .get(&param_def.name)
+                .copied()
+                .unwrap_or(param_def.default);
+
+            let slider = egui::Slider::new(&mut val, param_def.min..=param_def.max)
+                .clamping(egui::SliderClamping::Always);
+
+            if ui.add(slider).changed() {
+                if let Some(scene) = state.scenes.iter_mut().find(|s| s.id == scene_id) {
+                    let params_map = scene
+                        .transition_override
+                        .params
+                        .get_or_insert_with(|| current_params.clone());
+                    params_map.insert(param_def.name.clone(), val);
+                }
+                changed = true;
+            }
+        }
+    }
+
     changed
+}
+
+/// Convert an underscore-separated name to title case (e.g. "edge_softness" → "Edge Softness").
+fn title_case_underscore(s: &str) -> String {
+    s.split('_')
+        .filter(|w| !w.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(c) => {
+                    let upper: String = c.to_uppercase().collect();
+                    upper + chars.as_str()
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

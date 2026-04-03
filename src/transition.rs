@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::scene::SceneId;
@@ -37,6 +38,9 @@ pub struct TransitionSettings {
     pub default_transition: String,
     pub default_duration_ms: u32,
     pub default_colors: TransitionColors,
+    /// Default numeric parameter values for the default transition.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub default_params: HashMap<String, f32>,
 }
 
 impl Default for TransitionSettings {
@@ -45,6 +49,7 @@ impl Default for TransitionSettings {
             default_transition: TRANSITION_FADE.to_string(),
             default_duration_ms: 300,
             default_colors: TransitionColors::default(),
+            default_params: HashMap::new(),
         }
     }
 }
@@ -61,6 +66,8 @@ impl<'de> serde::Deserialize<'de> for TransitionSettings {
             default_type: Option<String>,
             default_duration_ms: u32,
             default_colors: TransitionColors,
+            #[serde(default)]
+            default_params: HashMap<String, f32>,
         }
 
         impl Default for Raw {
@@ -70,6 +77,7 @@ impl<'de> serde::Deserialize<'de> for TransitionSettings {
                     default_type: None,
                     default_duration_ms: 300,
                     default_colors: TransitionColors::default(),
+                    default_params: HashMap::new(),
                 }
             }
         }
@@ -90,6 +98,7 @@ impl<'de> serde::Deserialize<'de> for TransitionSettings {
             default_transition,
             default_duration_ms: raw.default_duration_ms,
             default_colors: raw.default_colors,
+            default_params: raw.default_params,
         })
     }
 }
@@ -104,6 +113,9 @@ pub struct SceneTransitionOverride {
     pub duration_ms: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub colors: Option<TransitionColors>,
+    /// Per-scene numeric parameter overrides. `None` inherits from global defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<HashMap<String, f32>>,
 }
 
 impl<'de> serde::Deserialize<'de> for SceneTransitionOverride {
@@ -118,6 +130,7 @@ impl<'de> serde::Deserialize<'de> for SceneTransitionOverride {
             transition_type: Option<String>,
             duration_ms: Option<u32>,
             colors: Option<TransitionColors>,
+            params: Option<HashMap<String, f32>>,
         }
 
         let raw = Raw::deserialize(deserializer)?;
@@ -134,6 +147,7 @@ impl<'de> serde::Deserialize<'de> for SceneTransitionOverride {
             transition,
             duration_ms: raw.duration_ms,
             colors: raw.colors,
+            params: raw.params,
         })
     }
 }
@@ -143,6 +157,7 @@ pub struct ResolvedTransition {
     pub transition: String,
     pub duration: Duration,
     pub colors: TransitionColors,
+    pub params: HashMap<String, f32>,
 }
 
 /// Runtime state for an in-progress transition. Not persisted.
@@ -155,6 +170,8 @@ pub struct TransitionState {
     pub started_at: Instant,
     pub duration: Duration,
     pub colors: TransitionColors,
+    /// Numeric parameter values for the transition shader.
+    pub params: HashMap<String, f32>,
 }
 
 impl TransitionState {
@@ -189,10 +206,15 @@ pub fn resolve_transition(
         .duration_ms
         .unwrap_or(global.default_duration_ms);
     let colors = scene_override.colors.unwrap_or(global.default_colors);
+    let params = scene_override
+        .params
+        .clone()
+        .unwrap_or_else(|| global.default_params.clone());
     ResolvedTransition {
         transition,
         duration: Duration::from_millis(duration_ms as u64),
         colors,
+        params,
     }
 }
 
@@ -235,6 +257,7 @@ mod tests {
                 color: [1.0, 0.0, 0.0, 1.0],
                 ..Default::default()
             }),
+            params: None,
         };
         let resolved = resolve_transition(&global, &override_);
         assert_eq!(resolved.transition, TRANSITION_CUT);
@@ -248,11 +271,13 @@ mod tests {
             default_transition: TRANSITION_FADE.to_string(),
             default_duration_ms: 300,
             default_colors: TransitionColors::default(),
+            default_params: HashMap::new(),
         };
         let override_ = SceneTransitionOverride {
             transition: None,
             duration_ms: Some(1000),
             colors: None,
+            params: None,
         };
         let resolved = resolve_transition(&global, &override_);
         assert_eq!(resolved.transition, TRANSITION_FADE);
@@ -268,6 +293,7 @@ mod tests {
             started_at: Instant::now(),
             duration: Duration::from_millis(300),
             colors: TransitionColors::default(),
+            params: HashMap::new(),
         };
         assert!(state.progress() < 0.1);
         assert!(!state.is_complete());
@@ -282,6 +308,7 @@ mod tests {
             started_at: Instant::now() - Duration::from_millis(500),
             duration: Duration::from_millis(300),
             colors: TransitionColors::default(),
+            params: HashMap::new(),
         };
         assert_eq!(state.progress(), 1.0);
         assert!(state.is_complete());
@@ -296,6 +323,7 @@ mod tests {
             started_at: Instant::now(),
             duration: Duration::ZERO,
             colors: TransitionColors::default(),
+            params: HashMap::new(),
         };
         assert_eq!(state.progress(), 1.0);
         assert!(state.is_complete());

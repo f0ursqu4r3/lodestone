@@ -6,6 +6,15 @@ pub enum TransitionParam {
     ToColor,
 }
 
+/// Definition of a single numeric parameter exposed by a transition shader.
+#[derive(Debug, Clone)]
+pub struct TransitionParamDef {
+    pub name: String,
+    pub default: f32,
+    pub min: f32,
+    pub max: f32,
+}
+
 /// Parsed definition of a single transition shader.
 #[derive(Debug, Clone)]
 pub struct TransitionDef {
@@ -21,6 +30,8 @@ pub struct TransitionDef {
     pub description: String,
     /// Which color uniforms to expose in the UI, from `@params` header.
     pub params: Vec<TransitionParam>,
+    /// Numeric parameters exposed by the shader, from `@param` headers.
+    pub shader_params: Vec<TransitionParamDef>,
     /// Raw WGSL shader source.
     pub shader_source: String,
 }
@@ -42,6 +53,7 @@ impl TransitionRegistry {
             author: String::new(),
             description: "Instant scene switch".to_string(),
             params: Vec::new(),
+            shader_params: Vec::new(),
             shader_source: String::new(),
         }];
         let fingerprint = Self::compute_fingerprint(&transitions);
@@ -63,6 +75,7 @@ impl TransitionRegistry {
             author: String::new(),
             description: "Instant scene switch".to_string(),
             params: Vec::new(),
+            shader_params: Vec::new(),
             shader_source: String::new(),
         });
 
@@ -101,7 +114,8 @@ impl TransitionRegistry {
                 }
             };
 
-            let (header_name, author, description, params) = parse_header(&source);
+            let (header_name, author, description, params, shader_params) =
+                parse_header(&source);
             let name = if header_name.is_empty() {
                 title_case_stem(&stem)
             } else {
@@ -114,6 +128,7 @@ impl TransitionRegistry {
                 author,
                 description,
                 params,
+                shader_params,
                 shader_source: source,
             });
         }
@@ -166,11 +181,23 @@ impl TransitionRegistry {
 
 /// Parse `// @key: value` metadata from the top of a WGSL source string.
 /// Parsing stops at the first non-comment, non-blank line.
-fn parse_header(source: &str) -> (String, String, String, Vec<TransitionParam>) {
+///
+/// Supports both `@params:` (color uniforms, comma-separated) and
+/// `@param:` (numeric parameters, `name default min max` per line).
+fn parse_header(
+    source: &str,
+) -> (
+    String,
+    String,
+    String,
+    Vec<TransitionParam>,
+    Vec<TransitionParamDef>,
+) {
     let mut name = String::new();
     let mut author = String::new();
     let mut description = String::new();
     let mut params = Vec::new();
+    let mut shader_params = Vec::new();
 
     for line in source.lines() {
         let trimmed = line.trim();
@@ -197,10 +224,26 @@ fn parse_header(source: &str) -> (String, String, String, Vec<TransitionParam>) 
                     _ => None,
                 })
                 .collect();
+        } else if let Some(value) = comment_body.strip_prefix("@param:") {
+            let parts: Vec<&str> = value.trim().split_whitespace().collect();
+            if parts.len() >= 4 {
+                if let (Ok(default), Ok(min), Ok(max)) = (
+                    parts[1].parse::<f32>(),
+                    parts[2].parse::<f32>(),
+                    parts[3].parse::<f32>(),
+                ) {
+                    shader_params.push(TransitionParamDef {
+                        name: parts[0].to_string(),
+                        default,
+                        min,
+                        max,
+                    });
+                }
+            }
         }
     }
 
-    (name, author, description, params)
+    (name, author, description, params, shader_params)
 }
 
 /// Convert a file stem like "radial_wipe" to "Radial Wipe".
@@ -245,7 +288,7 @@ mod tests {
     #[test]
     fn parse_header_full() {
         let src = "// @name: Dip to Color\n// @author: Lodestone\n// @description: Fades through a solid color\n// @params: color, from_color\n\nstruct TransitionUniforms { progress: f32 };\n";
-        let (name, author, desc, params) = parse_header(src);
+        let (name, author, desc, params, shader_params) = parse_header(src);
         assert_eq!(name, "Dip to Color");
         assert_eq!(author, "Lodestone");
         assert_eq!(desc, "Fades through a solid color");
@@ -253,12 +296,13 @@ mod tests {
             params,
             vec![TransitionParam::Color, TransitionParam::FromColor]
         );
+        assert!(shader_params.is_empty());
     }
 
     #[test]
     fn parse_header_partial_no_params() {
         let src = "// @name: Fade\n\nstruct Foo {};";
-        let (name, author, desc, params) = parse_header(src);
+        let (name, author, desc, params, _) = parse_header(src);
         assert_eq!(name, "Fade");
         assert_eq!(author, "");
         assert_eq!(desc, "");
@@ -267,24 +311,25 @@ mod tests {
 
     #[test]
     fn parse_header_empty_source() {
-        let (name, author, desc, params) = parse_header("");
+        let (name, author, desc, params, shader_params) = parse_header("");
         assert_eq!(name, "");
         assert_eq!(author, "");
         assert_eq!(desc, "");
         assert!(params.is_empty());
+        assert!(shader_params.is_empty());
     }
 
     #[test]
     fn parse_header_no_comment_lines() {
         let src = "struct TransitionUniforms { progress: f32 };";
-        let (name, _, _, _) = parse_header(src);
+        let (name, _, _, _, _) = parse_header(src);
         assert_eq!(name, "");
     }
 
     #[test]
     fn parse_header_all_params() {
         let src = "// @params: color, from_color, to_color\n";
-        let (_, _, _, params) = parse_header(src);
+        let (_, _, _, params, _) = parse_header(src);
         assert_eq!(
             params,
             vec![
@@ -293,6 +338,20 @@ mod tests {
                 TransitionParam::ToColor,
             ]
         );
+    }
+
+    #[test]
+    fn parse_header_shader_params() {
+        let src = "// @name: Wipe\n// @param: softness 0.02 0.0 0.5\n// @param: angle 0.0 0.0 360.0\n\n@fragment fn fs_main() {}";
+        let (name, _, _, _, shader_params) = parse_header(src);
+        assert_eq!(name, "Wipe");
+        assert_eq!(shader_params.len(), 2);
+        assert_eq!(shader_params[0].name, "softness");
+        assert!((shader_params[0].default - 0.02).abs() < f32::EPSILON);
+        assert!((shader_params[0].min - 0.0).abs() < f32::EPSILON);
+        assert!((shader_params[0].max - 0.5).abs() < f32::EPSILON);
+        assert_eq!(shader_params[1].name, "angle");
+        assert!((shader_params[1].default - 0.0).abs() < f32::EPSILON);
     }
 
     #[test]

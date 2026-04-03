@@ -149,7 +149,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                 state.deselect_all();
 
                 // Diff sources: stop sources no longer needed, start new ones.
-                // Then re-start any sources that were stopped but are needed by the program scene.
+                // Keep any sources that the live program scene still requires.
                 let capture_size = crate::renderer::compositor::parse_resolution(
                     &state.settings.video.base_resolution,
                 );
@@ -161,32 +161,9 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     new_scene.as_ref(),
                     state.settings.general.exclude_self_from_capture,
                     capture_size,
+                    &program_source_ids,
                 );
                 state.pending_gif_animations.extend(anims);
-
-                // Re-start any sources that apply_scene_diff may have stopped but
-                // are still required by the live program scene.
-                let old_ids: std::collections::HashSet<SourceId> = old_scene
-                    .as_ref()
-                    .map(|s| s.source_ids().into_iter().collect())
-                    .unwrap_or_default();
-                let new_ids: std::collections::HashSet<SourceId> = new_scene
-                    .as_ref()
-                    .map(|s| s.source_ids().into_iter().collect())
-                    .unwrap_or_default();
-                for &src_id in old_ids.difference(&new_ids) {
-                    if program_source_ids.contains(&src_id) {
-                        let anims = start_capture_source(
-                            &cmd_tx,
-                            &state.library,
-                            &state.available_cameras,
-                            src_id,
-                            state.settings.general.exclude_self_from_capture,
-                            capture_size,
-                        );
-                        state.pending_gif_animations.extend(anims);
-                    }
-                }
 
                 state.mark_dirty();
             }
@@ -686,6 +663,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
                 transition: crate::transition::TRANSITION_FADE.to_string(),
                 duration: std::time::Duration::from_millis(300),
                 colors: crate::transition::TransitionColors::default(),
+                params: std::collections::HashMap::new(),
             });
 
         if resolved.transition == crate::transition::TRANSITION_CUT {
@@ -702,6 +680,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
             let capture_size = crate::renderer::compositor::parse_resolution(
                 &state.settings.video.base_resolution,
             );
+            let no_keep = std::collections::HashSet::new();
             let anims = apply_scene_diff(
                 &cmd_tx,
                 &state.library,
@@ -710,6 +689,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
                 new_scene.as_ref(),
                 state.settings.general.exclude_self_from_capture,
                 capture_size,
+                &no_keep,
             );
             state.pending_gif_animations.extend(anims);
 
@@ -752,6 +732,7 @@ pub fn trigger_scene_transition(state: &mut AppState) {
                 started_at: std::time::Instant::now(),
                 duration: resolved.duration,
                 colors: resolved.colors,
+                params: resolved.params,
             });
             // program_scene_id will be updated to to_id when the transition completes.
             state.deselect_all();
@@ -819,6 +800,10 @@ fn draw_add_card(
 }
 
 /// Send `AddCaptureSource` / `RemoveCaptureSource` commands for the delta between two scenes.
+///
+/// Sources listed in `keep_source_ids` will not be removed even if they are only
+/// in the old scene — this prevents tearing down captures that another scene
+/// (e.g. the live program scene) still needs.
 pub fn apply_scene_diff(
     cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
     library: &[crate::scene::LibrarySource],
@@ -827,6 +812,7 @@ pub fn apply_scene_diff(
     new_scene: Option<&Scene>,
     exclude_self: bool,
     capture_size: (u32, u32),
+    keep_source_ids: &std::collections::HashSet<SourceId>,
 ) -> Vec<(SourceId, crate::image_source::GifAnimation, crate::scene::LoopMode)> {
     let mut pending_animations = Vec::new();
     let Some(tx) = cmd_tx else { return pending_animations };
@@ -839,6 +825,9 @@ pub fn apply_scene_diff(
         .unwrap_or_default();
 
     for &src_id in old_ids.difference(&new_ids) {
+        if keep_source_ids.contains(&src_id) {
+            continue;
+        }
         let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id: src_id });
     }
 

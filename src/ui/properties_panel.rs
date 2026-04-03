@@ -60,6 +60,14 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
             .map(|s| s.sources.iter().any(|ss| ss.source_id == selected_id))
             .unwrap_or(false);
 
+    // Show source name.
+    let source_name = state.library[lib_idx].name.clone();
+    ui.label(
+        egui::RichText::new(&source_name)
+            .color(theme.text_primary)
+            .size(13.0),
+    );
+
     // Show mode header.
     if in_active_scene {
         let scene_name = state

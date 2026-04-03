@@ -886,6 +886,7 @@ pub fn draw_transform_handles(
                     // Clicked empty space — deselect (unless shift held).
                     if !shift_held {
                         state.deselect_all();
+                        state.selected_library_source_id = None;
                     }
                 }
             }
@@ -1116,6 +1117,7 @@ pub fn draw_transform_handles(
                     // Select all non-locked sources whose screen rects intersect the marquee.
                     if !shift_held {
                         state.deselect_all();
+                        state.selected_library_source_id = None;
                     }
                     for (src_id, src_rect, _) in &active_scene_sources {
                         if marquee_rect.intersects(*src_rect) {
@@ -1142,6 +1144,10 @@ pub fn draw_transform_handles(
         }
 
         ui.memory_mut(|m| m.data.insert_temp(drag_id, drag_mode));
+        // Clear the other path's drag state so a marquee started while a source
+        // was selected doesn't persist after deselection switches code paths.
+        let other_drag_id = egui::Id::new("transform_drag_main");
+        ui.memory_mut(|m| m.data.insert_temp::<DragMode>(other_drag_id, DragMode::None));
         return;
     };
     let Some(source) = state.library.iter().find(|s| s.id == selected_id) else {
@@ -1707,6 +1713,7 @@ pub fn draw_transform_handles(
                 let marquee_rect = Rect::from_two_pos(start, mouse_pos);
                 if !shift_held {
                     state.deselect_all();
+                    state.selected_library_source_id = None;
                 }
                 for (src_id, src_rect, _) in &active_scene_sources {
                     if marquee_rect.intersects(*src_rect) {
@@ -1746,6 +1753,10 @@ pub fn draw_transform_handles(
     }
 
     ui.memory_mut(|m| m.data.insert_temp(drag_id, drag_mode));
+    // Clear the other path's drag state so a marquee started with no selection
+    // doesn't persist after a source becomes selected and switches code paths.
+    let other_drag_id = egui::Id::new("transform_drag_marquee");
+    ui.memory_mut(|m| m.data.insert_temp::<DragMode>(other_drag_id, DragMode::None));
 }
 
 // ── Source Context Menu ────────────────────────────────────────────────────

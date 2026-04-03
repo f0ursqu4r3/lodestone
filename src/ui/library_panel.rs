@@ -98,7 +98,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     // Track deferred deletion (collected after rendering).
     let mut delete_source: Option<SourceId> = None;
 
-    egui::ScrollArea::vertical()
+    let scroll_output = egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -110,7 +110,20 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
                     draw_folders_view(ui, state, &rows, display_mode, &mut delete_source);
                 }
             }
+
+            // Fill remaining space so clicks on empty area can deselect.
+            let remaining = ui.available_size();
+            if remaining.y > 0.0 {
+                ui.allocate_response(remaining, Sense::click())
+            } else {
+                ui.allocate_response(vec2(0.0, 0.0), Sense::click())
+            }
         });
+
+    // Click on empty space in the library deselects the library selection.
+    if scroll_output.inner.clicked() {
+        state.selected_library_source_id = None;
+    }
 
     // Apply deferred deletion.
     if let Some(src_id) = delete_source {

@@ -381,9 +381,14 @@ fn draw_scene_card(
 
     let mut action: Option<SceneAction> = None;
 
-    // Click to switch active scene.
-    if response.clicked() && !is_active && !is_renaming {
-        action = Some(SceneAction::Switch(scene_id));
+    // Click to switch active scene, or deselect sources to show scene properties.
+    if response.clicked() && !is_renaming {
+        if !is_active {
+            action = Some(SceneAction::Switch(scene_id));
+        } else {
+            state.deselect_all();
+            state.selected_library_source_id = None;
+        }
     }
 
     // Double-click to rename.

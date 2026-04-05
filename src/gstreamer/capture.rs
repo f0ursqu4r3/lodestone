@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use gstreamer::prelude::*;
-use gstreamer_app::{AppSink, AppSrc};
+use gstreamer_app::AppSink;
+#[cfg(target_os = "macos")]
+use gstreamer_app::AppSrc;
 
 use super::commands::{AudioSourceKind, CaptureSourceConfig};
 
@@ -19,23 +21,71 @@ pub fn build_capture_pipeline(
     // Create source element based on capture config
     let src = match source {
         CaptureSourceConfig::Screen { screen_index, .. } => {
-            gstreamer::ElementFactory::make("avfvideosrc")
-                .name("capture-source")
-                .property("capture-screen", true)
-                .property("capture-screen-cursor", true)
-                .property("device-index", *screen_index as i32)
-                .build()
-                .context("Failed to create avfvideosrc — is GStreamer installed?")?
+            #[cfg(target_os = "macos")]
+            {
+                gstreamer::ElementFactory::make("avfvideosrc")
+                    .name("capture-source")
+                    .property("capture-screen", true)
+                    .property("capture-screen-cursor", true)
+                    .property("device-index", *screen_index as i32)
+                    .build()
+                    .context("Failed to create avfvideosrc — is GStreamer installed?")?
+            }
+            #[cfg(target_os = "windows")]
+            {
+                // Use d3d11screencapturesrc for hardware-accelerated screen capture on Windows.
+                // Falls back to dx9screencapsrc if d3d11 is unavailable.
+                gstreamer::ElementFactory::make("d3d11screencapturesrc")
+                    .name("capture-source")
+                    .property("show-cursor", true)
+                    .property("monitor-index", *screen_index as i32)
+                    .build()
+                    .or_else(|_| {
+                        gstreamer::ElementFactory::make("dx9screencapsrc")
+                            .name("capture-source")
+                            .property("monitor", *screen_index as i32)
+                            .build()
+                    })
+                    .context("Failed to create screen capture source — is GStreamer installed with d3d11 plugins?")?
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                let _ = screen_index;
+                anyhow::bail!("Screen capture not yet supported on this platform");
+            }
         }
         CaptureSourceConfig::Window { .. } => {
             anyhow::bail!("Window capture built separately");
         }
         CaptureSourceConfig::Camera { device_index } => {
-            gstreamer::ElementFactory::make("avfvideosrc")
-                .name("capture-source")
-                .property("device-index", *device_index as i32)
-                .build()
-                .context("Failed to create avfvideosrc for camera capture")?
+            #[cfg(target_os = "macos")]
+            {
+                gstreamer::ElementFactory::make("avfvideosrc")
+                    .name("capture-source")
+                    .property("device-index", *device_index as i32)
+                    .build()
+                    .context("Failed to create avfvideosrc for camera capture")?
+            }
+            #[cfg(target_os = "windows")]
+            {
+                // Use Media Foundation source on Windows; fall back to ksvideosrc.
+                gstreamer::ElementFactory::make("mfvideosrc")
+                    .name("capture-source")
+                    .property("device-index", *device_index as i32)
+                    .build()
+                    .or_else(|_| {
+                        gstreamer::ElementFactory::make("ksvideosrc")
+                            .name("capture-source")
+                            .property("device-index", *device_index as i32)
+                            .build()
+                    })
+                    .context("Failed to create camera capture source — is GStreamer installed?")?
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                let _ = device_index;
+                anyhow::bail!("Camera capture not yet supported on this platform");
+            }
         }
         // Audio-only sources are not routed through the video capture pipeline.
         CaptureSourceConfig::AudioDevice { .. } | CaptureSourceConfig::AudioFile { .. } => {
@@ -164,7 +214,8 @@ pub fn build_display_capture_pipeline(
 
 /// Build an audio capture pipeline for the given device.
 ///
-/// Pipeline: osxaudiosrc → audioconvert → audioresample → volume → level → appsink
+/// Pipeline: audio-src → audioconvert → audioresample → volume → level → appsink
+/// (osxaudiosrc on macOS, wasapisrc on Windows)
 /// Returns (pipeline, appsink, volume_element_name).
 pub fn build_audio_capture_pipeline(
     source_kind: AudioSourceKind,
@@ -177,11 +228,49 @@ pub fn build_audio_capture_pipeline(
     };
     let pipeline = gstreamer::Pipeline::with_name(name);
 
-    let src = gstreamer::ElementFactory::make("osxaudiosrc")
-        .name(format!("{name}-src"))
-        .property("unique-id", device_uid)
-        .build()
-        .context(format!("Failed to create osxaudiosrc for {name}"))?;
+    let src = {
+        #[cfg(target_os = "macos")]
+        {
+            gstreamer::ElementFactory::make("osxaudiosrc")
+                .name(format!("{name}-src"))
+                .property("unique-id", device_uid)
+                .build()
+                .context(format!("Failed to create osxaudiosrc for {name}"))?
+        }
+        #[cfg(target_os = "windows")]
+        {
+            // Prefer wasapi2src (modern WASAPI2 plugin, better device ID handling)
+            // over the legacy wasapisrc. An empty UID selects the default device.
+            if device_uid.is_empty() {
+                gstreamer::ElementFactory::make("wasapi2src")
+                    .name(format!("{name}-src"))
+                    .build()
+                    .or_else(|_| {
+                        gstreamer::ElementFactory::make("wasapisrc")
+                            .name(format!("{name}-src"))
+                            .build()
+                    })
+                    .context(format!("Failed to create audio source for {name}"))?
+            } else {
+                gstreamer::ElementFactory::make("wasapi2src")
+                    .name(format!("{name}-src"))
+                    .property("device", device_uid)
+                    .build()
+                    .or_else(|_| {
+                        gstreamer::ElementFactory::make("wasapisrc")
+                            .name(format!("{name}-src"))
+                            .property("device", device_uid)
+                            .build()
+                    })
+                    .context(format!("Failed to create audio source for {name}"))?
+            }
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let _ = device_uid;
+            anyhow::bail!("Audio capture not yet supported on this platform");
+        }
+    };
 
     let convert = gstreamer::ElementFactory::make("audioconvert")
         .name(format!("{name}-convert"))

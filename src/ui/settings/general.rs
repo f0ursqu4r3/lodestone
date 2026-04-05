@@ -36,12 +36,14 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
         "Exclude Lodestone from capture",
         &mut settings.exclude_self_from_capture,
     );
-    if settings.exclude_self_from_capture != prev_exclude
-        && let Some(tx) = &state.command_tx
-    {
-        let _ = tx.try_send(GstCommand::UpdateDisplayExclusion {
-            exclude_self: settings.exclude_self_from_capture,
-        });
+    if settings.exclude_self_from_capture != prev_exclude {
+        if let Some(tx) = &state.command_tx {
+            let _ = tx.try_send(GstCommand::UpdateDisplayExclusion {
+                exclude_self: settings.exclude_self_from_capture,
+            });
+        }
+        // Signal the render loop to update window display affinity (Windows).
+        state.display_exclusion_changed = true;
     }
 
     section_header(ui, "GRID & GUIDES");

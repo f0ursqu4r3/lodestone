@@ -2496,6 +2496,7 @@ dependencies = [
  "objc2-screen-capture-kit",
  "pollster",
  "rand 0.10.0",
+ "raw-window-handle",
  "rfd",
  "serde",
  "tempfile",

@@ -96,6 +96,7 @@ pub enum GstCommand {
 
 /// Capture source selection.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum CaptureSourceConfig {
     Screen {
         screen_index: u32,
@@ -163,13 +164,26 @@ impl EncoderType {
     }
 
     pub fn all() -> &'static [EncoderType] {
-        &[
-            Self::H264VideoToolbox,
-            Self::H264Nvenc,
-            Self::H264Amf,
-            Self::H264Qsv,
-            Self::H264x264,
-        ]
+        #[cfg(target_os = "macos")]
+        {
+            &[
+                Self::H264VideoToolbox,
+                Self::H264Nvenc,
+                Self::H264Amf,
+                Self::H264Qsv,
+                Self::H264x264,
+            ]
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // VideoToolbox is macOS-only; prefer hardware encoders common on Windows/Linux.
+            &[
+                Self::H264Nvenc,
+                Self::H264Amf,
+                Self::H264Qsv,
+                Self::H264x264,
+            ]
+        }
     }
 }
 

@@ -112,8 +112,90 @@ pub(crate) const DOCKABLE_TYPES: &[PanelType] = &[
 pub fn render_menu_bar(
     ctx: &egui::Context,
     _layout: &DockLayout,
+    state: &mut crate::state::AppState,
 ) -> (Vec<LayoutAction>, egui::Rect) {
-    (Vec::new(), ctx.available_rect())
+    // On macOS, the native menu bar lives in the system menu bar — nothing to draw.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = state;
+        return (Vec::new(), ctx.available_rect());
+    }
+
+    // On Windows (and other platforms), draw an egui menu bar matching the theme.
+    #[cfg(not(target_os = "macos"))]
+    {
+        let theme = active_theme(ctx);
+        let mut actions = Vec::new();
+
+        egui::TopBottomPanel::top("menu_bar")
+            .frame(
+                egui::Frame::new()
+                    .fill(theme.toolbar_bg)
+                    .inner_margin(egui::Margin::symmetric(4, 0)),
+            )
+            .show(ctx, |ui| {
+                egui::MenuBar::new().ui(ui, |ui| {
+                    ui.visuals_mut().widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+                    ui.visuals_mut().widgets.hovered.weak_bg_fill =
+                        egui::Color32::from_white_alpha(20);
+                    ui.visuals_mut().widgets.active.weak_bg_fill =
+                        egui::Color32::from_white_alpha(30);
+
+                    // ── File ──
+                    ui.menu_button(
+                        egui::RichText::new("File").color(theme.text_secondary).size(12.0),
+                        |ui| {
+                            if ui.button("Open Effects Folder").clicked() {
+                                state.menu_open_effects_folder = true;
+                                ui.close();
+                            }
+                            if ui.button("Open Transitions Folder").clicked() {
+                                state.menu_open_transitions_folder = true;
+                                ui.close();
+                            }
+                        },
+                    );
+
+                    // ── Edit ──
+                    ui.menu_button(
+                        egui::RichText::new("Edit").color(theme.text_secondary).size(12.0),
+                        |ui| {
+                            if ui.button("Undo").clicked() {
+                                state.menu_undo = true;
+                                ui.close();
+                            }
+                            if ui.button("Redo").clicked() {
+                                state.menu_redo = true;
+                                ui.close();
+                            }
+                        },
+                    );
+
+                    // ── View ──
+                    ui.menu_button(
+                        egui::RichText::new("View").color(theme.text_secondary).size(12.0),
+                        |ui| {
+                            ui.menu_button("Add Panel", |ui| {
+                                for &pt in DOCKABLE_TYPES {
+                                    if ui.button(pt.display_name()).clicked() {
+                                        actions.push(LayoutAction::AddPanelAtRoot {
+                                            panel_type: pt,
+                                        });
+                                        ui.close();
+                                    }
+                                }
+                            });
+                            if ui.button("Reset Layout").clicked() {
+                                actions.push(LayoutAction::ResetLayout);
+                                ui.close();
+                            }
+                        },
+                    );
+                });
+            });
+
+        (actions, ctx.available_rect())
+    }
 }
 
 // ---------------------------------------------------------------------------

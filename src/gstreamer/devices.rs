@@ -33,8 +33,10 @@ pub fn resolve_camera_index(cameras: &[CameraDevice], uid: &str, name: &str, fal
     fallback_index
 }
 
-/// A window available for capture, discovered via ScreenCaptureKit.
+/// A window available for capture, discovered via ScreenCaptureKit (macOS)
+/// or platform-specific APIs.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct WindowInfo {
     pub window_id: u32,
     pub title: String,
@@ -64,7 +66,96 @@ pub struct DisplayInfo {
     pub height: u32,
 }
 
+/// Enumerate available displays with their resolutions.
+///
+/// On Windows, uses the GStreamer device monitor to find display/screen devices.
+/// Falls back to a single 1920x1080 default if enumeration fails.
+#[cfg(target_os = "windows")]
+pub fn enumerate_displays() -> Vec<DisplayInfo> {
+    // Use Win32 EnumDisplayMonitors for accurate display info.
+    use std::mem;
+
+    #[repr(C)]
+    #[allow(non_snake_case)]
+    struct MONITORINFOEXW {
+        cbSize: u32,
+        rcMonitor: RECT,
+        rcWork: RECT,
+        dwFlags: u32,
+        szDevice: [u16; 32],
+    }
+
+    #[repr(C)]
+    #[allow(non_snake_case)]
+    #[derive(Default)]
+    struct RECT {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    type HMONITOR = *mut std::ffi::c_void;
+    type HDC = *mut std::ffi::c_void;
+    type LPARAM = isize;
+
+    unsafe extern "system" {
+        fn EnumDisplayMonitors(
+            hdc: HDC,
+            lprc_clip: *const RECT,
+            lpfn_enum: unsafe extern "system" fn(HMONITOR, HDC, *mut RECT, LPARAM) -> i32,
+            dw_data: LPARAM,
+        ) -> i32;
+        fn GetMonitorInfoW(hmonitor: HMONITOR, lpmi: *mut MONITORINFOEXW) -> i32;
+    }
+
+    unsafe extern "system" fn monitor_enum_proc(
+        hmonitor: HMONITOR,
+        _hdc: HDC,
+        _lprc: *mut RECT,
+        data: LPARAM,
+    ) -> i32 {
+        unsafe {
+            let displays = &mut *(data as *mut Vec<DisplayInfo>);
+            let mut info: MONITORINFOEXW = mem::zeroed();
+            info.cbSize = mem::size_of::<MONITORINFOEXW>() as u32;
+            if GetMonitorInfoW(hmonitor, &mut info) != 0 {
+                let width = (info.rcMonitor.right - info.rcMonitor.left) as u32;
+                let height = (info.rcMonitor.bottom - info.rcMonitor.top) as u32;
+                displays.push(DisplayInfo {
+                    index: displays.len(),
+                    width,
+                    height,
+                });
+            }
+        }
+        1 // continue enumeration
+    }
+
+    let mut displays: Vec<DisplayInfo> = Vec::new();
+    unsafe {
+        EnumDisplayMonitors(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            monitor_enum_proc,
+            &mut displays as *mut Vec<DisplayInfo> as LPARAM,
+        );
+    }
+
+    if displays.is_empty() {
+        log::warn!("No displays found via EnumDisplayMonitors, using 1920x1080 default");
+        displays.push(DisplayInfo {
+            index: 0,
+            width: 1920,
+            height: 1080,
+        });
+    }
+
+    displays
+}
+
 /// Minimum window dimension (width or height) to filter out tiny/invisible windows.
+#[cfg(target_os = "macos")]
 const MIN_WINDOW_DIMENSION: f64 = 50.0;
 
 /// Enumerate on-screen windows available for capture (macOS).
@@ -173,6 +264,7 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
 
 /// Fallback for non-macOS platforms — window enumeration is not yet supported.
 #[cfg(not(target_os = "macos"))]
+#[allow(dead_code)]
 pub fn enumerate_windows() -> Vec<WindowInfo> {
     Vec::new()
 }
@@ -206,6 +298,7 @@ pub fn enumerate_applications() -> Vec<AppInfo> {
 }
 
 /// Returns `true` if the window bounds match any display bounds (within 1pt tolerance).
+#[cfg(target_os = "macos")]
 fn is_window_fullscreen(
     window_bounds: (f64, f64, f64, f64),
     displays: &[(f64, f64, f64, f64)],
@@ -224,20 +317,26 @@ fn is_window_fullscreen(
 }
 
 /// Name prefixes that indicate a screen-capture source rather than a real camera.
-/// On macOS, avfvideosrc screen sources are named "Capture screen 0", etc.
-/// Keep patterns specific to avoid false-positives on real cameras (e.g.
-/// "LG UltraFine Display Camera").
-///
-/// NOTE: When adding Windows/Linux support, add platform-specific patterns here
-/// (e.g. Windows screen capture sources use different naming). The `unique-id`
-/// device property and `DeviceMonitor` enumeration are cross-platform GStreamer
-/// APIs, but `avfvideosrc` / `device-index` in `capture.rs` must be replaced
-/// with platform-appropriate elements (`ksvideosrc`/`mfvideosrc` on Windows,
-/// `v4l2src` on Linux).
+#[cfg(target_os = "macos")]
 const SCREEN_CAPTURE_HINTS: &[&str] = &["Capture screen"];
+#[cfg(target_os = "windows")]
+const SCREEN_CAPTURE_HINTS: &[&str] = &["Screen Capture", "screen-capture"];
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const SCREEN_CAPTURE_HINTS: &[&str] = &["Capture screen", "Screen Capture"];
 
 /// Known virtual audio device names used for system audio loopback.
+#[cfg(target_os = "macos")]
 const LOOPBACK_DEVICE_NAMES: &[&str] = &["BlackHole", "Soundflower", "Loopback"];
+#[cfg(target_os = "windows")]
+const LOOPBACK_DEVICE_NAMES: &[&str] = &[
+    "CABLE Output",
+    "VB-Audio",
+    "Voicemeeter",
+    "Stereo Mix",
+    "What U Hear",
+];
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const LOOPBACK_DEVICE_NAMES: &[&str] = &["Monitor of"];
 
 /// Extract the highest resolution (by pixel count) from a GStreamer device's caps.
 ///
@@ -390,8 +489,8 @@ mod tests {
         for w in &windows {
             assert!(!w.title.is_empty());
             assert!(w.window_id != 0);
-            assert!(w.bounds.2 >= super::MIN_WINDOW_DIMENSION);
-            assert!(w.bounds.3 >= super::MIN_WINDOW_DIMENSION);
+            assert!(w.bounds.2 >= 50.0);
+            assert!(w.bounds.3 >= 50.0);
         }
     }
 
@@ -403,8 +502,16 @@ mod tests {
                 .any(|known| name.contains(known))
         };
 
-        assert!(is_loopback("BlackHole 2ch"));
-        assert!(is_loopback("Soundflower (2ch)"));
+        #[cfg(target_os = "macos")]
+        {
+            assert!(is_loopback("BlackHole 2ch"));
+            assert!(is_loopback("Soundflower (2ch)"));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert!(is_loopback("CABLE Output (VB-Audio Virtual Cable)"));
+            assert!(is_loopback("Stereo Mix (Realtek Audio)"));
+        }
         assert!(!is_loopback("Built-in Microphone"));
         assert!(!is_loopback("USB Audio Device"));
     }

@@ -148,6 +148,9 @@ pub struct AppState {
     pub available_displays: Vec<crate::gstreamer::DisplayInfo>,
     pub capture_active: bool,
     pub active_errors: Vec<GstError>,
+    /// Set by the UI when the "exclude self from capture" setting changes.
+    /// Consumed by the render loop to update window display affinity on Windows.
+    pub display_exclusion_changed: bool,
     pub recording_status: RecordingStatus,
     /// Encoders detected as available at startup by the GStreamer thread.
     pub available_encoders: Vec<crate::gstreamer::AvailableEncoder>,
@@ -206,6 +209,14 @@ pub struct AppState {
     pub last_effect_scan: std::time::Instant,
     /// Whether the effect registry changed on the last rescan (triggers pipeline invalidation).
     pub effect_registry_changed: bool,
+    /// Menu bar request: perform undo. Set by egui menu bar, consumed by main loop.
+    pub menu_undo: bool,
+    /// Menu bar request: perform redo. Set by egui menu bar, consumed by main loop.
+    pub menu_redo: bool,
+    /// Menu bar request: open effects folder. Set by egui menu bar, consumed by main loop.
+    pub menu_open_effects_folder: bool,
+    /// Menu bar request: open transitions folder. Set by egui menu bar, consumed by main loop.
+    pub menu_open_transitions_folder: bool,
 }
 
 impl Default for AppState {
@@ -240,6 +251,7 @@ impl Default for AppState {
             available_displays: Vec::new(),
             capture_active: true,
             active_errors: Vec::new(),
+            display_exclusion_changed: false,
             recording_status: RecordingStatus::Idle,
             available_encoders: Vec::new(),
             recording_started_at: None,
@@ -267,6 +279,10 @@ impl Default for AppState {
             effect_registry: crate::effect_registry::EffectRegistry::empty(),
             last_effect_scan: std::time::Instant::now(),
             effect_registry_changed: false,
+            menu_undo: false,
+            menu_redo: false,
+            menu_open_effects_folder: false,
+            menu_open_transitions_folder: false,
         }
     }
 }

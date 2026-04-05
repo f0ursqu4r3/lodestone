@@ -33,6 +33,11 @@ pub struct WindowState {
     pub loaded_fonts: Vec<String>,
     /// Base font definitions (with all loaded fonts, before any family reordering).
     base_font_defs: egui::FontDefinitions,
+    /// Whether egui has completed its first `run()`. Font queries panic before this.
+    first_frame_done: bool,
+    /// Last title bar color applied via DWM, to avoid redundant API calls.
+    #[cfg(target_os = "windows")]
+    last_titlebar_color: Option<egui::Color32>,
 }
 
 impl WindowState {
@@ -82,9 +87,14 @@ impl WindowState {
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
 
         // Register system fonts for font family switching.
-        let system_font_names = ["SF Pro", "Helvetica Neue", "Menlo", "Monaco"];
+        #[cfg(target_os = "macos")]
+        let system_font_names: &[&str] = &["SF Pro", "Helvetica Neue", "Menlo", "Monaco"];
+        #[cfg(target_os = "windows")]
+        let system_font_names: &[&str] = &["segoeui", "consola", "cascadiamono", "arial"];
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let system_font_names: &[&str] = &["DejaVuSans", "LiberationMono"];
         let mut loaded_fonts = vec!["Default".to_string()];
-        for name in &system_font_names {
+        for name in system_font_names {
             if let Some(data) = Self::load_system_font(name) {
                 fonts.font_data.insert(
                     name.to_string(),
@@ -122,6 +132,9 @@ impl WindowState {
             reattach_pending: false,
             loaded_fonts,
             base_font_defs,
+            first_frame_done: false,
+            #[cfg(target_os = "windows")]
+            last_titlebar_color: None,
         })
     }
 
@@ -163,38 +176,46 @@ impl WindowState {
             self.egui_ctx.set_visuals(egui::Visuals::light());
         }
 
+        // Sync OS title bar color with the active theme.
+        #[cfg(target_os = "windows")]
+        self.sync_titlebar_color(theme.bg_base);
+
         // Apply UI scale — scales everything (text, spacing, widgets) uniformly.
         self.egui_ctx
             .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
 
         // Apply font family by rebuilding font definitions with the selected font first
         // in the Proportional family list. This preserves Phosphor icon fallback.
-        let family = &state.settings.appearance.font_family;
-        if family != "Default" && self.loaded_fonts.contains(family) {
-            let mut font_defs = self.base_font_defs.clone();
-            if let Some(list) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
-                // Insert selected font at front (before default + phosphor)
-                if !list.first().is_some_and(|f| f == family) {
-                    list.retain(|n| n != family);
-                    list.insert(0, family.clone());
-                    self.egui_ctx.set_fonts(font_defs);
+        // Guard: egui panics on fonts() before the first Context::run(). On Windows,
+        // muda menu init can trigger a render before the first frame.
+        if self.first_frame_done {
+            let family = &state.settings.appearance.font_family;
+            if family != "Default" && self.loaded_fonts.contains(family) {
+                let mut font_defs = self.base_font_defs.clone();
+                if let Some(list) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
+                    // Insert selected font at front (before default + phosphor)
+                    if !list.first().is_some_and(|f| f == family) {
+                        list.retain(|n| n != family);
+                        list.insert(0, family.clone());
+                        self.egui_ctx.set_fonts(font_defs);
+                    }
                 }
-            }
-        } else {
-            // Reset to base (default font first)
-            let current_first = self.egui_ctx.fonts(|f| {
-                f.definitions()
+            } else {
+                // Reset to base (default font first)
+                let current_first = self.egui_ctx.fonts(|f| {
+                    f.definitions()
+                        .families
+                        .get(&egui::FontFamily::Proportional)
+                        .and_then(|l| l.first().cloned())
+                });
+                let base_first = self
+                    .base_font_defs
                     .families
                     .get(&egui::FontFamily::Proportional)
-                    .and_then(|l| l.first().cloned())
-            });
-            let base_first = self
-                .base_font_defs
-                .families
-                .get(&egui::FontFamily::Proportional)
-                .and_then(|l| l.first().cloned());
-            if current_first != base_first {
-                self.egui_ctx.set_fonts(self.base_font_defs.clone());
+                    .and_then(|l| l.first().cloned());
+                if current_first != base_first {
+                    self.egui_ctx.set_fonts(self.base_font_defs.clone());
+                }
             }
         }
 
@@ -217,7 +238,7 @@ impl WindowState {
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             // Detached single-panel windows skip the menu bar and toolbar.
             let available_rect = if is_main {
-                let (menu_actions, _rect) = crate::ui::layout::render::render_menu_bar(ctx, layout);
+                let (menu_actions, _rect) = crate::ui::layout::render::render_menu_bar(ctx, layout, state);
                 pending_actions = menu_actions;
                 // Draw the toolbar (always visible on the main window).
                 open_settings = crate::ui::toolbar::draw(ctx, state);
@@ -233,6 +254,7 @@ impl WindowState {
                 is_main,
             ));
         });
+        self.first_frame_done = true;
 
         // Apply layout actions after the egui frame
         let detach_requests = apply_layout_actions(self, pending_actions);
@@ -363,38 +385,46 @@ impl WindowState {
             self.egui_ctx.set_visuals(egui::Visuals::light());
         }
 
+        // Sync OS title bar color with the active theme.
+        #[cfg(target_os = "windows")]
+        self.sync_titlebar_color(theme.bg_base);
+
         // Apply UI scale — scales everything (text, spacing, widgets) uniformly.
         self.egui_ctx
             .set_zoom_factor(state.settings.appearance.font_scale.zoom_factor());
 
         // Apply font family by rebuilding font definitions with the selected font first
         // in the Proportional family list. This preserves Phosphor icon fallback.
-        let family = &state.settings.appearance.font_family;
-        if family != "Default" && self.loaded_fonts.contains(family) {
-            let mut font_defs = self.base_font_defs.clone();
-            if let Some(list) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
-                // Insert selected font at front (before default + phosphor)
-                if !list.first().is_some_and(|f| f == family) {
-                    list.retain(|n| n != family);
-                    list.insert(0, family.clone());
-                    self.egui_ctx.set_fonts(font_defs);
+        // Guard: egui panics on fonts() before the first Context::run(). On Windows,
+        // muda menu init can trigger a render before the first frame.
+        if self.first_frame_done {
+            let family = &state.settings.appearance.font_family;
+            if family != "Default" && self.loaded_fonts.contains(family) {
+                let mut font_defs = self.base_font_defs.clone();
+                if let Some(list) = font_defs.families.get_mut(&egui::FontFamily::Proportional) {
+                    // Insert selected font at front (before default + phosphor)
+                    if !list.first().is_some_and(|f| f == family) {
+                        list.retain(|n| n != family);
+                        list.insert(0, family.clone());
+                        self.egui_ctx.set_fonts(font_defs);
+                    }
                 }
-            }
-        } else {
-            // Reset to base (default font first)
-            let current_first = self.egui_ctx.fonts(|f| {
-                f.definitions()
+            } else {
+                // Reset to base (default font first)
+                let current_first = self.egui_ctx.fonts(|f| {
+                    f.definitions()
+                        .families
+                        .get(&egui::FontFamily::Proportional)
+                        .and_then(|l| l.first().cloned())
+                });
+                let base_first = self
+                    .base_font_defs
                     .families
                     .get(&egui::FontFamily::Proportional)
-                    .and_then(|l| l.first().cloned())
-            });
-            let base_first = self
-                .base_font_defs
-                .families
-                .get(&egui::FontFamily::Proportional)
-                .and_then(|l| l.first().cloned());
-            if current_first != base_first {
-                self.egui_ctx.set_fonts(self.base_font_defs.clone());
+                    .and_then(|l| l.first().cloned());
+                if current_first != base_first {
+                    self.egui_ctx.set_fonts(self.base_font_defs.clone());
+                }
             }
         }
 
@@ -506,6 +536,66 @@ impl WindowState {
         Ok(())
     }
 
+    /// Update the Windows title bar caption color to match the given theme background.
+    ///
+    /// Uses `DwmSetWindowAttribute` with `DWMWA_CAPTION_COLOR` (35) and
+    /// `DWMWA_USE_IMMERSIVE_DARK_MODE` (20). Only issues API calls when the
+    /// color actually changes.
+    #[cfg(target_os = "windows")]
+    fn sync_titlebar_color(&mut self, bg: egui::Color32) {
+        if self.last_titlebar_color == Some(bg) {
+            return;
+        }
+        self.last_titlebar_color = Some(bg);
+
+        use raw_window_handle::HasWindowHandle;
+
+        // DWM constants
+        const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+        const DWMWA_CAPTION_COLOR: u32 = 35;
+
+        unsafe extern "system" {
+            fn DwmSetWindowAttribute(
+                hwnd: isize,
+                dw_attribute: u32,
+                pv_attribute: *const std::ffi::c_void,
+                cb_attribute: u32,
+            ) -> i32;
+        }
+
+        let hwnd = match self.window.window_handle() {
+            Ok(handle) => match handle.as_raw() {
+                raw_window_handle::RawWindowHandle::Win32(h) => h.hwnd.get() as isize,
+                _ => return,
+            },
+            Err(_) => return,
+        };
+
+        // COLORREF is 0x00BBGGRR
+        let colorref: u32 = (bg.r() as u32) | ((bg.g() as u32) << 8) | ((bg.b() as u32) << 16);
+
+        unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_CAPTION_COLOR,
+                &colorref as *const u32 as *const std::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+
+        // Use dark title bar text/buttons for light themes, immersive dark mode for dark themes.
+        let luminance = bg.r() as u16 + bg.g() as u16 + bg.b() as u16;
+        let use_dark: u32 = if luminance < 384 { 1 } else { 0 };
+        unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_USE_IMMERSIVE_DARK_MODE,
+                &use_dark as *const u32 as *const std::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+    }
+
     /// Close a tab. If it's the last tab in a floating group, remove the floating group.
     /// If it's the last tab in a grid group (non-root), collapse the parent split.
     pub(crate) fn apply_close(&mut self, group_id: GroupId, tab_index: usize) {
@@ -527,23 +617,58 @@ impl WindowState {
         }
     }
 
-    /// Attempt to load a system font by name from common macOS font paths.
+    /// Attempt to load a system font by name from common system font paths.
     fn load_system_font(name: &str) -> Option<Vec<u8>> {
-        let candidates: Vec<std::path::PathBuf> = vec![
-            format!("/System/Library/Fonts/{name}.ttf").into(),
-            format!("/System/Library/Fonts/{name}.otf").into(),
-            format!("/Library/Fonts/{name}.ttf").into(),
-            format!("/Library/Fonts/{name}.otf").into(),
-            // SF Pro and Helvetica Neue use .ttc (TrueType Collection)
-            format!("/System/Library/Fonts/{name}.ttc").into(),
-            // Some fonts use spaces in filenames
-            format!("/System/Library/Fonts/{}.ttf", name.replace(' ', "")).into(),
-            format!("/System/Library/Fonts/{}.ttc", name.replace(' ', "")).into(),
-            // User font directory
-            dirs::home_dir()
-                .map(|h| h.join(format!("Library/Fonts/{name}.ttf")))
-                .unwrap_or_default(),
-        ];
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+
+        #[cfg(target_os = "macos")]
+        {
+            candidates.extend([
+                format!("/System/Library/Fonts/{name}.ttf").into(),
+                format!("/System/Library/Fonts/{name}.otf").into(),
+                format!("/Library/Fonts/{name}.ttf").into(),
+                format!("/Library/Fonts/{name}.otf").into(),
+                // SF Pro and Helvetica Neue use .ttc (TrueType Collection)
+                format!("/System/Library/Fonts/{name}.ttc").into(),
+                // Some fonts use spaces in filenames
+                format!("/System/Library/Fonts/{}.ttf", name.replace(' ', "")).into(),
+                format!("/System/Library/Fonts/{}.ttc", name.replace(' ', "")).into(),
+            ]);
+            if let Some(h) = dirs::home_dir() {
+                candidates.push(h.join(format!("Library/Fonts/{name}.ttf")));
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // Windows system fonts directory
+            let win_dir =
+                std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
+            let fonts_dir = std::path::PathBuf::from(&win_dir).join("Fonts");
+            candidates.extend([
+                fonts_dir.join(format!("{name}.ttf")),
+                fonts_dir.join(format!("{name}.otf")),
+                fonts_dir.join(format!("{name}.ttc")),
+                // Windows font files sometimes use no-space names
+                fonts_dir.join(format!("{}.ttf", name.replace(' ', ""))),
+                fonts_dir.join(format!("{}.ttc", name.replace(' ', ""))),
+            ]);
+            // Per-user fonts (Windows 10 1809+)
+            if let Some(local) = dirs::data_local_dir() {
+                let user_fonts = local.join("Microsoft").join("Windows").join("Fonts");
+                candidates.push(user_fonts.join(format!("{name}.ttf")));
+                candidates.push(user_fonts.join(format!("{name}.otf")));
+            }
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            // Linux / other: common font directories
+            candidates.extend([
+                format!("/usr/share/fonts/truetype/{name}.ttf").into(),
+                format!("/usr/share/fonts/{name}.ttf").into(),
+            ]);
+        }
         for path in candidates {
             if let Ok(data) = std::fs::read(&path) {
                 log::info!("Loaded system font '{}' from {}", name, path.display());

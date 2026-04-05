@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(where gst-launch-1.0)",
+      "Read(//c//**)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(where pkg-config:*)",
+      "Bash(pkg-config --version)",
+      "Bash(winget search:*)",
+      "Bash(choco search:*)",
+      "Bash(choco install:*)",
+      "Read(//c/Users/kyle/git/lodestone/**)",
+      "Bash(echo \"GSTREAMER_1_0_ROOT_MSVC_X86_64=$GSTREAMER_1_0_ROOT_MSVC_X86_64\")",
+      "Bash(export PKG_CONFIG_PATH=\"C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/pkgconfig\")",
+      "Bash(export GSTREAMER_1_0_ROOT_MSVC_X86_64=\"C:/Program Files/gstreamer/1.0/msvc_x86_64/\")",
+      "Bash(cargo test:*)",
+      "Bash(export PATH=\"C:/Program Files/gstreamer/1.0/msvc_x86_64/bin:$PATH\")",
+      "Bash(ls \"C:/Program Files/gstreamer/1.0/msvc_x86_64/bin/gst\"*)",
+      "Bash(export PKG_CONFIG_PATH=\"/c/Program Files/gstreamer/1.0/msvc_x86_64/lib/pkgconfig\")",
+      "Bash(export GSTREAMER_1_0_ROOT_MSVC_X86_64=\"/c/Program Files/gstreamer/1.0/msvc_x86_64/\")",
+      "Bash(export PATH=\"/c/Program Files/gstreamer/1.0/msvc_x86_64/bin:$PATH\")",
+      "Bash(cargo clippy:*)"
+    ]
+  }
+}

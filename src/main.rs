@@ -306,7 +306,13 @@ impl AppManager {
                     }
                 }
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "windows")]
+            {
+                let displays = crate::gstreamer::devices::enumerate_displays();
+                log::info!("Found {} display(s)", displays.len());
+                displays
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             {
                 Vec::new()
             }
@@ -590,14 +596,66 @@ impl AppManager {
         log::info!("Layout reset to default");
     }
 
-    /// Refresh SCK display capture exclusion filter after a window is created or destroyed.
+    /// Refresh display capture exclusion after a window is created or destroyed.
+    ///
+    /// On macOS, updates ScreenCaptureKit content filters via the GStreamer thread.
+    /// On Windows, sets `WDA_EXCLUDEFROMCAPTURE` display affinity on all app windows.
     fn refresh_display_exclusion(&self) {
         let state = self.state.lock().unwrap();
-        if state.settings.general.exclude_self_from_capture
-            && let Some(tx) = &state.command_tx
+        let exclude = state.settings.general.exclude_self_from_capture;
+
+        #[cfg(target_os = "macos")]
+        if exclude {
+            if let Some(tx) = &state.command_tx {
+                let _ = tx
+                    .try_send(gstreamer::GstCommand::UpdateDisplayExclusion { exclude_self: true });
+            }
+        }
+
+        // On Windows, tell the OS to exclude our windows from screen capture.
+        #[cfg(target_os = "windows")]
         {
-            let _ =
-                tx.try_send(gstreamer::GstCommand::UpdateDisplayExclusion { exclude_self: true });
+            drop(state); // release lock before iterating windows
+            self.set_window_display_affinity(exclude);
+        }
+    }
+
+    /// Set or clear `WDA_EXCLUDEFROMCAPTURE` on all Lodestone windows (Windows only).
+    ///
+    /// When enabled, the OS excludes these windows from DXGI Desktop Duplication and
+    /// other screen capture APIs — they appear as black regions in the capture output.
+    #[cfg(target_os = "windows")]
+    fn set_window_display_affinity(&self, exclude: bool) {
+        use raw_window_handle::HasWindowHandle;
+
+        // WDA_NONE = 0, WDA_EXCLUDEFROMCAPTURE = 0x11
+        const WDA_NONE: u32 = 0x00;
+        const WDA_EXCLUDEFROMCAPTURE: u32 = 0x11;
+
+        unsafe extern "system" {
+            fn SetWindowDisplayAffinity(hwnd: isize, dw_affinity: u32) -> i32;
+        }
+
+        let affinity = if exclude {
+            WDA_EXCLUDEFROMCAPTURE
+        } else {
+            WDA_NONE
+        };
+
+        for win_state in self.windows.values() {
+            if let Ok(handle) = win_state.window.window_handle() {
+                if let raw_window_handle::RawWindowHandle::Win32(h) = handle.as_raw() {
+                    let hwnd = h.hwnd.get() as isize;
+                    let result = unsafe { SetWindowDisplayAffinity(hwnd, affinity) };
+                    if result == 0 {
+                        log::warn!("SetWindowDisplayAffinity failed for hwnd {hwnd:#x}");
+                    } else {
+                        log::debug!(
+                            "SetWindowDisplayAffinity({hwnd:#x}, {affinity:#x}) succeeded"
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -700,14 +758,12 @@ impl ApplicationHandler for AppManager {
         self.windows.insert(window_id, win_state);
 
         // Attach native menu bar — must happen after window is fully initialized.
+        // On Windows, we render the menu bar in egui to match the app theme,
+        // so we skip attaching the native menu to the HWND.
         let native_menu = NativeMenu::build();
         #[cfg(target_os = "macos")]
         {
             native_menu.menu.init_for_nsapp();
-        }
-        #[cfg(target_os = "windows")]
-        {
-            let _ = unsafe { native_menu.menu.init_for_hwnd(window.rwh().hwnd) };
         }
         self.native_menu = Some(native_menu);
 
@@ -800,6 +856,16 @@ impl ApplicationHandler for AppManager {
         if !startup_gif_animations.is_empty() {
             let mut state = self.state.lock().unwrap();
             state.pending_gif_animations.extend(startup_gif_animations);
+        }
+
+        // Apply initial display exclusion if the setting was persisted.
+        #[cfg(target_os = "windows")]
+        {
+            let state = self.state.lock().unwrap();
+            if state.settings.general.exclude_self_from_capture {
+                drop(state);
+                self.set_window_display_affinity(true);
+            }
         }
 
         log::info!("Window and renderer initialized");
@@ -1631,6 +1697,49 @@ impl ApplicationHandler for AppManager {
                                 }
                             };
                         drop(app_state);
+
+                        // Handle egui menu bar actions (Windows — no native menu).
+                        {
+                            let mut app_state = self.state.lock().unwrap();
+                            let do_undo = app_state.menu_undo;
+                            let do_redo = app_state.menu_redo;
+                            let open_effects = app_state.menu_open_effects_folder;
+                            let open_transitions = app_state.menu_open_transitions_folder;
+                            app_state.menu_undo = false;
+                            app_state.menu_redo = false;
+                            app_state.menu_open_effects_folder = false;
+                            app_state.menu_open_transitions_folder = false;
+
+                            if do_undo || do_redo {
+                                let restored = if do_redo {
+                                    app_state.redo()
+                                } else {
+                                    app_state.undo()
+                                };
+                                if restored {
+                                    self.reconcile_captures(&mut app_state);
+                                }
+                            }
+                            drop(app_state);
+
+                            if open_effects {
+                                let dir = settings::effects_dir();
+                                let _ = std::fs::create_dir_all(&dir);
+                                #[cfg(target_os = "windows")]
+                                { let _ = std::process::Command::new("explorer").arg(&dir).spawn(); }
+                                #[cfg(not(target_os = "windows"))]
+                                { let _ = std::process::Command::new("open").arg(&dir).spawn(); }
+                            }
+                            if open_transitions {
+                                let dir = settings::transitions_dir();
+                                let _ = std::fs::create_dir_all(&dir);
+                                #[cfg(target_os = "windows")]
+                                { let _ = std::process::Command::new("explorer").arg(&dir).spawn(); }
+                                #[cfg(not(target_os = "windows"))]
+                                { let _ = std::process::Command::new("open").arg(&dir).spawn(); }
+                            }
+                        }
+
                         if toolbar_settings {
                             if self.settings_window_id.is_some() {
                                 self.close_settings_window();
@@ -2390,6 +2499,18 @@ impl ApplicationHandler for AppManager {
                 let encoders = channels.encoders_rx.borrow().clone();
                 let mut app_state = self.state.lock().expect("lock AppState");
                 app_state.available_encoders = encoders;
+            }
+        }
+
+        // Check if display exclusion setting changed (Windows: update window affinity).
+        #[cfg(target_os = "windows")]
+        {
+            let mut app_state = self.state.lock().expect("lock AppState");
+            if app_state.display_exclusion_changed {
+                app_state.display_exclusion_changed = false;
+                let exclude = app_state.settings.general.exclude_self_from_capture;
+                drop(app_state);
+                self.set_window_display_affinity(exclude);
             }
         }
 

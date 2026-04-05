@@ -95,12 +95,20 @@ fn resolve_scene_sources(
                                 })
                                 .collect();
 
+                            let maintain_aspect_ratio = matches!(
+                                lib.properties,
+                                crate::scene::SourceProperties::Window {
+                                    maintain_aspect_ratio: true,
+                                    ..
+                                }
+                            );
                             crate::renderer::compositor::ResolvedSource {
                                 id: lib.id,
                                 transform: scene_src.resolve_transform(lib),
                                 opacity: scene_src.resolve_opacity(lib),
                                 visible: scene_src.resolve_visible(lib),
                                 effects: resolved_effects,
+                                maintain_aspect_ratio,
                             }
                         })
                 })
@@ -264,6 +272,12 @@ struct AppManager {
     last_readback_at: std::time::Instant,
     /// App start time for effect animations (avoids f32 precision loss from epoch time).
     start_time: std::time::Instant,
+    /// Whether global hotkeys have been registered (Windows).
+    #[cfg(target_os = "windows")]
+    global_hotkeys_registered: bool,
+    /// Window capture sources that currently have the WGC border enabled.
+    /// Used to detect selection changes and toggle borders.
+    border_enabled_sources: Vec<crate::scene::SourceId>,
 }
 
 impl AppManager {
@@ -384,6 +398,114 @@ impl AppManager {
             last_saved_layout: None,
             last_readback_at: std::time::Instant::now(),
             start_time: std::time::Instant::now(),
+            #[cfg(target_os = "windows")]
+            global_hotkeys_registered: false,
+            border_enabled_sources: Vec::new(),
+        }
+    }
+
+    /// Register system-wide global hotkeys on Windows using RegisterHotKey.
+    #[cfg(target_os = "windows")]
+    fn register_global_hotkeys(&mut self) {
+        if self.global_hotkeys_registered {
+            return;
+        }
+        use std::ffi::c_void;
+        type HWND = *mut c_void;
+
+        #[allow(non_snake_case)]
+        unsafe extern "system" {
+            fn RegisterHotKey(hWnd: HWND, id: i32, fsModifiers: u32, vk: u32) -> i32;
+        }
+
+        const MOD_CONTROL: u32 = 0x0002;
+        const MOD_SHIFT: u32 = 0x0004;
+        const MOD_ALT: u32 = 0x0001;
+        const MOD_NOREPEAT: u32 = 0x4000;
+
+        let app_state = self.state.lock().unwrap();
+        if let Some(binding) = app_state.settings.hotkeys.get("capture_foreground_window") {
+            let mut mods = MOD_NOREPEAT;
+            if binding.ctrl {
+                mods |= MOD_CONTROL;
+            }
+            if binding.shift {
+                mods |= MOD_SHIFT;
+            }
+            if binding.alt {
+                mods |= MOD_ALT;
+            }
+            // Map key name to Windows virtual key code.
+            if let Some(vk) = key_name_to_vk(&binding.key) {
+                let ok = unsafe { RegisterHotKey(std::ptr::null_mut(), 1, mods, vk) };
+                if ok != 0 {
+                    log::info!(
+                        "Global hotkey registered: {} (id=1)",
+                        binding.display()
+                    );
+                } else {
+                    log::warn!(
+                        "Failed to register global hotkey: {} (may be in use by another app)",
+                        binding.display()
+                    );
+                }
+            }
+        }
+        self.global_hotkeys_registered = true;
+    }
+
+    /// Poll for global hotkey events on Windows (WM_HOTKEY messages).
+    #[cfg(target_os = "windows")]
+    fn poll_global_hotkeys(&self) {
+        use std::ffi::c_void;
+        type HWND = *mut c_void;
+
+        const WM_HOTKEY: u32 = 0x0312;
+
+        #[repr(C)]
+        struct MSG {
+            hwnd: HWND,
+            message: u32,
+            w_param: usize,
+            l_param: isize,
+            time: u32,
+            pt_x: i32,
+            pt_y: i32,
+        }
+
+        #[allow(non_snake_case)]
+        unsafe extern "system" {
+            fn PeekMessageW(
+                lpMsg: *mut MSG,
+                hWnd: HWND,
+                wMsgFilterMin: u32,
+                wMsgFilterMax: u32,
+                wRemoveMsg: u32,
+            ) -> i32;
+        }
+
+        const PM_REMOVE: u32 = 0x0001;
+
+        let mut msg: MSG = unsafe { std::mem::zeroed() };
+        while unsafe {
+            PeekMessageW(
+                &mut msg,
+                std::ptr::null_mut(),
+                WM_HOTKEY,
+                WM_HOTKEY,
+                PM_REMOVE,
+            )
+        } != 0
+        {
+            let hotkey_id = msg.w_param;
+            if hotkey_id == 1 {
+                // Capture foreground window
+                let app_state = self.state.lock().unwrap();
+                if let Some(ref tx) = app_state.command_tx {
+                    log::info!("Global hotkey triggered: capture foreground window");
+                    let _ = tx.try_send(gstreamer::GstCommand::CaptureForegroundWindow);
+                }
+            }
         }
     }
 
@@ -868,6 +990,15 @@ impl ApplicationHandler for AppManager {
             }
         }
 
+        // Register global hotkeys for actions that need to work when the app is not focused.
+        #[cfg(target_os = "windows")]
+        self.register_global_hotkeys();
+
+        // Request an immediate redraw so the toolbar and UI paint on first frame.
+        if let Some(win) = self.main_window_id.and_then(|id| self.windows.get(&id)) {
+            win.window.request_redraw();
+        }
+
         log::info!("Window and renderer initialized");
     }
 
@@ -932,6 +1063,164 @@ impl ApplicationHandler for AppManager {
                         self.reconcile_captures(&mut app_state);
                     }
                     return;
+                }
+
+                // ── Configurable hotkeys (from settings) ───────────────
+                {
+                    let app_state = self.state.lock().unwrap();
+                    let hotkeys = &app_state.settings.hotkeys;
+                    let mods = &self.modifiers;
+
+                    // Capture Foreground Window
+                    if let Some(binding) = hotkeys.get("capture_foreground_window")
+                        && binding.matches(key_code, mods)
+                    {
+                        if let Some(ref tx) = app_state.command_tx {
+                            let _ = tx.try_send(gstreamer::GstCommand::CaptureForegroundWindow);
+                        }
+                        return;
+                    }
+
+                    // Start Streaming
+                    if let Some(binding) = hotkeys.get("start_streaming")
+                        && binding.matches(key_code, mods)
+                        && !app_state.stream_status.is_live()
+                    {
+                        if let Some(ref tx) = app_state.command_tx {
+                            if crate::ui::toolbar::validate_stream_settings(&app_state).is_none() {
+                                let _ =
+                                    tx.try_send(gstreamer::GstCommand::StartStream {
+                                        destination: app_state
+                                            .settings
+                                            .stream
+                                            .destination
+                                            .clone(),
+                                        stream_key: app_state
+                                            .settings
+                                            .stream
+                                            .stream_key
+                                            .clone(),
+                                        encoder_config:
+                                            crate::ui::toolbar::stream_encoder_config(&app_state),
+                                    });
+                            }
+                        }
+                        drop(app_state);
+                        let mut app_state = self.state.lock().unwrap();
+                        app_state.stream_status = crate::state::StreamStatus::Live {
+                            uptime_secs: 0.0,
+                            bitrate_kbps: 0.0,
+                            dropped_frames: 0,
+                        };
+                        return;
+                    }
+
+                    // Stop Streaming
+                    if let Some(binding) = hotkeys.get("stop_streaming")
+                        && binding.matches(key_code, mods)
+                        && app_state.stream_status.is_live()
+                    {
+                        if let Some(ref tx) = app_state.command_tx {
+                            let _ = tx.try_send(gstreamer::GstCommand::StopStream);
+                        }
+                        drop(app_state);
+                        let mut app_state = self.state.lock().unwrap();
+                        app_state.stream_status = crate::state::StreamStatus::Offline;
+                        return;
+                    }
+
+                    // Start Recording
+                    if let Some(binding) = hotkeys.get("start_recording")
+                        && binding.matches(key_code, mods)
+                        && matches!(
+                            app_state.recording_status,
+                            crate::state::RecordingStatus::Idle
+                        )
+                    {
+                        if let Some(ref tx) = app_state.command_tx {
+                            let counter = app_state.recording_counter + 1;
+                            let scene_name = "Main";
+                            let filename =
+                                crate::settings::RecordSettings::expand_template(
+                                    &app_state.settings.record.filename_template,
+                                    scene_name,
+                                    counter,
+                                );
+                            let ext = match app_state.settings.record.format {
+                                gstreamer::RecordingFormat::Mkv => "mkv",
+                                gstreamer::RecordingFormat::Mp4 => "mp4",
+                            };
+                            let folder =
+                                if app_state.settings.record.output_folder.exists() {
+                                    app_state.settings.record.output_folder.clone()
+                                } else {
+                                    dirs::video_dir()
+                                        .or_else(dirs::home_dir)
+                                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                                };
+                            let path = folder.join(format!("{filename}.{ext}"));
+                            let _ = tx.try_send(gstreamer::GstCommand::StartRecording {
+                                path: path.clone(),
+                                format: app_state.settings.record.format,
+                                encoder_config: crate::ui::toolbar::record_encoder_config(
+                                    &app_state,
+                                ),
+                            });
+                            drop(app_state);
+                            let mut app_state = self.state.lock().unwrap();
+                            app_state.recording_counter = counter;
+                            app_state.recording_status =
+                                crate::state::RecordingStatus::Recording { path };
+                            app_state.recording_started_at = Some(std::time::Instant::now());
+                        }
+                        return;
+                    }
+
+                    // Stop Recording
+                    if let Some(binding) = hotkeys.get("stop_recording")
+                        && binding.matches(key_code, mods)
+                        && matches!(
+                            app_state.recording_status,
+                            crate::state::RecordingStatus::Recording { .. }
+                        )
+                    {
+                        if let Some(ref tx) = app_state.command_tx {
+                            let _ = tx.try_send(gstreamer::GstCommand::StopRecording);
+                        }
+                        drop(app_state);
+                        let mut app_state = self.state.lock().unwrap();
+                        app_state.recording_status = crate::state::RecordingStatus::Idle;
+                        app_state.recording_started_at = None;
+                        return;
+                    }
+
+                    // Toggle Mute Mic
+                    if let Some(binding) = hotkeys.get("toggle_mute_mic")
+                        && binding.matches(key_code, mods)
+                    {
+                        if let Some(ref tx) = app_state.command_tx {
+                            // Toggle: we don't have "is_muted" state for global mic,
+                            // so this is a best-effort toggle.
+                            let _ = tx.try_send(gstreamer::GstCommand::SetAudioMuted {
+                                source: gstreamer::AudioSourceKind::Mic,
+                                muted: true, // TODO: proper toggle with tracked state
+                            });
+                        }
+                        return;
+                    }
+
+                    // Toggle Mute Desktop
+                    if let Some(binding) = hotkeys.get("toggle_mute_desktop")
+                        && binding.matches(key_code, mods)
+                    {
+                        if let Some(ref tx) = app_state.command_tx {
+                            let _ = tx.try_send(gstreamer::GstCommand::SetAudioMuted {
+                                source: gstreamer::AudioSourceKind::System,
+                                muted: true, // TODO: proper toggle with tracked state
+                            });
+                        }
+                        return;
+                    }
                 }
 
                 // Cmd+0: Fit to panel (reset zoom/pan)
@@ -1841,6 +2130,10 @@ impl ApplicationHandler for AppManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        // Poll global hotkeys (system-wide, works even when app is not focused).
+        #[cfg(target_os = "windows")]
+        self.poll_global_hotkeys();
+
         // Collect any completed async readback from the previous frame and
         // forward it to the GStreamer encode thread (non-blocking).
         if let Some(ref mut gpu) = self.gpu
@@ -2514,6 +2807,48 @@ impl ApplicationHandler for AppManager {
             }
         }
 
+        // Sync WGC capture border with source selection state.
+        // Only window capture sources that are selected in the preview should show the border.
+        {
+            let app_state = self.state.lock().expect("lock AppState");
+            let selected = &app_state.selected_source_ids;
+
+            // Find which window sources are currently selected.
+            let mut new_border_sources: Vec<crate::scene::SourceId> = Vec::new();
+            for id in selected {
+                if let Some(lib) = app_state.library.iter().find(|s| s.id == *id) {
+                    if matches!(lib.source_type, crate::scene::SourceType::Window) {
+                        new_border_sources.push(*id);
+                    }
+                }
+            }
+
+            if new_border_sources != self.border_enabled_sources {
+                if let Some(ref tx) = app_state.command_tx {
+                    // Disable border on previously selected sources.
+                    for &id in &self.border_enabled_sources {
+                        if !new_border_sources.contains(&id) {
+                            let _ = tx.try_send(gstreamer::GstCommand::SetCaptureBorder {
+                                source_id: id,
+                                visible: false,
+                            });
+                        }
+                    }
+                    // Enable border on newly selected sources.
+                    for &id in &new_border_sources {
+                        if !self.border_enabled_sources.contains(&id) {
+                            let _ = tx.try_send(gstreamer::GstCommand::SetCaptureBorder {
+                                source_id: id,
+                                visible: true,
+                            });
+                        }
+                    }
+                }
+                drop(app_state);
+                self.border_enabled_sources = new_border_sources;
+            }
+        }
+
         // Process native menu events
         if let Ok(event) = MenuEvent::receiver().try_recv() {
             self.handle_menu_event(&event.id);
@@ -2724,6 +3059,88 @@ mod tests {
         let (to_add, to_remove) = diff_scene_sources(Some(&scene), Some(&scene));
         assert!(to_add.is_empty());
         assert!(to_remove.is_empty());
+    }
+}
+
+/// Map a key name (from HotkeyBinding) to a Windows virtual key code.
+#[cfg(target_os = "windows")]
+fn key_name_to_vk(name: &str) -> Option<u32> {
+    match name.to_uppercase().as_str() {
+        "A" => Some(0x41),
+        "B" => Some(0x42),
+        "C" => Some(0x43),
+        "D" => Some(0x44),
+        "E" => Some(0x45),
+        "F" => Some(0x46),
+        "G" => Some(0x47),
+        "H" => Some(0x48),
+        "I" => Some(0x49),
+        "J" => Some(0x4A),
+        "K" => Some(0x4B),
+        "L" => Some(0x4C),
+        "M" => Some(0x4D),
+        "N" => Some(0x4E),
+        "O" => Some(0x4F),
+        "P" => Some(0x50),
+        "Q" => Some(0x51),
+        "R" => Some(0x52),
+        "S" => Some(0x53),
+        "T" => Some(0x54),
+        "U" => Some(0x55),
+        "V" => Some(0x56),
+        "W" => Some(0x57),
+        "X" => Some(0x58),
+        "Y" => Some(0x59),
+        "Z" => Some(0x5A),
+        "0" => Some(0x30),
+        "1" => Some(0x31),
+        "2" => Some(0x32),
+        "3" => Some(0x33),
+        "4" => Some(0x34),
+        "5" => Some(0x35),
+        "6" => Some(0x36),
+        "7" => Some(0x37),
+        "8" => Some(0x38),
+        "9" => Some(0x39),
+        "F1" => Some(0x70),
+        "F2" => Some(0x71),
+        "F3" => Some(0x72),
+        "F4" => Some(0x73),
+        "F5" => Some(0x74),
+        "F6" => Some(0x75),
+        "F7" => Some(0x76),
+        "F8" => Some(0x77),
+        "F9" => Some(0x78),
+        "F10" => Some(0x79),
+        "F11" => Some(0x7A),
+        "F12" => Some(0x7B),
+        "SPACE" => Some(0x20),
+        "ENTER" => Some(0x0D),
+        "ESCAPE" => Some(0x1B),
+        "BACKSPACE" => Some(0x08),
+        "DELETE" => Some(0x2E),
+        "TAB" => Some(0x09),
+        "UP" => Some(0x26),
+        "DOWN" => Some(0x28),
+        "LEFT" => Some(0x25),
+        "RIGHT" => Some(0x27),
+        "HOME" => Some(0x24),
+        "END" => Some(0x23),
+        "PAGEUP" => Some(0x21),
+        "PAGEDOWN" => Some(0x22),
+        "INSERT" => Some(0x2D),
+        "[" => Some(0xDB),
+        "]" => Some(0xDD),
+        "," => Some(0xBC),
+        "." => Some(0xBE),
+        "/" => Some(0xBF),
+        "\\" => Some(0xDC),
+        ";" => Some(0xBA),
+        "'" => Some(0xDE),
+        "`" => Some(0xC0),
+        "-" => Some(0xBD),
+        "=" => Some(0xBB),
+        _ => None,
     }
 }
 

@@ -295,13 +295,23 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
                 .iter()
                 .filter(|s| matches!(s.source_type, SourceType::Window))
                 .count();
-            (
-                format!("Window {}", count + 1),
-                SourceProperties::Window {
-                    mode: crate::scene::WindowCaptureMode::AnyFullscreen,
-                    current_window_id: None,
-                },
-            )
+            {
+                #[cfg(target_os = "windows")]
+                let default_mode = crate::scene::WindowCaptureMode::SpecificWindow {
+                    process_name: String::new(),
+                    window_title: String::new(),
+                };
+                #[cfg(not(target_os = "windows"))]
+                let default_mode = crate::scene::WindowCaptureMode::AnyFullscreen;
+                (
+                    format!("Window {}", count + 1),
+                    SourceProperties::Window {
+                        mode: default_mode,
+                        current_window_id: None,
+                        maintain_aspect_ratio: true,
+                    },
+                )
+            }
         }
         SourceType::Camera => {
             let count = state

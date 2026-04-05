@@ -248,12 +248,261 @@ impl Default for VideoSettings {
     }
 }
 
+/// A parsed hotkey binding: modifier flags + key name.
+///
+/// Serialized as a human-readable string like `"Ctrl+Shift+W"` or `"F5"`.
+/// An empty string means "not set".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HotkeyBinding {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub super_key: bool,
+    pub key: String,
+}
+
+impl HotkeyBinding {
+    /// An unbound (empty) hotkey.
+    pub fn none() -> Self {
+        Self {
+            ctrl: false,
+            shift: false,
+            alt: false,
+            super_key: false,
+            key: String::new(),
+        }
+    }
+
+    /// Whether this binding is set.
+    pub fn is_set(&self) -> bool {
+        !self.key.is_empty()
+    }
+
+    /// Format as a human-readable string like `"Ctrl+Shift+W"`.
+    pub fn display(&self) -> String {
+        if !self.is_set() {
+            return String::new();
+        }
+        let mut parts = Vec::new();
+        if self.ctrl {
+            parts.push("Ctrl");
+        }
+        if self.alt {
+            parts.push("Alt");
+        }
+        if self.shift {
+            parts.push("Shift");
+        }
+        if self.super_key {
+            #[cfg(target_os = "macos")]
+            parts.push("Cmd");
+            #[cfg(not(target_os = "macos"))]
+            parts.push("Win");
+        }
+        parts.push(&self.key);
+        parts.join("+")
+    }
+
+    /// Parse from a string like `"Ctrl+Shift+W"`.
+    pub fn parse(s: &str) -> Self {
+        let s = s.trim();
+        if s.is_empty() {
+            return Self::none();
+        }
+        let parts: Vec<&str> = s.split('+').map(str::trim).collect();
+        let mut binding = Self::none();
+        for (i, part) in parts.iter().enumerate() {
+            if i == parts.len() - 1 {
+                // Last part is the key
+                binding.key = part.to_string();
+            } else {
+                match part.to_lowercase().as_str() {
+                    "ctrl" | "control" => binding.ctrl = true,
+                    "shift" => binding.shift = true,
+                    "alt" | "option" | "opt" => binding.alt = true,
+                    "cmd" | "command" | "super" | "win" | "meta" => binding.super_key = true,
+                    _ => {} // Ignore unknown modifiers
+                }
+            }
+        }
+        binding
+    }
+
+    /// Check if this binding matches a winit key event.
+    pub fn matches(
+        &self,
+        key_code: &winit::keyboard::KeyCode,
+        modifiers: &winit::keyboard::ModifiersState,
+    ) -> bool {
+        if !self.is_set() {
+            return false;
+        }
+        if self.ctrl != modifiers.control_key() {
+            return false;
+        }
+        if self.shift != modifiers.shift_key() {
+            return false;
+        }
+        if self.alt != modifiers.alt_key() {
+            return false;
+        }
+        if self.super_key != modifiers.super_key() {
+            return false;
+        }
+        key_code_to_name(key_code).is_some_and(|name| name.eq_ignore_ascii_case(&self.key))
+    }
+
+    /// Build from a winit key event.
+    #[allow(dead_code)]
+    pub fn from_key_event(
+        key_code: &winit::keyboard::KeyCode,
+        modifiers: &winit::keyboard::ModifiersState,
+    ) -> Option<Self> {
+        let key = key_code_to_name(key_code)?;
+        Some(Self {
+            ctrl: modifiers.control_key(),
+            shift: modifiers.shift_key(),
+            alt: modifiers.alt_key(),
+            super_key: modifiers.super_key(),
+            key,
+        })
+    }
+}
+
+impl Serialize for HotkeyBinding {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.display())
+    }
+}
+
+impl<'de> Deserialize<'de> for HotkeyBinding {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self::parse(&s))
+    }
+}
+
+/// Convert a winit `KeyCode` to its canonical display name.
+pub fn key_code_to_name(code: &winit::keyboard::KeyCode) -> Option<String> {
+    use winit::keyboard::KeyCode;
+    let name = match code {
+        KeyCode::KeyA => "A",
+        KeyCode::KeyB => "B",
+        KeyCode::KeyC => "C",
+        KeyCode::KeyD => "D",
+        KeyCode::KeyE => "E",
+        KeyCode::KeyF => "F",
+        KeyCode::KeyG => "G",
+        KeyCode::KeyH => "H",
+        KeyCode::KeyI => "I",
+        KeyCode::KeyJ => "J",
+        KeyCode::KeyK => "K",
+        KeyCode::KeyL => "L",
+        KeyCode::KeyM => "M",
+        KeyCode::KeyN => "N",
+        KeyCode::KeyO => "O",
+        KeyCode::KeyP => "P",
+        KeyCode::KeyQ => "Q",
+        KeyCode::KeyR => "R",
+        KeyCode::KeyS => "S",
+        KeyCode::KeyT => "T",
+        KeyCode::KeyU => "U",
+        KeyCode::KeyV => "V",
+        KeyCode::KeyW => "W",
+        KeyCode::KeyX => "X",
+        KeyCode::KeyY => "Y",
+        KeyCode::KeyZ => "Z",
+        KeyCode::Digit0 => "0",
+        KeyCode::Digit1 => "1",
+        KeyCode::Digit2 => "2",
+        KeyCode::Digit3 => "3",
+        KeyCode::Digit4 => "4",
+        KeyCode::Digit5 => "5",
+        KeyCode::Digit6 => "6",
+        KeyCode::Digit7 => "7",
+        KeyCode::Digit8 => "8",
+        KeyCode::Digit9 => "9",
+        KeyCode::F1 => "F1",
+        KeyCode::F2 => "F2",
+        KeyCode::F3 => "F3",
+        KeyCode::F4 => "F4",
+        KeyCode::F5 => "F5",
+        KeyCode::F6 => "F6",
+        KeyCode::F7 => "F7",
+        KeyCode::F8 => "F8",
+        KeyCode::F9 => "F9",
+        KeyCode::F10 => "F10",
+        KeyCode::F11 => "F11",
+        KeyCode::F12 => "F12",
+        KeyCode::Space => "Space",
+        KeyCode::Enter => "Enter",
+        KeyCode::NumpadEnter => "NumpadEnter",
+        KeyCode::Escape => "Escape",
+        KeyCode::Backspace => "Backspace",
+        KeyCode::Delete => "Delete",
+        KeyCode::Tab => "Tab",
+        KeyCode::ArrowUp => "Up",
+        KeyCode::ArrowDown => "Down",
+        KeyCode::ArrowLeft => "Left",
+        KeyCode::ArrowRight => "Right",
+        KeyCode::Home => "Home",
+        KeyCode::End => "End",
+        KeyCode::PageUp => "PageUp",
+        KeyCode::PageDown => "PageDown",
+        KeyCode::Insert => "Insert",
+        KeyCode::BracketLeft => "[",
+        KeyCode::BracketRight => "]",
+        KeyCode::Comma => ",",
+        KeyCode::Period => ".",
+        KeyCode::Slash => "/",
+        KeyCode::Backslash => "\\",
+        KeyCode::Semicolon => ";",
+        KeyCode::Quote => "'",
+        KeyCode::Backquote => "`",
+        KeyCode::Minus => "-",
+        KeyCode::Equal => "=",
+        _ => return None,
+    };
+    Some(name.to_string())
+}
+
+/// All configurable hotkey actions with their display names and default bindings.
+pub const HOTKEY_ACTIONS: &[(&str, &str, &str)] = &[
+    ("start_streaming", "Start Streaming", ""),
+    ("stop_streaming", "Stop Streaming", ""),
+    ("start_recording", "Start Recording", ""),
+    ("stop_recording", "Stop Recording", ""),
+    ("toggle_mute_mic", "Toggle Mute Mic", ""),
+    ("toggle_mute_desktop", "Toggle Mute Desktop", ""),
+    (
+        "capture_foreground_window",
+        "Capture Foreground Window",
+        "Ctrl+Shift+W",
+    ),
+];
+
 /// User-defined hotkey bindings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-#[derive(Default)]
 pub struct HotkeySettings {
-    pub bindings: HashMap<String, String>,
+    pub bindings: HashMap<String, HotkeyBinding>,
+}
+
+impl Default for HotkeySettings {
+    fn default() -> Self {
+        let mut bindings = HashMap::new();
+        for &(action, _, default_binding) in HOTKEY_ACTIONS {
+            bindings.insert(action.to_string(), HotkeyBinding::parse(default_binding));
+        }
+        Self { bindings }
+    }
+}
+
+impl HotkeySettings {
+    /// Look up the binding for an action. Returns `None` if unbound.
+    pub fn get(&self, action: &str) -> Option<&HotkeyBinding> {
+        self.bindings.get(action).filter(|b| b.is_set())
+    }
 }
 
 /// Font scale presets that proportionally scale all text sizes.
@@ -690,5 +939,70 @@ controls_panel_open = true
         let cd = super::config_dir();
         assert!(td.starts_with(cd));
         assert!(td.ends_with("transitions"));
+    }
+
+    #[test]
+    fn hotkey_binding_parse_display_roundtrip() {
+        let binding = HotkeyBinding::parse("Ctrl+Shift+W");
+        assert!(binding.ctrl);
+        assert!(binding.shift);
+        assert!(!binding.alt);
+        assert!(!binding.super_key);
+        assert_eq!(binding.key, "W");
+        assert_eq!(binding.display(), "Ctrl+Shift+W");
+    }
+
+    #[test]
+    fn hotkey_binding_parse_single_key() {
+        let binding = HotkeyBinding::parse("F5");
+        assert!(!binding.ctrl);
+        assert!(!binding.shift);
+        assert_eq!(binding.key, "F5");
+        assert_eq!(binding.display(), "F5");
+    }
+
+    #[test]
+    fn hotkey_binding_empty_is_unset() {
+        let binding = HotkeyBinding::parse("");
+        assert!(!binding.is_set());
+        assert_eq!(binding.display(), "");
+    }
+
+    #[test]
+    fn hotkey_binding_serde_roundtrip() {
+        // Use TOML serialization since that's how bindings are persisted.
+        #[derive(Serialize, Deserialize)]
+        struct Wrapper {
+            binding: HotkeyBinding,
+        }
+        let w = Wrapper {
+            binding: HotkeyBinding::parse("Ctrl+Shift+W"),
+        };
+        let toml_str = toml::to_string(&w).unwrap();
+        assert!(toml_str.contains("Ctrl+Shift+W"));
+        let parsed: Wrapper = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.binding, w.binding);
+    }
+
+    #[test]
+    fn hotkey_settings_default_has_capture_foreground() {
+        let settings = HotkeySettings::default();
+        let binding = settings.get("capture_foreground_window");
+        assert!(binding.is_some());
+        assert_eq!(binding.unwrap().display(), "Ctrl+Shift+W");
+    }
+
+    #[test]
+    fn hotkey_settings_toml_roundtrip() {
+        let settings = AppSettings::default();
+        let toml_str = toml::to_string_pretty(&settings).unwrap();
+        let parsed: AppSettings = toml::from_str(&toml_str).unwrap();
+        assert_eq!(
+            parsed
+                .hotkeys
+                .get("capture_foreground_window")
+                .map(|b| b.display()),
+            Some("Ctrl+Shift+W".to_string())
+        );
     }
 }

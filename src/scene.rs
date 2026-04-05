@@ -196,6 +196,18 @@ pub enum WindowCaptureMode {
     },
     /// Automatically capture whatever application is fullscreen.
     AnyFullscreen,
+    /// Continuously capture whatever window is in the foreground.
+    ForegroundWindow,
+    /// Capture the foreground window when triggered by hotkey, then stick to it.
+    ForegroundOnHotkey,
+    /// Capture a specific window identified by process name and title.
+    /// Re-matches automatically if the window closes and reopens.
+    SpecificWindow {
+        /// Executable/process name (e.g., "notepad.exe", "Minecraft.exe").
+        process_name: String,
+        /// Window title (or substring) for matching.
+        window_title: String,
+    },
 }
 
 /// Type-specific source configuration.
@@ -209,6 +221,10 @@ pub enum SourceProperties {
         /// Runtime-only: the currently tracked window ID. Resolved by WindowWatcher.
         #[serde(skip)]
         current_window_id: Option<u32>,
+        /// When true, fit captured content within the source rect preserving the
+        /// window's native aspect ratio. Letterbox/pillarbox areas are transparent.
+        #[serde(default = "default_true")]
+        maintain_aspect_ratio: bool,
     },
     Camera {
         device_index: u32,

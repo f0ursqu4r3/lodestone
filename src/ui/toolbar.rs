@@ -412,7 +412,7 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 /// Validate stream settings before starting. Returns error message if invalid.
-fn validate_stream_settings(state: &AppState) -> Option<String> {
+pub(crate) fn validate_stream_settings(state: &AppState) -> Option<String> {
     match &state.settings.stream.destination {
         crate::gstreamer::StreamDestination::Twitch
         | crate::gstreamer::StreamDestination::YouTube => {
@@ -433,7 +433,7 @@ fn validate_stream_settings(state: &AppState) -> Option<String> {
 }
 
 /// Build an [`EncoderConfig`] for streaming from the current app settings.
-fn stream_encoder_config(state: &AppState) -> EncoderConfig {
+pub(crate) fn stream_encoder_config(state: &AppState) -> EncoderConfig {
     let (width, height) = parse_resolution(&state.settings.video.output_resolution);
     let bitrate = if state.settings.stream.quality_preset == crate::gstreamer::QualityPreset::Custom
     {
@@ -452,7 +452,7 @@ fn stream_encoder_config(state: &AppState) -> EncoderConfig {
 }
 
 /// Build an [`EncoderConfig`] for recording from the current app settings.
-fn record_encoder_config(state: &AppState) -> EncoderConfig {
+pub(crate) fn record_encoder_config(state: &AppState) -> EncoderConfig {
     let (width, height) = parse_resolution(&state.settings.video.output_resolution);
     let bitrate = if state.settings.record.quality_preset == crate::gstreamer::QualityPreset::Custom
     {

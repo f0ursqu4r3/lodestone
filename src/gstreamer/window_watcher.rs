@@ -77,6 +77,11 @@ impl WindowWatcher {
                 pinned_title,
                 ..
             } => self.find_app_window(bundle_id, pinned_title.as_deref()),
+            // ForegroundWindow / ForegroundOnHotkey / SpecificWindow are handled
+            // on Windows via the GStreamer thread directly — not via this macOS watcher.
+            WindowCaptureMode::ForegroundWindow
+            | WindowCaptureMode::ForegroundOnHotkey
+            | WindowCaptureMode::SpecificWindow { .. } => None,
         }
     }
 

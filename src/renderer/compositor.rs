@@ -28,6 +28,9 @@ pub struct ResolvedSource {
     pub visible: bool,
     /// Resolved effect chain to apply before compositing this source.
     pub effects: Vec<crate::renderer::effect_pipeline::ResolvedEffect>,
+    /// When true, fit source content within the transform rect preserving
+    /// the frame's native aspect ratio. Letterbox/pillarbox areas are transparent.
+    pub maintain_aspect_ratio: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -1066,8 +1069,32 @@ impl Compositor {
             }
 
             let t = &source.transform;
+            let rect = if source.maintain_aspect_ratio {
+                // Fit the source content within the transform rect, preserving
+                // the frame's native aspect ratio. Letterbox/pillarbox areas
+                // remain transparent (the quad is simply smaller than the rect).
+                let (tex_w, tex_h) = layer.size;
+                if tex_w > 0 && tex_h > 0 && t.width > 0.0 && t.height > 0.0 {
+                    let src_aspect = tex_w as f32 / tex_h as f32;
+                    let dst_aspect = t.width / t.height;
+                    let (fit_w, fit_h) = if src_aspect > dst_aspect {
+                        // Source is wider → pillarbox (bars top/bottom)
+                        (t.width, t.width / src_aspect)
+                    } else {
+                        // Source is taller → letterbox (bars left/right)
+                        (t.height * src_aspect, t.height)
+                    };
+                    let fit_x = t.x + (t.width - fit_w) / 2.0;
+                    let fit_y = t.y + (t.height - fit_h) / 2.0;
+                    [fit_x / cw, fit_y / ch, fit_w / cw, fit_h / ch]
+                } else {
+                    [t.x / cw, t.y / ch, t.width / cw, t.height / ch]
+                }
+            } else {
+                [t.x / cw, t.y / ch, t.width / cw, t.height / ch]
+            };
             let uniforms = SourceUniforms {
-                rect: [t.x / cw, t.y / ch, t.width / cw, t.height / ch],
+                rect,
                 opacity: source.opacity.clamp(0.0, 1.0),
                 _pad_align: [0.0; 3],
                 _padding: [0.0; 3],

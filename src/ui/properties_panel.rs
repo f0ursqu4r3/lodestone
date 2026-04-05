@@ -1201,6 +1201,7 @@ fn draw_source_properties(
             let SourceProperties::Window {
                 ref mut mode,
                 ref current_window_id,
+                ref mut maintain_aspect_ratio,
             } = source.properties
             else {
                 return changed;
@@ -1209,11 +1210,12 @@ fn draw_source_properties(
             let prev_mode = mode.clone();
 
             // Mode selector
-            let is_fullscreen_mode = matches!(mode, WindowCaptureMode::AnyFullscreen);
-            let mode_label = if is_fullscreen_mode {
-                "Any Fullscreen Application"
-            } else {
-                "Specific Application"
+            let mode_label = match mode {
+                WindowCaptureMode::SpecificWindow { .. } => "Specific Window",
+                WindowCaptureMode::Application { .. } => "Specific Application",
+                WindowCaptureMode::AnyFullscreen => "Any Fullscreen Application",
+                WindowCaptureMode::ForegroundWindow => "Foreground Window",
+                WindowCaptureMode::ForegroundOnHotkey => "Foreground Window (Hotkey)",
             };
 
             egui::ComboBox::from_id_salt(egui::Id::new("props_window_mode").with(selected_id.0))
@@ -1221,9 +1223,25 @@ fn draw_source_properties(
                 .width(ui.available_width())
                 .show_ui(ui, |ui| {
                     if ui
-                        .selectable_label(!is_fullscreen_mode, "Specific Application")
+                        .selectable_label(
+                            matches!(mode, WindowCaptureMode::SpecificWindow { .. }),
+                            "Specific Window",
+                        )
                         .clicked()
-                        && is_fullscreen_mode
+                        && !matches!(mode, WindowCaptureMode::SpecificWindow { .. })
+                    {
+                        *mode = WindowCaptureMode::SpecificWindow {
+                            process_name: String::new(),
+                            window_title: String::new(),
+                        };
+                    }
+                    if ui
+                        .selectable_label(
+                            matches!(mode, WindowCaptureMode::Application { .. }),
+                            "Specific Application",
+                        )
+                        .clicked()
+                        && !matches!(mode, WindowCaptureMode::Application { .. })
                     {
                         *mode = WindowCaptureMode::Application {
                             bundle_id: String::new(),
@@ -1232,17 +1250,98 @@ fn draw_source_properties(
                         };
                     }
                     if ui
-                        .selectable_label(is_fullscreen_mode, "Any Fullscreen Application")
+                        .selectable_label(
+                            matches!(mode, WindowCaptureMode::AnyFullscreen),
+                            "Any Fullscreen Application",
+                        )
                         .clicked()
-                        && !is_fullscreen_mode
+                        && !matches!(mode, WindowCaptureMode::AnyFullscreen)
                     {
                         *mode = WindowCaptureMode::AnyFullscreen;
+                    }
+                    if ui
+                        .selectable_label(
+                            matches!(mode, WindowCaptureMode::ForegroundWindow),
+                            "Foreground Window",
+                        )
+                        .clicked()
+                        && !matches!(mode, WindowCaptureMode::ForegroundWindow)
+                    {
+                        *mode = WindowCaptureMode::ForegroundWindow;
+                    }
+                    if ui
+                        .selectable_label(
+                            matches!(mode, WindowCaptureMode::ForegroundOnHotkey),
+                            "Foreground Window (Hotkey)",
+                        )
+                        .clicked()
+                        && !matches!(mode, WindowCaptureMode::ForegroundOnHotkey)
+                    {
+                        *mode = WindowCaptureMode::ForegroundOnHotkey;
                     }
                 });
 
             ui.add_space(4.0);
 
-            // App selector (only in Application mode)
+            // ── Specific Window picker ───────────────────────────────
+            if let WindowCaptureMode::SpecificWindow {
+                process_name,
+                window_title,
+            } = mode
+            {
+                // Build a flat list of all windows for the dropdown.
+                let all_windows: Vec<crate::gstreamer::devices::WindowInfo> = apps
+                    .iter()
+                    .flat_map(|a| a.windows.iter().cloned())
+                    .collect();
+
+                let selected_label = if window_title.is_empty() {
+                    "Select a window...".to_string()
+                } else if process_name.is_empty() {
+                    window_title.clone()
+                } else {
+                    format!("[{}] {}", process_name, window_title)
+                };
+
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt(
+                        egui::Id::new("props_window_specific").with(selected_id.0),
+                    )
+                    .selected_text(&selected_label)
+                    .width((ui.available_width() - 32.0).max(40.0))
+                    .show_ui(ui, |ui| {
+                        for win in &all_windows {
+                            let label = if win.process_name.is_empty() {
+                                win.title.clone()
+                            } else {
+                                format!("[{}] {}", win.process_name, win.title)
+                            };
+                            let is_selected = *window_title == win.title
+                                && *process_name == win.process_name;
+                            if ui.selectable_label(is_selected, &label).clicked() {
+                                *process_name = win.process_name.clone();
+                                *window_title = win.title.clone();
+                            }
+                        }
+                    });
+
+                    // Refresh button
+                    if ui
+                        .button(
+                            egui::RichText::new(egui_phosphor::regular::ARROW_CLOCKWISE)
+                                .size(14.0)
+                                .color(theme.text_secondary),
+                        )
+                        .on_hover_text("Refresh window list")
+                        .clicked()
+                    {
+                        state.available_apps =
+                            crate::gstreamer::devices::enumerate_applications();
+                    }
+                });
+            }
+
+            // ── Application picker ───────────────────────────────────
             if let WindowCaptureMode::Application {
                 bundle_id,
                 app_name,
@@ -1260,7 +1359,7 @@ fn draw_source_properties(
                         egui::Id::new("props_window_app").with(selected_id.0),
                     )
                     .selected_text(&selected_app_label)
-                    .width(ui.available_width() - 32.0)
+                    .width((ui.available_width() - 32.0).max(40.0))
                     .show_ui(ui, |ui| {
                         for app in &apps {
                             if ui
@@ -1274,7 +1373,8 @@ fn draw_source_properties(
                         }
                     });
 
-                    // Window picker (dropper) button
+                    // Window picker (dropper) button (macOS only)
+                    #[cfg(target_os = "macos")]
                     if ui
                         .button(
                             egui::RichText::new(egui_phosphor::regular::CROSSHAIR)
@@ -1297,7 +1397,8 @@ fn draw_source_properties(
                         .on_hover_text("Refresh application list")
                         .clicked()
                     {
-                        state.available_apps = crate::gstreamer::devices::enumerate_applications();
+                        state.available_apps =
+                            crate::gstreamer::devices::enumerate_applications();
                     }
                 });
 
@@ -1339,22 +1440,55 @@ fn draw_source_properties(
                 }
             }
 
-            // Status display
+            // ── Maintain aspect ratio ─────────────────────────────────
+            ui.add_space(4.0);
+            if ui
+                .checkbox(maintain_aspect_ratio, "Maintain aspect ratio")
+                .on_hover_text(
+                    "Fit captured content within the source rect without \
+                     stretching when the window size changes.",
+                )
+                .changed()
+            {
+                changed = true;
+            }
+
+            // ── Status display ───────────────────────────────────────
             ui.add_space(4.0);
             let status = if current_window_id.is_some() {
                 match mode {
+                    WindowCaptureMode::SpecificWindow { window_title, .. } => {
+                        format!("Capturing: {window_title}")
+                    }
                     WindowCaptureMode::Application { app_name, .. } => {
                         format!("Capturing: {app_name}")
                     }
                     WindowCaptureMode::AnyFullscreen => "Capturing fullscreen app".to_string(),
+                    WindowCaptureMode::ForegroundWindow => {
+                        "Tracking foreground window".to_string()
+                    }
+                    WindowCaptureMode::ForegroundOnHotkey => {
+                        "Capturing window (press Ctrl+Shift+W to switch)".to_string()
+                    }
                 }
             } else {
                 match mode {
+                    WindowCaptureMode::SpecificWindow {
+                        window_title, ..
+                    } if !window_title.is_empty() => {
+                        format!("Waiting for \"{}\"...", window_title)
+                    }
                     WindowCaptureMode::Application { app_name, .. } if !app_name.is_empty() => {
                         format!("Waiting for {}...", app_name)
                     }
                     WindowCaptureMode::AnyFullscreen => "No fullscreen application".to_string(),
-                    _ => "Select an application".to_string(),
+                    WindowCaptureMode::ForegroundWindow => {
+                        "Waiting for foreground window...".to_string()
+                    }
+                    WindowCaptureMode::ForegroundOnHotkey => {
+                        "Press Ctrl+Shift+W to capture foreground window".to_string()
+                    }
+                    _ => "Select a window or application".to_string(),
                 }
             };
             ui.label(egui::RichText::new(&status).size(11.0).color(

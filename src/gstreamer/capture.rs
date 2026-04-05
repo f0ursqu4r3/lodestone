@@ -55,7 +55,34 @@ pub fn build_capture_pipeline(
             }
         }
         CaptureSourceConfig::Window { .. } => {
-            anyhow::bail!("Window capture built separately");
+            #[cfg(target_os = "macos")]
+            {
+                anyhow::bail!("Window capture uses ScreenCaptureKit on macOS");
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                anyhow::bail!("Window capture requires a resolved HWND — use WindowHandle config");
+            }
+        }
+        CaptureSourceConfig::WindowHandle { hwnd, .. } => {
+            #[cfg(target_os = "windows")]
+            {
+                // Per-window capture requires Windows Graphics Capture API (capture-api=wgc).
+                // The default DXGI Desktop Duplication API does not support per-window capture.
+                gstreamer::ElementFactory::make("d3d11screencapturesrc")
+                    .name("capture-source")
+                    .property("show-cursor", true)
+                    .property("show-border", false)
+                    .property_from_str("capture-api", "wgc")
+                    .property("window-handle", *hwnd as u64)
+                    .build()
+                    .context("Failed to create d3d11screencapturesrc with window-handle (WGC) — GStreamer 1.24+ required")?
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = hwnd;
+                anyhow::bail!("HWND-based window capture is Windows-only");
+            }
         }
         CaptureSourceConfig::Camera { device_index } => {
             #[cfg(target_os = "macos")]
@@ -108,14 +135,16 @@ pub fn build_capture_pipeline(
         .build()
         .context("Failed to create videorate")?;
 
-    // Configure appsink caps. For cameras, don't force a resolution — let the
-    // device negotiate its native size so the aspect ratio is preserved. For
-    // screen capture, force the target resolution.
+    // Configure appsink caps. For cameras and window captures, don't force a
+    // resolution — let the device negotiate its native size so the aspect ratio
+    // is preserved. For screen capture, force the target resolution.
     let caps = match source {
-        CaptureSourceConfig::Camera { .. } => gstreamer_video::VideoCapsBuilder::new()
-            .format(gstreamer_video::VideoFormat::Rgba)
-            .framerate(gstreamer::Fraction::new(fps as i32, 1))
-            .build(),
+        CaptureSourceConfig::Camera { .. } | CaptureSourceConfig::WindowHandle { .. } => {
+            gstreamer_video::VideoCapsBuilder::new()
+                .format(gstreamer_video::VideoFormat::Rgba)
+                .framerate(gstreamer::Fraction::new(fps as i32, 1))
+                .build()
+        }
         _ => gstreamer_video::VideoCapsBuilder::new()
             .format(gstreamer_video::VideoFormat::Rgba)
             .width(width as i32)

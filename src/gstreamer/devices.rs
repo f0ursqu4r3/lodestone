@@ -42,6 +42,10 @@ pub struct WindowInfo {
     pub title: String,
     pub owner_name: String,
     pub bundle_id: String,
+    /// Native window handle as u64. On Windows this is the HWND; on macOS the CGWindowID.
+    pub native_handle: u64,
+    /// Process/executable name (e.g., "notepad.exe"). Populated on Windows.
+    pub process_name: String,
     /// Bounding rect: (x, y, width, height) in logical points.
     #[allow(dead_code)]
     pub bounds: (f64, f64, f64, f64),
@@ -253,6 +257,8 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
             title,
             owner_name,
             bundle_id,
+            native_handle: window_id as u64,
+            process_name: String::new(),
             bounds,
             is_on_screen,
             is_fullscreen,
@@ -262,11 +268,260 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
     results
 }
 
-/// Fallback for non-macOS platforms — window enumeration is not yet supported.
-#[cfg(not(target_os = "macos"))]
+/// Win32 FFI declarations shared by window enumeration and capture helpers.
+#[cfg(target_os = "windows")]
+#[allow(unused, non_snake_case)]
+mod win32 {
+    use std::ffi::c_void;
+
+    pub type HWND = *mut c_void;
+    pub type LPARAM = isize;
+    pub type BOOL = i32;
+
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct RECT {
+        pub left: i32,
+        pub top: i32,
+        pub right: i32,
+        pub bottom: i32,
+    }
+
+    pub type HANDLE = *mut c_void;
+    pub type DWORD = u32;
+
+    unsafe extern "system" {
+        pub fn EnumWindows(
+            lpfn_enum: unsafe extern "system" fn(HWND, LPARAM) -> BOOL,
+            lp_data: LPARAM,
+        ) -> BOOL;
+        pub fn IsWindowVisible(hwnd: HWND) -> BOOL;
+        pub fn GetWindowTextW(hwnd: HWND, lpString: *mut u16, nMaxCount: i32) -> i32;
+        pub fn GetWindowTextLengthW(hwnd: HWND) -> i32;
+        pub fn GetWindowThreadProcessId(hwnd: HWND, lpdwProcessId: *mut u32) -> u32;
+        pub fn GetForegroundWindow() -> HWND;
+        pub fn GetClientRect(hwnd: HWND, lpRect: *mut RECT) -> i32;
+        pub fn GetWindowRect(hwnd: HWND, lpRect: *mut RECT) -> i32;
+        pub fn IsWindow(hwnd: HWND) -> BOOL;
+        pub fn OpenProcess(dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwProcessId: DWORD) -> HANDLE;
+        pub fn CloseHandle(hObject: HANDLE) -> BOOL;
+        pub fn GetSystemMetrics(nIndex: i32) -> i32;
+    }
+
+    // QueryFullProcessImageNameW is in kernel32
+    unsafe extern "system" {
+        pub fn QueryFullProcessImageNameW(
+            hProcess: HANDLE,
+            dwFlags: DWORD,
+            lpExeName: *mut u16,
+            lpdwSize: *mut DWORD,
+        ) -> BOOL;
+    }
+
+    pub const PROCESS_QUERY_LIMITED_INFORMATION: DWORD = 0x1000;
+    pub const SM_CXSCREEN: i32 = 0;
+    pub const SM_CYSCREEN: i32 = 1;
+}
+
+/// Get the process executable name for a PID on Windows.
+#[cfg(target_os = "windows")]
+fn get_process_name(pid: u32) -> String {
+    let handle = unsafe {
+        win32::OpenProcess(win32::PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
+    };
+    if handle.is_null() {
+        return String::new();
+    }
+    let mut buf = [0u16; 260];
+    let mut size = buf.len() as u32;
+    let ok = unsafe {
+        win32::QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut size)
+    };
+    unsafe { win32::CloseHandle(handle) };
+    if ok == 0 || size == 0 {
+        return String::new();
+    }
+    let path = String::from_utf16_lossy(&buf[..size as usize]);
+    // Extract just the filename from the full path.
+    path.rsplit('\\')
+        .next()
+        .unwrap_or(&path)
+        .to_string()
+}
+
+/// Check if a window covers the full primary screen on Windows.
+#[cfg(target_os = "windows")]
+fn is_window_fullscreen_win(hwnd: win32::HWND) -> bool {
+    let mut rect = win32::RECT::default();
+    if unsafe { win32::GetWindowRect(hwnd, &mut rect) } == 0 {
+        return false;
+    }
+    let screen_w = unsafe { win32::GetSystemMetrics(win32::SM_CXSCREEN) };
+    let screen_h = unsafe { win32::GetSystemMetrics(win32::SM_CYSCREEN) };
+    let w = rect.right - rect.left;
+    let h = rect.bottom - rect.top;
+    // Allow 1px tolerance for borderless fullscreen windows.
+    w >= screen_w - 1 && h >= screen_h - 1
+}
+
+/// Enumerate visible windows on Windows using EnumWindows.
+/// Populates process names, window dimensions, and fullscreen detection.
+#[cfg(target_os = "windows")]
+pub fn enumerate_windows() -> Vec<WindowInfo> {
+    use win32::*;
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, data: LPARAM) -> BOOL {
+        unsafe {
+            let results = &mut *(data as *mut Vec<WindowInfo>);
+            if IsWindowVisible(hwnd) == 0 {
+                return 1;
+            }
+            let title_len = GetWindowTextLengthW(hwnd);
+            if title_len == 0 {
+                return 1;
+            }
+            let mut title_buf = vec![0u16; (title_len + 1) as usize];
+            GetWindowTextW(hwnd, title_buf.as_mut_ptr(), title_buf.len() as i32);
+            let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
+            if title.is_empty() {
+                return 1;
+            }
+
+            // Get PID and skip our own process.
+            let mut pid: u32 = 0;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == std::process::id() {
+                return 1;
+            }
+
+            let (width, height) = get_window_size_from_hwnd(hwnd as u64).unwrap_or((0, 0));
+            if width < 50 || height < 50 {
+                return 1;
+            }
+
+            let process_name = get_process_name(pid);
+            let is_fullscreen = is_window_fullscreen_win(hwnd);
+
+            results.push(WindowInfo {
+                window_id: hwnd as u32,
+                title,
+                owner_name: process_name.clone(),
+                bundle_id: String::new(),
+                native_handle: hwnd as u64,
+                process_name,
+                bounds: (0.0, 0.0, width as f64, height as f64),
+                is_on_screen: true,
+                is_fullscreen,
+            });
+        }
+        1
+    }
+
+    let mut results: Vec<WindowInfo> = Vec::new();
+    unsafe {
+        EnumWindows(enum_proc, &mut results as *mut Vec<WindowInfo> as LPARAM);
+    }
+    results
+}
+
+/// Fallback for non-macOS, non-Windows platforms.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[allow(dead_code)]
 pub fn enumerate_windows() -> Vec<WindowInfo> {
     Vec::new()
+}
+
+/// Get the foreground window handle (HWND) on Windows.
+#[cfg(target_os = "windows")]
+pub fn get_foreground_window_hwnd() -> Option<u64> {
+    let hwnd = unsafe { win32::GetForegroundWindow() };
+    if hwnd.is_null() {
+        None
+    } else {
+        Some(hwnd as u64)
+    }
+}
+
+/// Get the title of a window by its HWND on Windows.
+#[cfg(target_os = "windows")]
+pub fn get_window_title_from_hwnd(hwnd: u64) -> String {
+    let hwnd = hwnd as win32::HWND;
+    let len = unsafe { win32::GetWindowTextLengthW(hwnd) };
+    if len == 0 {
+        return String::new();
+    }
+    let mut buf = vec![0u16; (len + 1) as usize];
+    unsafe { win32::GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+    String::from_utf16_lossy(&buf[..len as usize])
+}
+
+/// Get the size (width, height) of a window by its HWND on Windows.
+#[cfg(target_os = "windows")]
+#[allow(dead_code)]
+pub fn get_window_size_from_hwnd(hwnd: u64) -> Option<(u32, u32)> {
+    let mut rect = win32::RECT::default();
+    let ok = unsafe { win32::GetClientRect(hwnd as win32::HWND, &mut rect) };
+    if ok == 0 {
+        return None;
+    }
+    let w = (rect.right - rect.left) as u32;
+    let h = (rect.bottom - rect.top) as u32;
+    if w == 0 || h == 0 {
+        return None;
+    }
+    Some((w, h))
+}
+
+/// Find a window matching process name and title substring on Windows.
+/// Returns (hwnd, width, height) if found.
+#[cfg(target_os = "windows")]
+pub fn find_window_by_process_and_title(
+    process_name: &str,
+    window_title: &str,
+) -> Option<(u64, u32, u32)> {
+    let windows = enumerate_windows();
+    // Prefer exact title match, then substring match.
+    let exact = windows.iter().find(|w| {
+        w.process_name.eq_ignore_ascii_case(process_name) && w.title == window_title
+    });
+    if let Some(w) = exact {
+        return Some((w.native_handle, w.bounds.2 as u32, w.bounds.3 as u32));
+    }
+    // Substring match on title.
+    let substr = windows.iter().find(|w| {
+        w.process_name.eq_ignore_ascii_case(process_name)
+            && (window_title.is_empty() || w.title.contains(window_title))
+    });
+    substr.map(|w| (w.native_handle, w.bounds.2 as u32, w.bounds.3 as u32))
+}
+
+/// Find the frontmost visible window for a process on Windows.
+/// Returns (hwnd, width, height) if found.
+#[cfg(target_os = "windows")]
+pub fn find_app_window_by_process(process_name: &str) -> Option<(u64, u32, u32)> {
+    let windows = enumerate_windows();
+    // The first visible window for this process is typically the topmost.
+    windows
+        .iter()
+        .find(|w| w.process_name.eq_ignore_ascii_case(process_name))
+        .map(|w| (w.native_handle, w.bounds.2 as u32, w.bounds.3 as u32))
+}
+
+/// Find any fullscreen window on Windows.
+/// Returns (hwnd, width, height) if found.
+#[cfg(target_os = "windows")]
+pub fn find_fullscreen_window() -> Option<(u64, u32, u32)> {
+    let windows = enumerate_windows();
+    windows
+        .iter()
+        .find(|w| w.is_fullscreen)
+        .map(|w| (w.native_handle, w.bounds.2 as u32, w.bounds.3 as u32))
+}
+
+/// Check if a window handle is still valid on Windows.
+#[cfg(target_os = "windows")]
+pub fn is_window_valid(hwnd: u64) -> bool {
+    unsafe { win32::IsWindow(hwnd as win32::HWND) != 0 }
 }
 
 /// Group windows by owning application (macOS).
@@ -291,8 +546,30 @@ pub fn enumerate_applications() -> Vec<AppInfo> {
     result
 }
 
-/// Fallback for non-macOS platforms.
-#[cfg(not(target_os = "macos"))]
+/// Group windows by process name on Windows.
+#[cfg(target_os = "windows")]
+pub fn enumerate_applications() -> Vec<AppInfo> {
+    let windows = enumerate_windows();
+    let mut apps: std::collections::HashMap<String, AppInfo> = std::collections::HashMap::new();
+    for win in windows {
+        let key = win.process_name.clone();
+        if key.is_empty() {
+            continue;
+        }
+        let entry = apps.entry(key.clone()).or_insert_with(|| AppInfo {
+            bundle_id: key,
+            name: win.owner_name.clone(),
+            windows: Vec::new(),
+        });
+        entry.windows.push(win);
+    }
+    let mut result: Vec<AppInfo> = apps.into_values().collect();
+    result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    result
+}
+
+/// Fallback for non-macOS, non-Windows platforms.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn enumerate_applications() -> Vec<AppInfo> {
     Vec::new()
 }

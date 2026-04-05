@@ -21,6 +21,26 @@ use super::types::RgbaFrame;
 use super::window_watcher::{WatchedSource, WindowWatcher};
 use crate::scene::SourceId;
 
+/// Tracks a window capture source on Windows (foreground window modes).
+#[cfg(target_os = "windows")]
+struct WinWindowSource {
+    mode: crate::scene::WindowCaptureMode,
+    /// The HWND currently being captured (None if not yet started).
+    current_hwnd: Option<u64>,
+    capture_size: (u32, u32),
+    fps: u32,
+    /// HWND that failed to start capture — skip it until it changes.
+    failed_hwnd: Option<u64>,
+}
+
+/// How often to poll windows on Windows.
+#[cfg(target_os = "windows")]
+const WIN_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// How often to do full window enumeration for SpecificWindow/Application/AnyFullscreen.
+#[cfg(target_os = "windows")]
+const WIN_ENUM_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1500);
+
 #[derive(Debug)]
 enum PipelineKind {
     Stream,
@@ -64,6 +84,15 @@ struct GstThread {
     /// Active window capture sources being watched.
     #[cfg(target_os = "macos")]
     watched_windows: HashMap<SourceId, WatchedSource>,
+    /// Active window capture sources on Windows (foreground window modes).
+    #[cfg(target_os = "windows")]
+    win_watched_windows: HashMap<SourceId, WinWindowSource>,
+    /// Last time the foreground window was polled on Windows.
+    #[cfg(target_os = "windows")]
+    win_last_fg_poll: std::time::Instant,
+    /// Last time full window enumeration was done on Windows.
+    #[cfg(target_os = "windows")]
+    win_last_enum_poll: std::time::Instant,
     // Audio capture
     mic_pipeline: Option<gstreamer::Pipeline>,
     mic_appsink: Option<AppSink>,
@@ -84,6 +113,12 @@ impl GstThread {
             window_watcher: WindowWatcher::new(),
             #[cfg(target_os = "macos")]
             watched_windows: HashMap::new(),
+            #[cfg(target_os = "windows")]
+            win_watched_windows: HashMap::new(),
+            #[cfg(target_os = "windows")]
+            win_last_fg_poll: std::time::Instant::now(),
+            #[cfg(target_os = "windows")]
+            win_last_enum_poll: std::time::Instant::now(),
             stream_handles: None,
             record_handles: None,
             #[cfg(target_os = "macos")]
@@ -124,6 +159,13 @@ impl GstThread {
         #[cfg(target_os = "macos")]
         if let CaptureSourceConfig::Window { mode, capture_size } = config {
             self.add_window_capture_source(source_id, mode.clone(), *capture_size, fps);
+            return;
+        }
+
+        // Window capture on Windows: resolve foreground HWND and start capture.
+        #[cfg(target_os = "windows")]
+        if let CaptureSourceConfig::Window { mode, capture_size } = config {
+            self.add_win_window_capture_source(source_id, mode.clone(), *capture_size, fps);
             return;
         }
 
@@ -536,6 +578,8 @@ impl GstThread {
     fn remove_capture_source(&mut self, source_id: SourceId) {
         #[cfg(target_os = "macos")]
         self.watched_windows.remove(&source_id);
+        #[cfg(target_os = "windows")]
+        self.win_watched_windows.remove(&source_id);
 
         if let Some(handle) = self.captures.remove(&source_id) {
             // Signal the capture thread to stop (if any).
@@ -696,6 +740,10 @@ impl GstThread {
                     audio.volume_element.set_property("mute", muted);
                 }
             }
+            GstCommand::SetCaptureBorder { source_id, visible } => {
+                self.handle_set_capture_border(source_id, visible)
+            }
+            GstCommand::CaptureForegroundWindow => self.handle_capture_foreground_window(),
             GstCommand::Shutdown => return self.handle_shutdown(),
         }
         false
@@ -836,6 +884,320 @@ impl GstThread {
 
     fn handle_remove_capture_source(&mut self, source_id: SourceId) {
         self.remove_capture_source(source_id);
+    }
+
+    /// Register a window capture source on Windows and start capture if a target is available.
+    #[cfg(target_os = "windows")]
+    fn add_win_window_capture_source(
+        &mut self,
+        source_id: SourceId,
+        mode: crate::scene::WindowCaptureMode,
+        capture_size: (u32, u32),
+        fps: u32,
+    ) {
+        use crate::scene::WindowCaptureMode;
+
+        self.win_watched_windows.insert(
+            source_id,
+            WinWindowSource {
+                mode: mode.clone(),
+                current_hwnd: None,
+                capture_size,
+                fps,
+                failed_hwnd: None,
+            },
+        );
+
+        // Try to resolve target immediately for modes that don't wait for a trigger.
+        let resolved = match &mode {
+            WindowCaptureMode::ForegroundWindow => {
+                super::devices::get_foreground_window_hwnd()
+            }
+            WindowCaptureMode::SpecificWindow {
+                process_name,
+                window_title,
+            } => super::devices::find_window_by_process_and_title(process_name, window_title)
+                .map(|(hwnd, _, _)| hwnd),
+            WindowCaptureMode::Application {
+                bundle_id, ..
+            } => {
+                // On Windows, bundle_id stores the process name.
+                super::devices::find_app_window_by_process(bundle_id)
+                    .map(|(hwnd, _, _)| hwnd)
+            }
+            WindowCaptureMode::AnyFullscreen => {
+                super::devices::find_fullscreen_window().map(|(hwnd, _, _)| hwnd)
+            }
+            WindowCaptureMode::ForegroundOnHotkey => None,
+        };
+
+        if let Some(hwnd) = resolved {
+            self.start_win_window_capture(source_id, hwnd);
+        } else {
+            let desc = match &mode {
+                WindowCaptureMode::ForegroundOnHotkey => "waiting for hotkey trigger",
+                _ => "no matching window found, will retry on poll",
+            };
+            log::info!("Window source {source_id:?}: {desc}");
+        }
+    }
+
+    /// Start or switch the Windows window capture to a specific HWND.
+    #[cfg(target_os = "windows")]
+    fn start_win_window_capture(&mut self, source_id: SourceId, hwnd: u64) {
+        let (capture_size, fps) = match self.win_watched_windows.get(&source_id) {
+            Some(ws) => {
+                // Skip if this HWND already failed — avoid retry spam.
+                if ws.failed_hwnd == Some(hwnd) {
+                    return;
+                }
+                (ws.capture_size, ws.fps)
+            }
+            None => return,
+        };
+
+        // Remove existing capture pipeline for this source (if any).
+        if let Some(handle) = self.captures.remove(&source_id) {
+            if let Some(ref running) = handle.capture_running {
+                running.store(false, Ordering::Relaxed);
+            }
+            let _ = handle.pipeline.set_state(gstreamer::State::Null);
+        }
+
+        let config = CaptureSourceConfig::WindowHandle {
+            hwnd,
+            capture_size,
+        };
+
+        match build_capture_pipeline(&config, capture_size.0, capture_size.1, fps) {
+            Ok((pipeline, appsink)) => {
+                if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
+                    // Check bus for a more detailed error message.
+                    if let Some(bus) = pipeline.bus()
+                        && let Some(msg) = bus.timed_pop_filtered(
+                            gstreamer::ClockTime::from_mseconds(100),
+                            &[gstreamer::MessageType::Error],
+                        )
+                        && let gstreamer::MessageView::Error(err) = msg.view()
+                    {
+                        log::error!(
+                            "Window capture failed for {source_id:?} (HWND {hwnd:#x}): {}",
+                            err.error()
+                        );
+                        if let Some(debug) = err.debug() {
+                            log::error!("  debug: {debug}");
+                        }
+                    } else {
+                        log::error!(
+                            "Failed to start window capture for {source_id:?} (HWND {hwnd:#x}): {e}"
+                        );
+                    }
+                    let _ = pipeline.set_state(gstreamer::State::Null);
+                    // Mark this HWND as failed to avoid retry spam.
+                    if let Some(ws) = self.win_watched_windows.get_mut(&source_id) {
+                        ws.failed_hwnd = Some(hwnd);
+                    }
+                    return;
+                }
+                if let Some(ws) = self.win_watched_windows.get_mut(&source_id) {
+                    ws.current_hwnd = Some(hwnd);
+                    ws.failed_hwnd = None;
+                }
+                // Explicitly disable the WGC capture border after pipeline starts.
+                // The border is only enabled when the source is selected in the preview.
+                if let Some(src_element) = pipeline.by_name("capture-source") {
+                    if src_element.find_property("show-border").is_some() {
+                        src_element.set_property("show-border", false);
+                    }
+                }
+
+                self.captures.insert(
+                    source_id,
+                    CaptureHandle {
+                        pipeline,
+                        appsink,
+                        capture_running: None,
+                    },
+                );
+                let title = super::devices::get_window_title_from_hwnd(hwnd);
+                log::info!(
+                    "Window capture started for source {source_id:?}: \"{title}\" (HWND {hwnd:#x})"
+                );
+            }
+            Err(e) => {
+                log::error!(
+                    "Failed to build window capture pipeline for {source_id:?} (HWND {hwnd:#x}): {e}"
+                );
+                // Mark as failed to prevent retry spam.
+                if let Some(ws) = self.win_watched_windows.get_mut(&source_id) {
+                    ws.failed_hwnd = Some(hwnd);
+                }
+                let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                    message: format!("Window capture failed: {e}"),
+                });
+            }
+        }
+    }
+
+    /// Poll window changes on Windows for all tracked window capture sources.
+    #[cfg(target_os = "windows")]
+    fn poll_win_foreground_window(&mut self) {
+        use crate::scene::WindowCaptureMode;
+
+        if self.win_watched_windows.is_empty() {
+            return;
+        }
+
+        let now = std::time::Instant::now();
+        let fg_poll_due = now.duration_since(self.win_last_fg_poll) >= WIN_POLL_INTERVAL;
+        let enum_poll_due = now.duration_since(self.win_last_enum_poll) >= WIN_ENUM_POLL_INTERVAL;
+
+        if !fg_poll_due && !enum_poll_due {
+            return;
+        }
+
+        // Foreground HWND is cheap to query — do it on every fg poll tick.
+        let fg_hwnd = if fg_poll_due {
+            self.win_last_fg_poll = now;
+            super::devices::get_foreground_window_hwnd()
+        } else {
+            None
+        };
+
+        // Collect updates needed. For enum-based modes, only run on the slower tick.
+        let mut updates: Vec<(SourceId, u64)> = Vec::new();
+        let mut stale: Vec<SourceId> = Vec::new();
+
+        for (&source_id, ws) in &self.win_watched_windows {
+            match &ws.mode {
+                WindowCaptureMode::ForegroundWindow => {
+                    if let Some(hwnd) = fg_hwnd
+                        && ws.current_hwnd != Some(hwnd)
+                        && super::devices::is_window_valid(hwnd)
+                    {
+                        updates.push((source_id, hwnd));
+                    }
+                }
+                WindowCaptureMode::ForegroundOnHotkey => {
+                    // Check if current window died.
+                    if let Some(hwnd) = ws.current_hwnd
+                        && !super::devices::is_window_valid(hwnd)
+                    {
+                        stale.push(source_id);
+                    }
+                }
+                WindowCaptureMode::SpecificWindow {
+                    process_name,
+                    window_title,
+                } if enum_poll_due => {
+                    // Re-resolve if current window is gone or not yet captured.
+                    let needs_resolve = ws.current_hwnd.is_none()
+                        || ws
+                            .current_hwnd
+                            .is_some_and(|h| !super::devices::is_window_valid(h));
+                    if needs_resolve {
+                        if let Some((hwnd, _, _)) =
+                            super::devices::find_window_by_process_and_title(
+                                process_name,
+                                window_title,
+                            )
+                        {
+                            updates.push((source_id, hwnd));
+                        } else if ws.current_hwnd.is_some() {
+                            stale.push(source_id);
+                        }
+                    }
+                }
+                WindowCaptureMode::Application { bundle_id, .. } if enum_poll_due => {
+                    // On Windows, bundle_id is the process name. Track frontmost window.
+                    if let Some((hwnd, _, _)) =
+                        super::devices::find_app_window_by_process(bundle_id)
+                    {
+                        if ws.current_hwnd != Some(hwnd) {
+                            updates.push((source_id, hwnd));
+                        }
+                    } else if ws.current_hwnd.is_some() {
+                        stale.push(source_id);
+                    }
+                }
+                WindowCaptureMode::AnyFullscreen if enum_poll_due => {
+                    if let Some((hwnd, _, _)) = super::devices::find_fullscreen_window() {
+                        if ws.current_hwnd != Some(hwnd) {
+                            updates.push((source_id, hwnd));
+                        }
+                    } else if ws.current_hwnd.is_some() {
+                        stale.push(source_id);
+                    }
+                }
+                _ => {} // Not due for poll yet
+            }
+        }
+
+        if enum_poll_due {
+            self.win_last_enum_poll = now;
+        }
+
+        for (source_id, hwnd) in updates {
+            self.start_win_window_capture(source_id, hwnd);
+        }
+
+        for source_id in stale {
+            log::info!("Captured window gone for {source_id:?}, clearing");
+            if let Some(handle) = self.captures.remove(&source_id) {
+                if let Some(ref running) = handle.capture_running {
+                    running.store(false, Ordering::Relaxed);
+                }
+                let _ = handle.pipeline.set_state(gstreamer::State::Null);
+            }
+            if let Some(ws) = self.win_watched_windows.get_mut(&source_id) {
+                ws.current_hwnd = None;
+            }
+        }
+    }
+
+    /// Handle the hotkey-triggered foreground window capture.
+    #[cfg(target_os = "windows")]
+    fn handle_capture_foreground_window(&mut self) {
+        use crate::scene::WindowCaptureMode;
+
+        let Some(hwnd) = super::devices::get_foreground_window_hwnd() else {
+            log::warn!("CaptureForegroundWindow: no foreground window");
+            return;
+        };
+
+        let title = super::devices::get_window_title_from_hwnd(hwnd);
+        log::info!("Hotkey capture: foreground window \"{title}\" (HWND {hwnd:#x})");
+
+        let hotkey_sources: Vec<SourceId> = self
+            .win_watched_windows
+            .iter()
+            .filter(|(_, ws)| matches!(ws.mode, WindowCaptureMode::ForegroundOnHotkey))
+            .map(|(&id, _)| id)
+            .collect();
+
+        for source_id in hotkey_sources {
+            self.start_win_window_capture(source_id, hwnd);
+        }
+    }
+
+    /// Toggle the WGC capture border on a window capture source.
+    fn handle_set_capture_border(&mut self, source_id: SourceId, visible: bool) {
+        if let Some(handle) = self.captures.get(&source_id) {
+            if let Some(src_element) = handle.pipeline.by_name("capture-source") {
+                // Only set if the element has the property (WGC window captures).
+                if src_element
+                    .find_property("show-border")
+                    .is_some()
+                {
+                    src_element.set_property("show-border", visible);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn handle_capture_foreground_window(&mut self) {
+        log::warn!("CaptureForegroundWindow is only supported on Windows");
     }
 
     #[cfg(target_os = "macos")]
@@ -1122,6 +1484,8 @@ impl GstThread {
                     self.handle_window_target_change(source_id, new_target);
                 }
             }
+            #[cfg(target_os = "windows")]
+            self.poll_win_foreground_window();
 
             let pts = gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);
 

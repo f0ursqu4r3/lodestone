@@ -2197,6 +2197,85 @@ fn draw_source_properties(
                 changed = true;
             }
         }
+        SourceType::GameCapture => {
+            section_label(ui, "SOURCE");
+            ui.add_space(4.0);
+
+            let windows = crate::gstreamer::devices::enumerate_windows();
+            let cmd_tx = state.command_tx.clone();
+            let source = &mut state.library[lib_idx];
+            if let SourceProperties::GameCapture {
+                ref mut process_name,
+                ref mut window_title,
+            } = source.properties
+            {
+                // Build deduplicated list of process names from available windows.
+                let mut process_names: Vec<String> = windows
+                    .iter()
+                    .map(|w| w.process_name.clone())
+                    .filter(|n| !n.is_empty())
+                    .collect();
+                process_names.sort();
+                process_names.dedup();
+
+                let selected_label = if process_name.is_empty() {
+                    "Select a game...".to_string()
+                } else {
+                    process_name.clone()
+                };
+
+                let prev_process = process_name.clone();
+                egui::ComboBox::from_id_salt(
+                    egui::Id::new("props_game_capture_combo").with(selected_id.0),
+                )
+                .selected_text(&selected_label)
+                .width(ui.available_width() - 8.0)
+                .show_ui(ui, |ui| {
+                    for name in &process_names {
+                        ui.selectable_value(process_name, name.clone(), name);
+                    }
+                });
+
+                if *process_name != prev_process {
+                    // Update window_title from the selected process.
+                    if let Some(win) = windows.iter().find(|w| {
+                        w.process_name.eq_ignore_ascii_case(process_name)
+                    }) {
+                        *window_title = win.title.clone();
+                    }
+
+                    // Restart capture with the new game.
+                    if let Some(ref tx) = cmd_tx {
+                        let _ = tx.try_send(GstCommand::RemoveCaptureSource {
+                            source_id: selected_id,
+                        });
+                        if let Some(win) = windows.iter().find(|w| {
+                            w.process_name.eq_ignore_ascii_case(process_name)
+                        }) {
+                            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                                source_id: selected_id,
+                                config: CaptureSourceConfig::GameCapture {
+                                    process_id: win.process_id,
+                                    hwnd: win.native_handle,
+                                    process_name: process_name.clone(),
+                                },
+                                fps: state.settings.video.fps,
+                            });
+                        }
+                    }
+                    changed = true;
+                }
+
+                if !process_name.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!("Process: {}", process_name))
+                            .color(theme.text_secondary)
+                            .size(10.0),
+                    );
+                }
+            }
+        }
         SourceType::Browser => {
             section_label(ui, "BROWSER");
             ui.add_space(4.0);

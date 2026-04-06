@@ -33,6 +33,17 @@ struct WinWindowSource {
     failed_hwnd: Option<u64>,
 }
 
+/// State for a game capture source using DLL injection + DirectX hooking.
+#[cfg(target_os = "windows")]
+struct GameCaptureSource {
+    process_id: u32,
+    process_name: String,
+    handles: Option<super::inject::SharedCaptureHandles>,
+    last_frame_index: u64,
+    injected: bool,
+    last_alive_check: std::time::Instant,
+}
+
 /// How often to poll windows on Windows.
 #[cfg(target_os = "windows")]
 const WIN_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
@@ -93,6 +104,9 @@ struct GstThread {
     /// Last time full window enumeration was done on Windows.
     #[cfg(target_os = "windows")]
     win_last_enum_poll: std::time::Instant,
+    /// Active game capture sources (DLL injection + hook).
+    #[cfg(target_os = "windows")]
+    game_captures: HashMap<SourceId, GameCaptureSource>,
     // Audio capture
     mic_pipeline: Option<gstreamer::Pipeline>,
     mic_appsink: Option<AppSink>,
@@ -119,6 +133,8 @@ impl GstThread {
             win_last_fg_poll: std::time::Instant::now(),
             #[cfg(target_os = "windows")]
             win_last_enum_poll: std::time::Instant::now(),
+            #[cfg(target_os = "windows")]
+            game_captures: HashMap::new(),
             stream_handles: None,
             record_handles: None,
             #[cfg(target_os = "macos")]
@@ -166,6 +182,18 @@ impl GstThread {
         #[cfg(target_os = "windows")]
         if let CaptureSourceConfig::Window { mode, capture_size } = config {
             self.add_win_window_capture_source(source_id, mode.clone(), *capture_size, fps);
+            return;
+        }
+
+        // Game capture uses DLL injection + DirectX hooking (Windows only).
+        #[cfg(target_os = "windows")]
+        if let CaptureSourceConfig::GameCapture {
+            process_id,
+            process_name,
+            ..
+        } = config
+        {
+            self.start_game_capture(source_id, *process_id, process_name.clone());
             return;
         }
 
@@ -581,6 +609,16 @@ impl GstThread {
         #[cfg(target_os = "windows")]
         self.win_watched_windows.remove(&source_id);
 
+        #[cfg(target_os = "windows")]
+        if let Some(gc) = self.game_captures.remove(&source_id) {
+            self.stop_game_capture_inner(gc);
+            // Also remove from latest_frames.
+            if let Ok(mut frames) = self.channels.latest_frames.lock() {
+                frames.remove(&source_id);
+            }
+            log::info!("Game capture stopped for source {source_id:?}");
+        }
+
         if let Some(handle) = self.captures.remove(&source_id) {
             // Signal the capture thread to stop (if any).
             if let Some(ref running) = handle.capture_running {
@@ -739,9 +777,6 @@ impl GstThread {
                 if let Some(audio) = self.audio_pipelines.get(&source_id) {
                     audio.volume_element.set_property("mute", muted);
                 }
-            }
-            GstCommand::SetCaptureBorder { source_id, visible } => {
-                self.handle_set_capture_border(source_id, visible)
             }
             GstCommand::CaptureForegroundWindow => self.handle_capture_foreground_window(),
             GstCommand::Shutdown => return self.handle_shutdown(),
@@ -1180,20 +1215,6 @@ impl GstThread {
         }
     }
 
-    /// Toggle the WGC capture border on a window capture source.
-    fn handle_set_capture_border(&mut self, source_id: SourceId, visible: bool) {
-        if let Some(handle) = self.captures.get(&source_id) {
-            if let Some(src_element) = handle.pipeline.by_name("capture-source") {
-                // Only set if the element has the property (WGC window captures).
-                if src_element
-                    .find_property("show-border")
-                    .is_some()
-                {
-                    src_element.set_property("show-border", visible);
-                }
-            }
-        }
-    }
 
     #[cfg(not(target_os = "windows"))]
     fn handle_capture_foreground_window(&mut self) {
@@ -1214,6 +1235,128 @@ impl GstThread {
 
     #[cfg(not(target_os = "macos"))]
     fn handle_update_display_exclusion(&mut self, _exclude_self: bool) {}
+
+    // ── Game capture (Windows) ──────────────────────────────────────────
+
+    /// Start a game capture: create shared memory, inject the hook DLL.
+    #[cfg(target_os = "windows")]
+    fn start_game_capture(&mut self, source_id: SourceId, process_id: u32, process_name: String) {
+        use super::inject;
+
+        // Create shared memory and events.
+        let handles = match inject::create_shared_capture(process_id) {
+            Ok(h) => h,
+            Err(e) => {
+                log::error!("Game capture: failed to create shared memory for {source_id:?}: {e}");
+                let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                    message: format!("Game capture setup failed: {e}"),
+                });
+                return;
+            }
+        };
+
+        // Locate the hook DLL next to our executable.
+        let dll_path = match std::env::current_exe() {
+            Ok(exe) => exe.parent().unwrap_or(std::path::Path::new(".")).join("lodestone_hook.dll"),
+            Err(_) => std::path::PathBuf::from("lodestone_hook.dll"),
+        };
+
+        if !dll_path.exists() {
+            log::error!("Game capture: hook DLL not found at {}", dll_path.display());
+            inject::cleanup_shared_capture(handles);
+            let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                message: format!(
+                    "Hook DLL not found at {}. Build lodestone-hook first.",
+                    dll_path.display()
+                ),
+            });
+            return;
+        }
+
+        // Inject.
+        if let Err(e) = inject::inject_hook_dll(process_id, &dll_path) {
+            log::error!("Game capture: injection failed for {source_id:?}: {e}");
+            inject::cleanup_shared_capture(handles);
+            let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                message: format!("Game capture injection failed: {e}"),
+            });
+            return;
+        }
+
+        log::info!(
+            "Game capture started for source {source_id:?}: process \"{process_name}\" (PID {process_id})"
+        );
+
+        self.game_captures.insert(
+            source_id,
+            GameCaptureSource {
+                process_id,
+                process_name,
+                handles: Some(handles),
+                last_frame_index: 0,
+                injected: true,
+                last_alive_check: std::time::Instant::now(),
+            },
+        );
+    }
+
+    /// Poll all active game captures for new frames and check process liveness.
+    #[cfg(target_os = "windows")]
+    fn poll_game_captures(&mut self) {
+        use super::inject;
+
+        let mut dead_sources: Vec<SourceId> = Vec::new();
+
+        for (&source_id, gc) in self.game_captures.iter_mut() {
+            let Some(ref handles) = gc.handles else {
+                continue;
+            };
+
+            // Try to read a new frame.
+            if let Some(frame) = inject::try_read_frame(handles, &mut gc.last_frame_index) {
+                if let Ok(mut frames) = self.channels.latest_frames.lock() {
+                    frames.insert(source_id, frame);
+                }
+            }
+
+            // Periodically check if the target process is still alive.
+            let now = std::time::Instant::now();
+            if now.duration_since(gc.last_alive_check) >= std::time::Duration::from_secs(2) {
+                gc.last_alive_check = now;
+                if !inject::is_process_alive(handles) {
+                    log::info!(
+                        "Game capture: process \"{}\" (PID {}) exited — stopping capture for {source_id:?}",
+                        gc.process_name,
+                        gc.process_id,
+                    );
+                    dead_sources.push(source_id);
+                }
+            }
+        }
+
+        // Clean up dead captures.
+        for source_id in dead_sources {
+            if let Some(gc) = self.game_captures.remove(&source_id) {
+                self.stop_game_capture_inner(gc);
+                if let Ok(mut frames) = self.channels.latest_frames.lock() {
+                    frames.remove(&source_id);
+                }
+            }
+        }
+    }
+
+    /// Internal: signal shutdown and clean up a game capture source.
+    #[cfg(target_os = "windows")]
+    fn stop_game_capture_inner(&self, gc: GameCaptureSource) {
+        use super::inject;
+
+        if let Some(handles) = gc.handles {
+            inject::signal_shutdown(&handles);
+            // Give the hook DLL a moment to unhook before we tear down shared memory.
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            inject::cleanup_shared_capture(handles);
+        }
+    }
 
     #[cfg(target_os = "macos")]
     fn handle_start_virtual_camera(&mut self, fps: u32) {
@@ -1275,6 +1418,11 @@ impl GstThread {
                 let _ = super::screencapturekit::stop_display_capture(sck);
             }
             let _ = handle.pipeline.set_state(gstreamer::State::Null);
+        }
+        // Stop all game captures.
+        #[cfg(target_os = "windows")]
+        for (_, gc) in self.game_captures.drain() {
+            self.stop_game_capture_inner(gc);
         }
         true
     }
@@ -1486,6 +1634,8 @@ impl GstThread {
             }
             #[cfg(target_os = "windows")]
             self.poll_win_foreground_window();
+            #[cfg(target_os = "windows")]
+            self.poll_game_captures();
 
             let pts = gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);
 

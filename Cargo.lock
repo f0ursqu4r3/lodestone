@@ -2507,6 +2507,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lodestone-hook"
+version = "0.1.0"
+
+[[package]]
 name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"

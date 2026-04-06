@@ -90,11 +90,6 @@ pub enum GstCommand {
         source_id: SourceId,
         muted: bool,
     },
-    /// Toggle the WGC capture border on a window capture source.
-    SetCaptureBorder {
-        source_id: SourceId,
-        visible: bool,
-    },
     /// Trigger foreground window capture for all ForegroundOnHotkey sources.
     CaptureForegroundWindow,
     #[allow(dead_code)]
@@ -131,6 +126,12 @@ pub enum CaptureSourceConfig {
     AudioFile {
         path: String,
         looping: bool,
+    },
+    /// Game capture via DLL injection + DirectX hooking (Windows only).
+    GameCapture {
+        process_id: u32,
+        hwnd: u64,
+        process_name: String,
     },
 }
 

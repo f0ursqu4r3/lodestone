@@ -46,6 +46,8 @@ pub struct WindowInfo {
     pub native_handle: u64,
     /// Process/executable name (e.g., "notepad.exe"). Populated on Windows.
     pub process_name: String,
+    /// Process ID of the owning process.
+    pub process_id: u32,
     /// Bounding rect: (x, y, width, height) in logical points.
     #[allow(dead_code)]
     pub bounds: (f64, f64, f64, f64),
@@ -259,6 +261,7 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
             bundle_id,
             native_handle: window_id as u64,
             process_name: String::new(),
+            process_id: 0,
             bounds,
             is_on_screen,
             is_fullscreen,
@@ -409,6 +412,7 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
                 bundle_id: String::new(),
                 native_handle: hwnd as u64,
                 process_name,
+                process_id: pid,
                 bounds: (0.0, 0.0, width as f64, height as f64),
                 is_on_screen: true,
                 is_fullscreen,

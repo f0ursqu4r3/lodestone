@@ -247,6 +247,7 @@ fn draw_add_button(ui: &mut egui::Ui, state: &mut AppState) {
                 let capture_items: &[(&str, SourceType)] = &[
                     ("Display", SourceType::Display),
                     ("Window", SourceType::Window),
+                    ("Game Capture", SourceType::GameCapture),
                     ("Camera", SourceType::Camera),
                     ("Image", SourceType::Image),
                 ];
@@ -406,6 +407,20 @@ fn add_library_source(state: &mut AppState, source_type: SourceType) {
                 },
             )
         }
+        SourceType::GameCapture => {
+            let count = state
+                .library
+                .iter()
+                .filter(|s| matches!(s.source_type, SourceType::GameCapture))
+                .count();
+            (
+                format!("Game Capture {}", count + 1),
+                SourceProperties::GameCapture {
+                    process_name: String::new(),
+                    window_title: String::new(),
+                },
+            )
+        }
     };
 
     // Determine native size from detected resolution for display/camera,
@@ -536,6 +551,7 @@ fn type_section_label(source_type: &SourceType) -> &'static str {
         SourceType::Browser => "Browsers",
         SourceType::Text => "Text",
         SourceType::Color => "Colors",
+        SourceType::GameCapture => "Game Captures",
     }
 }
 
@@ -563,6 +579,7 @@ fn draw_by_type_view(
         SourceType::Camera,
         SourceType::Color,
         SourceType::Display,
+        SourceType::GameCapture,
         SourceType::Image,
         SourceType::Text,
         SourceType::Window,

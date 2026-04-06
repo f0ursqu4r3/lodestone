@@ -1,0 +1,11 @@
+[package]
+name = "lodestone-hook"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+# Zero heavyweight dependencies — pure Win32/COM FFI.
+# This keeps the DLL small and avoids pulling GStreamer into the game process.
+[dependencies]

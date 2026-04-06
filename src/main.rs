@@ -275,9 +275,6 @@ struct AppManager {
     /// Whether global hotkeys have been registered (Windows).
     #[cfg(target_os = "windows")]
     global_hotkeys_registered: bool,
-    /// Window capture sources that currently have the WGC border enabled.
-    /// Used to detect selection changes and toggle borders.
-    border_enabled_sources: Vec<crate::scene::SourceId>,
 }
 
 impl AppManager {
@@ -400,7 +397,6 @@ impl AppManager {
             start_time: std::time::Instant::now(),
             #[cfg(target_os = "windows")]
             global_hotkeys_registered: false,
-            border_enabled_sources: Vec::new(),
         }
     }
 
@@ -963,6 +959,33 @@ impl ApplicationHandler for AppManager {
                                         // Can't push to state here (immutable borrow),
                                         // store for later.
                                         startup_gif_animations.extend(pending_anims);
+                                    }
+                                }
+                            }
+                            crate::scene::SourceProperties::GameCapture {
+                                process_name, ..
+                            } => {
+                                if let Some(ref tx) = state.command_tx {
+                                    if !process_name.is_empty() {
+                                        let windows =
+                                            gstreamer::devices::enumerate_windows();
+                                        if let Some(win) = windows.iter().find(|w| {
+                                            w.process_name
+                                                .eq_ignore_ascii_case(process_name)
+                                        }) {
+                                            let _ = tx.try_send(
+                                                gstreamer::GstCommand::AddCaptureSource {
+                                                    source_id: src_id,
+                                                    config:
+                                                        gstreamer::CaptureSourceConfig::GameCapture {
+                                                            process_id: win.process_id,
+                                                            hwnd: win.native_handle,
+                                                            process_name: process_name.clone(),
+                                                        },
+                                                    fps: state.settings.video.fps,
+                                                },
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -2807,47 +2830,6 @@ impl ApplicationHandler for AppManager {
             }
         }
 
-        // Sync WGC capture border with source selection state.
-        // Only window capture sources that are selected in the preview should show the border.
-        {
-            let app_state = self.state.lock().expect("lock AppState");
-            let selected = &app_state.selected_source_ids;
-
-            // Find which window sources are currently selected.
-            let mut new_border_sources: Vec<crate::scene::SourceId> = Vec::new();
-            for id in selected {
-                if let Some(lib) = app_state.library.iter().find(|s| s.id == *id) {
-                    if matches!(lib.source_type, crate::scene::SourceType::Window) {
-                        new_border_sources.push(*id);
-                    }
-                }
-            }
-
-            if new_border_sources != self.border_enabled_sources {
-                if let Some(ref tx) = app_state.command_tx {
-                    // Disable border on previously selected sources.
-                    for &id in &self.border_enabled_sources {
-                        if !new_border_sources.contains(&id) {
-                            let _ = tx.try_send(gstreamer::GstCommand::SetCaptureBorder {
-                                source_id: id,
-                                visible: false,
-                            });
-                        }
-                    }
-                    // Enable border on newly selected sources.
-                    for &id in &new_border_sources {
-                        if !self.border_enabled_sources.contains(&id) {
-                            let _ = tx.try_send(gstreamer::GstCommand::SetCaptureBorder {
-                                source_id: id,
-                                visible: true,
-                            });
-                        }
-                    }
-                }
-                drop(app_state);
-                self.border_enabled_sources = new_border_sources;
-            }
-        }
 
         // Process native menu events
         if let Ok(event) = MenuEvent::receiver().try_recv() {

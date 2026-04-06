@@ -723,6 +723,25 @@ fn start_capture_from_properties(
             };
             let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config, fps: state.settings.video.fps });
         }
+        SourceProperties::GameCapture { process_name, .. } => {
+            if !process_name.is_empty() {
+                let windows = crate::gstreamer::devices::enumerate_windows();
+                if let Some(win) = windows.iter().find(|w| {
+                    w.process_name.eq_ignore_ascii_case(process_name)
+                }) {
+                    let _ = tx.try_send(GstCommand::AddCaptureSource {
+                        source_id,
+                        config: CaptureSourceConfig::GameCapture {
+                            process_id: win.process_id,
+                            hwnd: win.native_handle,
+                            process_name: process_name.clone(),
+                        },
+                        fps: state.settings.video.fps,
+                    });
+                    state.capture_active = true;
+                }
+            }
+        }
         // Text, Color, Browser, Image: no capture pipeline
         _ => {}
     }
@@ -736,7 +755,7 @@ fn stop_capture_for_source(
 ) {
     if matches!(
         source_type,
-        SourceType::Display | SourceType::Window | SourceType::Camera | SourceType::Audio
+        SourceType::Display | SourceType::Window | SourceType::Camera | SourceType::Audio | SourceType::GameCapture
     ) && let Some(tx) = cmd_tx
     {
         let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id });

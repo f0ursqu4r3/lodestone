@@ -18,6 +18,7 @@ pub fn source_icon(source_type: &SourceType) -> &'static str {
         SourceType::Window => egui_phosphor::regular::APP_WINDOW,
         SourceType::Text => egui_phosphor::regular::TEXT_AA,
         SourceType::Color => egui_phosphor::regular::PALETTE,
+        SourceType::GameCapture => egui_phosphor::regular::GAME_CONTROLLER,
     }
 }
 

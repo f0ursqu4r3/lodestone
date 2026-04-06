@@ -110,6 +110,7 @@ pub enum SourceType {
     Browser,
     Text,
     Color,
+    GameCapture,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -279,6 +280,15 @@ pub enum SourceProperties {
         width: u32,
         #[serde(default = "default_browser_height")]
         height: u32,
+    },
+    /// Game capture via DLL injection + DirectX hooking.
+    GameCapture {
+        /// Executable name of the target game process (e.g. "game.exe").
+        #[serde(default)]
+        process_name: String,
+        /// Optional window title for disambiguation.
+        #[serde(default)]
+        window_title: String,
     },
 }
 
@@ -585,6 +595,7 @@ impl SceneCollection {
                 (SourceType::Color, SourceProperties::Color { .. }) => false,
                 (SourceType::Audio, SourceProperties::Audio { .. }) => false,
                 (SourceType::Browser, SourceProperties::Browser { .. }) => false,
+                (SourceType::GameCapture, SourceProperties::GameCapture { .. }) => false,
                 _ => true,
             };
             if needs_migration {

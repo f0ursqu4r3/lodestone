@@ -1,0 +1,2 @@
+[env]
+PKG_CONFIG_PATH_x86_64_pc_windows_msvc = { value = "C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/pkgconfig;C:/Program Files/gstreamer/1.0/msvc_x86_64/lib/gstreamer-1.0/pkgconfig", force = false }

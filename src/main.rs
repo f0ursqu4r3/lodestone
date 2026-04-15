@@ -70,7 +70,7 @@ fn resolve_scene_sources(
                         .find(|s| s.id == scene_src.source_id)
                         .map(|lib| {
                             // Resolve effect chain and convert to ResolvedEffect.
-                            let effect_chain = scene_src.resolve_effects(lib);
+                            let effect_chain = scene_src.effect_chain(lib);
                             let resolved_effects: Vec<
                                 crate::renderer::effect_pipeline::ResolvedEffect,
                             > = effect_chain
@@ -79,9 +79,7 @@ fn resolve_scene_sources(
                                 .filter_map(|e| {
                                     let def = state.effect_registry.get(&e.effect_id)?;
                                     let mut params = [0.0f32; 8];
-                                    for (i, param_def) in
-                                        def.params.iter().enumerate().take(8)
-                                    {
+                                    for (i, param_def) in def.params.iter().enumerate().take(8) {
                                         params[i] = e
                                             .params
                                             .get(&param_def.name)
@@ -115,6 +113,23 @@ fn resolve_scene_sources(
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn event_needs_undo_snapshot(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::KeyboardInput {
+            event: KeyEvent {
+                state: winit::event::ElementState::Pressed,
+                ..
+            },
+            ..
+        } | WindowEvent::MouseInput { .. }
+            | WindowEvent::MouseWheel { .. }
+            | WindowEvent::Touch { .. }
+            | WindowEvent::Ime(_)
+            | WindowEvent::DroppedFile(_)
+    )
 }
 
 /// Holds the native menu bar and IDs for each menu item.
@@ -435,10 +450,7 @@ impl AppManager {
             if let Some(vk) = key_name_to_vk(&binding.key) {
                 let ok = unsafe { RegisterHotKey(std::ptr::null_mut(), 1, mods, vk) };
                 if ok != 0 {
-                    log::info!(
-                        "Global hotkey registered: {} (id=1)",
-                        binding.display()
-                    );
+                    log::info!("Global hotkey registered: {} (id=1)", binding.display());
                 } else {
                     log::warn!(
                         "Failed to register global hotkey: {} (may be in use by another app)",
@@ -768,9 +780,7 @@ impl AppManager {
                     if result == 0 {
                         log::warn!("SetWindowDisplayAffinity failed for hwnd {hwnd:#x}");
                     } else {
-                        log::debug!(
-                            "SetWindowDisplayAffinity({hwnd:#x}, {affinity:#x}) succeeded"
-                        );
+                        log::debug!("SetWindowDisplayAffinity({hwnd:#x}, {affinity:#x}) succeeded");
                     }
                 }
             }
@@ -933,9 +943,18 @@ impl ApplicationHandler for AppManager {
                                     });
                                 }
                             }
-                            crate::scene::SourceProperties::Camera { device_index, device_name, device_uid } => {
+                            crate::scene::SourceProperties::Camera {
+                                device_index,
+                                device_name,
+                                device_uid,
+                            } => {
                                 if let Some(ref tx) = state.command_tx {
-                                    let idx = gstreamer::resolve_camera_index(&state.available_cameras, device_uid, device_name, *device_index);
+                                    let idx = gstreamer::resolve_camera_index(
+                                        &state.available_cameras,
+                                        device_uid,
+                                        device_name,
+                                        *device_index,
+                                    );
                                     let _ = tx.try_send(gstreamer::GstCommand::AddCaptureSource {
                                         source_id: src_id,
                                         config: gstreamer::CaptureSourceConfig::Camera {
@@ -967,11 +986,9 @@ impl ApplicationHandler for AppManager {
                             } => {
                                 if let Some(ref tx) = state.command_tx {
                                     if !process_name.is_empty() {
-                                        let windows =
-                                            gstreamer::devices::enumerate_windows();
+                                        let windows = gstreamer::devices::enumerate_windows();
                                         if let Some(win) = windows.iter().find(|w| {
-                                            w.process_name
-                                                .eq_ignore_ascii_case(process_name)
+                                            w.process_name.eq_ignore_ascii_case(process_name)
                                         }) {
                                             let _ = tx.try_send(
                                                 gstreamer::GstCommand::AddCaptureSource {
@@ -1033,6 +1050,9 @@ impl ApplicationHandler for AppManager {
     ) {
         // Route event to the correct window
         if let Some(win) = self.windows.get_mut(&window_id) {
+            if event_needs_undo_snapshot(&event) {
+                win.note_input_for_undo_snapshot();
+            }
             let _ = win.egui_state.on_window_event(win.window, &event);
         }
 
@@ -1111,21 +1131,13 @@ impl ApplicationHandler for AppManager {
                     {
                         if let Some(ref tx) = app_state.command_tx {
                             if crate::ui::toolbar::validate_stream_settings(&app_state).is_none() {
-                                let _ =
-                                    tx.try_send(gstreamer::GstCommand::StartStream {
-                                        destination: app_state
-                                            .settings
-                                            .stream
-                                            .destination
-                                            .clone(),
-                                        stream_key: app_state
-                                            .settings
-                                            .stream
-                                            .stream_key
-                                            .clone(),
-                                        encoder_config:
-                                            crate::ui::toolbar::stream_encoder_config(&app_state),
-                                    });
+                                let _ = tx.try_send(gstreamer::GstCommand::StartStream {
+                                    destination: app_state.settings.stream.destination.clone(),
+                                    stream_key: app_state.settings.stream.stream_key.clone(),
+                                    encoder_config: crate::ui::toolbar::stream_encoder_config(
+                                        &app_state,
+                                    ),
+                                });
                             }
                         }
                         drop(app_state);
@@ -1163,24 +1175,22 @@ impl ApplicationHandler for AppManager {
                         if let Some(ref tx) = app_state.command_tx {
                             let counter = app_state.recording_counter + 1;
                             let scene_name = "Main";
-                            let filename =
-                                crate::settings::RecordSettings::expand_template(
-                                    &app_state.settings.record.filename_template,
-                                    scene_name,
-                                    counter,
-                                );
+                            let filename = crate::settings::RecordSettings::expand_template(
+                                &app_state.settings.record.filename_template,
+                                scene_name,
+                                counter,
+                            );
                             let ext = match app_state.settings.record.format {
                                 gstreamer::RecordingFormat::Mkv => "mkv",
                                 gstreamer::RecordingFormat::Mp4 => "mp4",
                             };
-                            let folder =
-                                if app_state.settings.record.output_folder.exists() {
-                                    app_state.settings.record.output_folder.clone()
-                                } else {
-                                    dirs::video_dir()
-                                        .or_else(dirs::home_dir)
-                                        .unwrap_or_else(|| std::path::PathBuf::from("."))
-                                };
+                            let folder = if app_state.settings.record.output_folder.exists() {
+                                app_state.settings.record.output_folder.clone()
+                            } else {
+                                dirs::video_dir()
+                                    .or_else(dirs::home_dir)
+                                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                            };
                             let path = folder.join(format!("{filename}.{ext}"));
                             let _ = tx.try_send(gstreamer::GstCommand::StartRecording {
                                 path: path.clone(),
@@ -1749,15 +1759,16 @@ impl ApplicationHandler for AppManager {
                                             .map(|s| s.source_ids().contains(&src_id))
                                             .unwrap_or(false);
                                         if !already_running {
-                                            let anims = crate::ui::scenes_panel::start_capture_source(
-                                                &cmd_tx,
-                                                &app_state.library,
-                                                &app_state.available_cameras,
-                                                src_id,
-                                                exclude_self,
-                                                capture_size,
-                                                app_state.settings.video.fps,
-                                            );
+                                            let anims =
+                                                crate::ui::scenes_panel::start_capture_source(
+                                                    &cmd_tx,
+                                                    &app_state.library,
+                                                    &app_state.available_cameras,
+                                                    src_id,
+                                                    exclude_self,
+                                                    capture_size,
+                                                    app_state.settings.video.fps,
+                                                );
                                             app_state.pending_gif_animations.extend(anims);
                                         }
                                     }
@@ -2038,17 +2049,27 @@ impl ApplicationHandler for AppManager {
                                 let dir = settings::effects_dir();
                                 let _ = std::fs::create_dir_all(&dir);
                                 #[cfg(target_os = "windows")]
-                                { let _ = std::process::Command::new("explorer").arg(&dir).spawn(); }
+                                {
+                                    let _ =
+                                        std::process::Command::new("explorer").arg(&dir).spawn();
+                                }
                                 #[cfg(not(target_os = "windows"))]
-                                { let _ = std::process::Command::new("open").arg(&dir).spawn(); }
+                                {
+                                    let _ = std::process::Command::new("open").arg(&dir).spawn();
+                                }
                             }
                             if open_transitions {
                                 let dir = settings::transitions_dir();
                                 let _ = std::fs::create_dir_all(&dir);
                                 #[cfg(target_os = "windows")]
-                                { let _ = std::process::Command::new("explorer").arg(&dir).spawn(); }
+                                {
+                                    let _ =
+                                        std::process::Command::new("explorer").arg(&dir).spawn();
+                                }
                                 #[cfg(not(target_os = "windows"))]
-                                { let _ = std::process::Command::new("open").arg(&dir).spawn(); }
+                                {
+                                    let _ = std::process::Command::new("open").arg(&dir).spawn();
+                                }
                             }
                         }
 
@@ -2692,13 +2713,15 @@ impl ApplicationHandler for AppManager {
                 // 60-120fps but the video is configured for 30fps, causing
                 // choppiness and duplicate frame issues.
                 if is_encoding {
-                    let target_interval = std::time::Duration::from_secs_f64(
-                        1.0 / encode_fps.max(1) as f64,
-                    );
+                    let target_interval =
+                        std::time::Duration::from_secs_f64(1.0 / encode_fps.max(1) as f64);
                     if self.last_readback_at.elapsed() >= target_interval {
                         self.last_readback_at = std::time::Instant::now();
-                        gpu.compositor
-                            .start_readback(&gpu.device, &gpu.queue, force_output_readback);
+                        gpu.compositor.start_readback(
+                            &gpu.device,
+                            &gpu.queue,
+                            force_output_readback,
+                        );
                     }
                 }
 
@@ -2829,7 +2852,6 @@ impl ApplicationHandler for AppManager {
                 self.set_window_display_affinity(exclude);
             }
         }
-
 
         // Process native menu events
         if let Ok(event) = MenuEvent::receiver().try_recv() {

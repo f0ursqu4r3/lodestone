@@ -611,7 +611,7 @@ impl GstThread {
 
         #[cfg(target_os = "windows")]
         if let Some(gc) = self.game_captures.remove(&source_id) {
-            self.stop_game_capture_inner(gc);
+            Self::stop_game_capture_inner(gc);
             // Also remove from latest_frames.
             if let Ok(mut frames) = self.channels.latest_frames.lock() {
                 frames.remove(&source_id);
@@ -1337,7 +1337,7 @@ impl GstThread {
         // Clean up dead captures.
         for source_id in dead_sources {
             if let Some(gc) = self.game_captures.remove(&source_id) {
-                self.stop_game_capture_inner(gc);
+                Self::stop_game_capture_inner(gc);
                 if let Ok(mut frames) = self.channels.latest_frames.lock() {
                     frames.remove(&source_id);
                 }
@@ -1347,7 +1347,7 @@ impl GstThread {
 
     /// Internal: signal shutdown and clean up a game capture source.
     #[cfg(target_os = "windows")]
-    fn stop_game_capture_inner(&self, gc: GameCaptureSource) {
+    fn stop_game_capture_inner(gc: GameCaptureSource) {
         use super::inject;
 
         if let Some(handles) = gc.handles {
@@ -1422,7 +1422,7 @@ impl GstThread {
         // Stop all game captures.
         #[cfg(target_os = "windows")]
         for (_, gc) in self.game_captures.drain() {
-            self.stop_game_capture_inner(gc);
+            Self::stop_game_capture_inner(gc);
         }
         true
     }

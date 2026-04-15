@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 /// Which color uniforms a transition shader exposes to the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransitionParam {
@@ -39,7 +42,8 @@ pub struct TransitionDef {
 /// Registry of available transition shaders.
 #[derive(Debug, Clone)]
 pub struct TransitionRegistry {
-    transitions: Vec<TransitionDef>,
+    transitions: Arc<[TransitionDef]>,
+    transition_index: Arc<HashMap<String, usize>>,
     /// Simple fingerprint: concatenation of (id, shader_source length) for change detection.
     fingerprint: u64,
 }
@@ -56,11 +60,7 @@ impl TransitionRegistry {
             shader_params: Vec::new(),
             shader_source: String::new(),
         }];
-        let fingerprint = Self::compute_fingerprint(&transitions);
-        Self {
-            transitions,
-            fingerprint,
-        }
+        Self::from_transitions(transitions)
     }
 
     /// Scan a directory for `.wgsl` files and build the registry.
@@ -87,11 +87,7 @@ impl TransitionRegistry {
                     "Failed to read transitions directory {}: {e}",
                     dir.display()
                 );
-                let fingerprint = Self::compute_fingerprint(&transitions);
-                return Self {
-                    transitions,
-                    fingerprint,
-                };
+                return Self::from_transitions(transitions);
             }
         };
 
@@ -114,8 +110,7 @@ impl TransitionRegistry {
                 }
             };
 
-            let (header_name, author, description, params, shader_params) =
-                parse_header(&source);
+            let (header_name, author, description, params, shader_params) = parse_header(&source);
             let name = if header_name.is_empty() {
                 title_case_stem(&stem)
             } else {
@@ -137,11 +132,7 @@ impl TransitionRegistry {
         shader_defs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         transitions.extend(shader_defs);
 
-        let fingerprint = Self::compute_fingerprint(&transitions);
-        Self {
-            transitions,
-            fingerprint,
-        }
+        Self::from_transitions(transitions)
     }
 
     /// Re-scan the transitions directory. Returns true if the registry changed.
@@ -168,9 +159,29 @@ impl TransitionRegistry {
         hasher.finish()
     }
 
+    fn build_index(transitions: &[TransitionDef]) -> HashMap<String, usize> {
+        transitions
+            .iter()
+            .enumerate()
+            .map(|(idx, transition)| (transition.id.clone(), idx))
+            .collect()
+    }
+
+    fn from_transitions(transitions: Vec<TransitionDef>) -> Self {
+        let fingerprint = Self::compute_fingerprint(&transitions);
+        let transition_index = Self::build_index(&transitions);
+        Self {
+            transitions: Arc::<[TransitionDef]>::from(transitions),
+            transition_index: Arc::new(transition_index),
+            fingerprint,
+        }
+    }
+
     /// Look up a transition by ID.
     pub fn get(&self, id: &str) -> Option<&TransitionDef> {
-        self.transitions.iter().find(|t| t.id == id)
+        self.transition_index
+            .get(id)
+            .map(|&idx| &self.transitions[idx])
     }
 
     /// All available transitions, in order (Cut first, then alphabetical).

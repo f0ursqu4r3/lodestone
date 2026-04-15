@@ -406,12 +406,14 @@ impl SceneSource {
         self.overrides.volume.is_some()
     }
 
+    /// Borrow the effective effect chain without cloning.
+    pub fn effect_chain<'a>(&'a self, lib: &'a LibrarySource) -> &'a [EffectInstance] {
+        self.overrides.effects.as_deref().unwrap_or(&lib.effects)
+    }
+
     /// Resolve the effect chain: use scene override if set, otherwise library defaults.
     pub fn resolve_effects(&self, lib: &LibrarySource) -> Vec<EffectInstance> {
-        self.overrides
-            .effects
-            .clone()
-            .unwrap_or_else(|| lib.effects.clone())
+        self.effect_chain(lib).to_vec()
     }
 
     /// Returns true if the scene overrides the effect chain.

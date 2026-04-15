@@ -21,7 +21,9 @@
       "Bash(export PKG_CONFIG_PATH=\"/c/Program Files/gstreamer/1.0/msvc_x86_64/lib/pkgconfig\")",
       "Bash(export GSTREAMER_1_0_ROOT_MSVC_X86_64=\"/c/Program Files/gstreamer/1.0/msvc_x86_64/\")",
       "Bash(export PATH=\"/c/Program Files/gstreamer/1.0/msvc_x86_64/bin:$PATH\")",
-      "Bash(cargo clippy:*)"
+      "Bash(cargo clippy:*)",
+      "WebSearch",
+      "Bash(cargo check:*)"
     ]
   }
 }

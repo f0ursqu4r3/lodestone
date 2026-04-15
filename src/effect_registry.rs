@@ -3,7 +3,9 @@
 //! Scans a directory of `.wgsl` files, parses `@name`, `@param` headers,
 //! and provides lookup by effect ID. Same pattern as `TransitionRegistry`.
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Definition of a single parameter exposed by an effect shader.
 #[derive(Debug, Clone)]
@@ -40,7 +42,8 @@ pub struct EffectDef {
 /// Registry of available effect shaders, scanned from a directory.
 #[derive(Debug, Clone)]
 pub struct EffectRegistry {
-    effects: Vec<EffectDef>,
+    effects: Arc<[EffectDef]>,
+    effect_index: Arc<HashMap<String, usize>>,
     /// Simple fingerprint: concatenation of (id, shader_source) for change detection.
     fingerprint: u64,
 }
@@ -49,7 +52,8 @@ impl EffectRegistry {
     /// Create an empty registry.
     pub fn empty() -> Self {
         Self {
-            effects: Vec::new(),
+            effects: Arc::<[EffectDef]>::from([]),
+            effect_index: Arc::new(HashMap::new()),
             fingerprint: 0,
         }
     }
@@ -62,12 +66,8 @@ impl EffectRegistry {
         let entries = match std::fs::read_dir(dir) {
             Ok(entries) => entries,
             Err(e) => {
-                log::warn!(
-                    "Failed to read effects directory {}: {e}",
-                    dir.display()
-                );
-                let fingerprint = Self::compute_fingerprint(&effects);
-                return Self { effects, fingerprint };
+                log::warn!("Failed to read effects directory {}: {e}", dir.display());
+                return Self::from_effects(effects);
             }
         };
 
@@ -109,8 +109,7 @@ impl EffectRegistry {
         // Sort effects alphabetically by name.
         effects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
-        let fingerprint = Self::compute_fingerprint(&effects);
-        Self { effects, fingerprint }
+        Self::from_effects(effects)
     }
 
     /// Re-scan the effects directory. Returns true if the registry changed.
@@ -137,9 +136,27 @@ impl EffectRegistry {
         hasher.finish()
     }
 
+    fn build_index(effects: &[EffectDef]) -> HashMap<String, usize> {
+        effects
+            .iter()
+            .enumerate()
+            .map(|(idx, effect)| (effect.id.clone(), idx))
+            .collect()
+    }
+
+    fn from_effects(effects: Vec<EffectDef>) -> Self {
+        let fingerprint = Self::compute_fingerprint(&effects);
+        let effect_index = Self::build_index(&effects);
+        Self {
+            effects: Arc::<[EffectDef]>::from(effects),
+            effect_index: Arc::new(effect_index),
+            fingerprint,
+        }
+    }
+
     /// Look up an effect by ID.
     pub fn get(&self, id: &str) -> Option<&EffectDef> {
-        self.effects.iter().find(|e| e.id == id)
+        self.effect_index.get(id).map(|&idx| &self.effects[idx])
     }
 
     /// All available effects, in alphabetical order.
@@ -329,9 +346,21 @@ mod tests {
     #[test]
     fn registry_alphabetical_sort() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("zebra.wgsl"), "// @name: Zebra\n@fragment fn fs_main() {}").unwrap();
-        std::fs::write(dir.path().join("alpha.wgsl"), "// @name: Alpha\n@fragment fn fs_main() {}").unwrap();
-        std::fs::write(dir.path().join("gamma.wgsl"), "// @name: Gamma\n@fragment fn fs_main() {}").unwrap();
+        std::fs::write(
+            dir.path().join("zebra.wgsl"),
+            "// @name: Zebra\n@fragment fn fs_main() {}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("alpha.wgsl"),
+            "// @name: Alpha\n@fragment fn fs_main() {}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("gamma.wgsl"),
+            "// @name: Gamma\n@fragment fn fs_main() {}",
+        )
+        .unwrap();
 
         let reg = EffectRegistry::scan(dir.path());
         assert_eq!(reg.all().len(), 3);
@@ -346,7 +375,11 @@ mod tests {
         let mut reg = EffectRegistry::scan(dir.path());
         assert!(reg.all().is_empty());
 
-        std::fs::write(dir.path().join("new_effect.wgsl"), "// @name: New\n@fragment fn fs_main() {}").unwrap();
+        std::fs::write(
+            dir.path().join("new_effect.wgsl"),
+            "// @name: New\n@fragment fn fs_main() {}",
+        )
+        .unwrap();
         assert!(reg.rescan(dir.path()));
         assert_eq!(reg.all().len(), 1);
 

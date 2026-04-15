@@ -5,7 +5,13 @@ fn main() {
 
     // On Windows, build the game capture hook DLL.
     if target_os == "windows" {
-        build_hook_dll();
+        if std::env::var_os("LODESTONE_SKIP_HOOK_BUILD").is_some() {
+            println!(
+                "cargo:warning=Skipping lodestone-hook build because LODESTONE_SKIP_HOOK_BUILD is set"
+            );
+        } else {
+            build_hook_dll();
+        }
     }
 
     if target_os != "macos" {

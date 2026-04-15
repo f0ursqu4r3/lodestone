@@ -35,6 +35,8 @@ pub struct WindowState {
     base_font_defs: egui::FontDefinitions,
     /// Whether egui has completed its first `run()`. Font queries panic before this.
     first_frame_done: bool,
+    /// Set when a main-window input event could lead to an undoable UI mutation.
+    pending_undo_snapshot: bool,
     /// Last title bar color applied via DWM, to avoid redundant API calls.
     #[cfg(target_os = "windows")]
     last_titlebar_color: Option<egui::Color32>,
@@ -133,6 +135,7 @@ impl WindowState {
             loaded_fonts,
             base_font_defs,
             first_frame_done: false,
+            pending_undo_snapshot: false,
             #[cfg(target_os = "windows")]
             last_titlebar_color: None,
         })
@@ -225,7 +228,7 @@ impl WindowState {
         }
 
         // Capture pre-frame undo snapshot before any UI mutations.
-        if self.is_main {
+        if self.is_main && self.take_pending_undo_snapshot() {
             state.begin_frame_for_undo();
         }
 
@@ -238,7 +241,8 @@ impl WindowState {
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             // Detached single-panel windows skip the menu bar and toolbar.
             let available_rect = if is_main {
-                let (menu_actions, _rect) = crate::ui::layout::render::render_menu_bar(ctx, layout, state);
+                let (menu_actions, _rect) =
+                    crate::ui::layout::render::render_menu_bar(ctx, layout, state);
                 pending_actions = menu_actions;
                 // Draw the toolbar (always visible on the main window).
                 open_settings = crate::ui::toolbar::draw(ctx, state);
@@ -536,6 +540,17 @@ impl WindowState {
         Ok(())
     }
 
+    /// Mark that the next main-window render should capture an undo snapshot.
+    pub fn note_input_for_undo_snapshot(&mut self) {
+        if self.is_main {
+            self.pending_undo_snapshot = true;
+        }
+    }
+
+    fn take_pending_undo_snapshot(&mut self) -> bool {
+        std::mem::take(&mut self.pending_undo_snapshot)
+    }
+
     /// Update the Windows title bar caption color to match the given theme background.
     ///
     /// Uses `DwmSetWindowAttribute` with `DWMWA_CAPTION_COLOR` (35) and
@@ -642,8 +657,7 @@ impl WindowState {
         #[cfg(target_os = "windows")]
         {
             // Windows system fonts directory
-            let win_dir =
-                std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
+            let win_dir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
             let fonts_dir = std::path::PathBuf::from(&win_dir).join("Fonts");
             candidates.extend([
                 fonts_dir.join(format!("{name}.ttf")),

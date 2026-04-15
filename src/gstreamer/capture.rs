@@ -118,6 +118,9 @@ pub fn build_capture_pipeline(
         CaptureSourceConfig::AudioDevice { .. } | CaptureSourceConfig::AudioFile { .. } => {
             anyhow::bail!("Audio sources are not handled by the video capture pipeline");
         }
+        CaptureSourceConfig::GameCapture { .. } => {
+            anyhow::bail!("Game capture uses the Windows hook pipeline, not the video capture pipeline");
+        }
     };
 
     let convert = gstreamer::ElementFactory::make("videoconvert")

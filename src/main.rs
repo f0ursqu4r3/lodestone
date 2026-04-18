@@ -1164,7 +1164,7 @@ impl ApplicationHandler for AppManager {
                     {
                         if let Some(ref tx) = app_state.command_tx {
                             let counter = app_state.recording_counter + 1;
-                            let scene_name = "Main";
+                            let scene_name = crate::ui::toolbar::recording_scene_name(&app_state);
                             let filename = crate::settings::RecordSettings::expand_template(
                                 &app_state.settings.record.filename_template,
                                 scene_name,
@@ -1212,12 +1212,12 @@ impl ApplicationHandler for AppManager {
                     if let Some(binding) = hotkeys.get("toggle_mute_mic")
                         && binding.matches(key_code, mods)
                     {
+                        app_state.mic_muted = !app_state.mic_muted;
+                        let muted = app_state.mic_muted;
                         if let Some(ref tx) = app_state.command_tx {
-                            // Toggle: we don't have "is_muted" state for global mic,
-                            // so this is a best-effort toggle.
                             let _ = tx.try_send(gstreamer::GstCommand::SetAudioMuted {
                                 source: gstreamer::AudioSourceKind::Mic,
-                                muted: true, // TODO: proper toggle with tracked state
+                                muted,
                             });
                         }
                         return;
@@ -1227,10 +1227,12 @@ impl ApplicationHandler for AppManager {
                     if let Some(binding) = hotkeys.get("toggle_mute_desktop")
                         && binding.matches(key_code, mods)
                     {
+                        app_state.system_muted = !app_state.system_muted;
+                        let muted = app_state.system_muted;
                         if let Some(ref tx) = app_state.command_tx {
                             let _ = tx.try_send(gstreamer::GstCommand::SetAudioMuted {
                                 source: gstreamer::AudioSourceKind::System,
-                                muted: true, // TODO: proper toggle with tracked state
+                                muted,
                             });
                         }
                         return;

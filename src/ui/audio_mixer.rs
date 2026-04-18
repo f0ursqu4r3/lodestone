@@ -51,7 +51,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
 
 fn draw_channel_strip(
     ui: &mut egui::Ui,
-    state: &AppState,
+    state: &mut AppState,
     name: &str,
     kind: AudioSourceKind,
     levels: Option<&crate::gstreamer::AudioLevels>,
@@ -59,6 +59,14 @@ fn draw_channel_strip(
     let theme = active_theme(ui.ctx());
     let current_db = levels.map(|l| l.rms_db).unwrap_or(-60.0);
     let peak_db = levels.map(|l| l.peak_db).unwrap_or(-60.0);
+    let mut volume = match kind {
+        AudioSourceKind::Mic => state.mic_volume,
+        AudioSourceKind::System => state.system_volume,
+    };
+    let mut muted = match kind {
+        AudioSourceKind::Mic => state.mic_muted,
+        AudioSourceKind::System => state.system_muted,
+    };
 
     ui.vertical(|ui| {
         // Source label: 9px uppercase text_muted, centered
@@ -169,8 +177,6 @@ fn draw_channel_strip(
                 );
 
                 // Read current volume from egui memory (0.0–1.0).
-                let vol_id = egui::Id::new(("audio_vol", name));
-                let mut volume: f32 = ui.memory(|m| m.data.get_temp(vol_id).unwrap_or(1.0));
 
                 // Fill representing current volume level.
                 let fill_h = fader_rect.height() * volume;
@@ -208,7 +214,6 @@ fn draw_channel_strip(
                         });
                     }
                 }
-                ui.memory_mut(|m| m.data.insert_temp(vol_id, volume));
             }
 
             ui.add_space(4.0);
@@ -229,8 +234,6 @@ fn draw_channel_strip(
             ui.add_space(4.0);
 
             // Mute toggle: 20x16px, 1px BORDER, 2px corner radius
-            let mute_id = egui::Id::new(("audio_mute", name));
-            let mut muted: bool = ui.memory(|m| m.data.get_temp(mute_id).unwrap_or(false));
 
             let mute_size = egui::vec2(20.0, 16.0);
             let (mute_rect, mute_response) =
@@ -245,7 +248,6 @@ fn draw_channel_strip(
                     });
                 }
             }
-            ui.memory_mut(|m| m.data.insert_temp(mute_id, muted));
 
             // Draw mute button
             let (bg, text_color) = if muted {
@@ -269,6 +271,17 @@ fn draw_channel_strip(
             );
         });
     });
+
+    match kind {
+        AudioSourceKind::Mic => {
+            state.mic_volume = volume;
+            state.mic_muted = muted;
+        }
+        AudioSourceKind::System => {
+            state.system_volume = volume;
+            state.system_muted = muted;
+        }
+    }
 }
 
 /// Linearly interpolate between two colors.

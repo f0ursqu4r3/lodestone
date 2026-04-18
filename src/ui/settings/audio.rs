@@ -44,6 +44,14 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
                                         source: AudioSourceKind::Mic,
                                         device_uid: dev.uid.clone(),
                                     });
+                                    let _ = tx.try_send(GstCommand::SetAudioVolume {
+                                        source: AudioSourceKind::Mic,
+                                        volume: state.mic_volume,
+                                    });
+                                    let _ = tx.try_send(GstCommand::SetAudioMuted {
+                                        source: AudioSourceKind::Mic,
+                                        muted: state.mic_muted,
+                                    });
                                 }
                                 c = true;
                             }

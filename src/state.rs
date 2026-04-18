@@ -129,6 +129,10 @@ pub struct AppState {
     /// Buffer for the inline rename text edit.
     pub rename_buffer: String,
     pub audio_levels: crate::gstreamer::AudioLevelUpdate,
+    pub mic_volume: f32,
+    pub system_volume: f32,
+    pub mic_muted: bool,
+    pub system_muted: bool,
     pub available_audio_devices: Vec<crate::gstreamer::AudioDevice>,
     pub available_cameras: Vec<crate::gstreamer::CameraDevice>,
     pub available_apps: Vec<crate::gstreamer::devices::AppInfo>,
@@ -235,6 +239,10 @@ impl Default for AppState {
             renaming_scene_id: None,
             rename_buffer: String::new(),
             audio_levels: crate::gstreamer::AudioLevelUpdate::default(),
+            mic_volume: 1.0,
+            system_volume: 1.0,
+            mic_muted: false,
+            system_muted: false,
             available_audio_devices: Vec::new(),
             available_cameras: Vec::new(),
             available_apps: Vec::new(),
@@ -502,6 +510,10 @@ mod tests {
         let state = AppState::default();
         assert!(matches!(state.stream_status, StreamStatus::Offline));
         assert!(state.scenes.is_empty());
+        assert_eq!(state.mic_volume, 1.0);
+        assert_eq!(state.system_volume, 1.0);
+        assert!(!state.mic_muted);
+        assert!(!state.system_muted);
     }
 
     #[test]

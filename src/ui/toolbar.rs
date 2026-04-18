@@ -372,7 +372,7 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopRecording);
         } else {
             state.recording_counter += 1;
-            let scene_name = "Main"; // TODO: get active scene name
+            let scene_name = recording_scene_name(state);
             let filename = crate::settings::RecordSettings::expand_template(
                 &state.settings.record.filename_template,
                 scene_name,
@@ -462,4 +462,11 @@ pub(crate) fn record_encoder_config(state: &AppState) -> EncoderConfig {
         encoder_type: state.settings.record.encoder,
         color_space: state.settings.video.color_space.clone(),
     }
+}
+
+pub(crate) fn recording_scene_name(state: &AppState) -> &str {
+    state
+        .active_scene()
+        .map(|scene| scene.name.as_str())
+        .unwrap_or("Main")
 }

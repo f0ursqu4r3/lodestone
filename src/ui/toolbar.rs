@@ -274,7 +274,6 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
     {
         if is_live {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopStream);
-            state.stream_status = StreamStatus::Offline;
         } else if let Some(error_msg) = validate_stream_settings(state) {
             state
                 .active_errors
@@ -285,11 +284,6 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
                 stream_key: state.settings.stream.stream_key.clone(),
                 encoder_config: stream_encoder_config(state),
             });
-            state.stream_status = StreamStatus::Live {
-                uptime_secs: 0.0,
-                bitrate_kbps: 0.0,
-                dropped_frames: 0,
-            };
         }
     }
 
@@ -303,6 +297,7 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
 fn draw_virtual_camera_button(ui: &mut egui::Ui, state: &mut AppState) {
     let theme = active_theme(ui.ctx());
     let is_active = state.virtual_camera_active;
+    let is_supported = cfg!(target_os = "macos");
 
     let icon = egui_phosphor::regular::WEBCAM;
     let (label, fill, text_color) = if is_active {
@@ -319,18 +314,21 @@ fn draw_virtual_camera_button(ui: &mut egui::Ui, state: &mut AppState) {
         .corner_radius(theme.radius_sm)
         .min_size(Vec2::new(64.0, 26.0));
 
-    if ui.add(btn).clicked()
+    let response = ui.add_enabled(is_supported, btn);
+    if response.clicked()
         && let Some(ref tx) = state.command_tx
     {
         if is_active {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopVirtualCamera);
-            state.virtual_camera_active = false;
         } else {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StartVirtualCamera {
                 fps: state.settings.video.fps,
             });
-            state.virtual_camera_active = true;
         }
+    }
+
+    if !is_supported {
+        response.on_hover_text("Virtual camera is currently supported only on macOS");
     }
 }
 
@@ -372,8 +370,6 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
     {
         if is_recording {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopRecording);
-            state.recording_status = RecordingStatus::Idle;
-            state.recording_started_at = None;
         } else {
             state.recording_counter += 1;
             let scene_name = "Main"; // TODO: get active scene name
@@ -400,8 +396,6 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
                 format: state.settings.record.format,
                 encoder_config: record_encoder_config(state),
             });
-            state.recording_status = RecordingStatus::Recording { path };
-            state.recording_started_at = Some(std::time::Instant::now());
         }
     }
 

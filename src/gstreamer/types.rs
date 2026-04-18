@@ -1,9 +1,19 @@
+use std::path::PathBuf;
+
 /// Raw RGBA frame data from the capture pipeline.
 #[derive(Debug, Clone)]
 pub struct RgbaFrame {
     pub data: Vec<u8>,
     pub width: u32,
     pub height: u32,
+}
+
+/// Backend-authoritative runtime state for long-lived output pipelines.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OutputRuntimeState {
+    pub stream_active: bool,
+    pub recording_path: Option<PathBuf>,
+    pub virtual_camera_active: bool,
 }
 
 /// Pipeline statistics sent periodically from the GStreamer thread.

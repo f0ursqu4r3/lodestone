@@ -1110,7 +1110,7 @@ impl ApplicationHandler for AppManager {
 
                 // ── Configurable hotkeys (from settings) ───────────────
                 {
-                    let app_state = self.state.lock().unwrap();
+                    let mut app_state = self.state.lock().unwrap();
                     let hotkeys = &app_state.settings.hotkeys;
                     let mods = &self.modifiers;
 
@@ -1140,13 +1140,6 @@ impl ApplicationHandler for AppManager {
                                 });
                             }
                         }
-                        drop(app_state);
-                        let mut app_state = self.state.lock().unwrap();
-                        app_state.stream_status = crate::state::StreamStatus::Live {
-                            uptime_secs: 0.0,
-                            bitrate_kbps: 0.0,
-                            dropped_frames: 0,
-                        };
                         return;
                     }
 
@@ -1158,9 +1151,6 @@ impl ApplicationHandler for AppManager {
                         if let Some(ref tx) = app_state.command_tx {
                             let _ = tx.try_send(gstreamer::GstCommand::StopStream);
                         }
-                        drop(app_state);
-                        let mut app_state = self.state.lock().unwrap();
-                        app_state.stream_status = crate::state::StreamStatus::Offline;
                         return;
                     }
 
@@ -1199,12 +1189,7 @@ impl ApplicationHandler for AppManager {
                                     &app_state,
                                 ),
                             });
-                            drop(app_state);
-                            let mut app_state = self.state.lock().unwrap();
                             app_state.recording_counter = counter;
-                            app_state.recording_status =
-                                crate::state::RecordingStatus::Recording { path };
-                            app_state.recording_started_at = Some(std::time::Instant::now());
                         }
                         return;
                     }
@@ -1220,10 +1205,6 @@ impl ApplicationHandler for AppManager {
                         if let Some(ref tx) = app_state.command_tx {
                             let _ = tx.try_send(gstreamer::GstCommand::StopRecording);
                         }
-                        drop(app_state);
-                        let mut app_state = self.state.lock().unwrap();
-                        app_state.recording_status = crate::state::RecordingStatus::Idle;
-                        app_state.recording_started_at = None;
                         return;
                     }
 
@@ -2812,6 +2793,45 @@ impl ApplicationHandler for AppManager {
         }
 
         if let Some(ref mut channels) = self.gst_channels {
+            // Poll backend runtime state for stream/record/vcam lifecycle changes.
+            if channels.runtime_state_rx.has_changed().unwrap_or(false) {
+                let runtime = channels.runtime_state_rx.borrow_and_update().clone();
+                let mut app_state = self.state.lock().expect("lock AppState");
+
+                if runtime.stream_active {
+                    if !app_state.stream_status.is_live() {
+                        app_state.stream_status = crate::state::StreamStatus::Live {
+                            uptime_secs: 0.0,
+                            bitrate_kbps: 0.0,
+                            dropped_frames: 0,
+                        };
+                    }
+                } else {
+                    app_state.stream_status = crate::state::StreamStatus::Offline;
+                }
+
+                match runtime.recording_path {
+                    Some(path) => {
+                        let path_changed = !matches!(
+                            &app_state.recording_status,
+                            crate::state::RecordingStatus::Recording { path: current }
+                                if current == &path
+                        );
+                        app_state.recording_status =
+                            crate::state::RecordingStatus::Recording { path };
+                        if path_changed {
+                            app_state.recording_started_at = Some(std::time::Instant::now());
+                        }
+                    }
+                    None => {
+                        app_state.recording_status = crate::state::RecordingStatus::Idle;
+                        app_state.recording_started_at = None;
+                    }
+                }
+
+                app_state.virtual_camera_active = runtime.virtual_camera_active;
+            }
+
             // Poll GStreamer error channel
             while let Ok(err) = channels.error_rx.try_recv() {
                 log::error!("GStreamer error: {err}");

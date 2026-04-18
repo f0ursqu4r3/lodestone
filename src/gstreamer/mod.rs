@@ -25,4 +25,4 @@ pub use devices::{resolve_camera_index, CameraDevice, DisplayInfo};
 pub use error::GstError;
 pub use thread::spawn_gstreamer_thread;
 #[allow(unused_imports)]
-pub use types::{AudioDevice, AudioLevelUpdate, AudioLevels, RgbaFrame};
+pub use types::{AudioDevice, AudioLevelUpdate, AudioLevels, OutputRuntimeState, RgbaFrame};

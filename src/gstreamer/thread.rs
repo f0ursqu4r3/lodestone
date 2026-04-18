@@ -16,7 +16,7 @@ use super::encode::{
     build_stream_pipeline_with_audio,
 };
 use super::error::GstError;
-use super::types::RgbaFrame;
+use super::types::{OutputRuntimeState, RgbaFrame};
 #[cfg(target_os = "macos")]
 use super::window_watcher::{WatchedSource, WindowWatcher};
 use crate::scene::SourceId;
@@ -106,6 +106,7 @@ struct GstThread {
     // Encode pipeline handles
     stream_handles: Option<StreamPipelineHandles>,
     record_handles: Option<RecordPipelineHandles>,
+    record_path: Option<std::path::PathBuf>,
     #[cfg(target_os = "macos")]
     virtual_camera_handle: Option<super::virtual_camera::VirtualCameraHandle>,
     /// Per-source audio pipelines, keyed by SourceId.
@@ -158,6 +159,7 @@ impl GstThread {
             game_captures: HashMap::new(),
             stream_handles: None,
             record_handles: None,
+            record_path: None,
             #[cfg(target_os = "macos")]
             virtual_camera_handle: None,
             mic_pipeline: None,
@@ -167,6 +169,25 @@ impl GstThread {
             system_appsink: None,
             system_volume_name: None,
             has_system_audio: false,
+        }
+    }
+
+    fn publish_runtime_state(&self) {
+        let _ = self.channels.runtime_state_tx.send(OutputRuntimeState {
+            stream_active: self.stream_handles.is_some(),
+            recording_path: self.record_path.clone(),
+            virtual_camera_active: self.virtual_camera_is_active(),
+        });
+    }
+
+    fn virtual_camera_is_active(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.virtual_camera_handle.is_some()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
         }
     }
 
@@ -811,6 +832,11 @@ impl GstThread {
         stream_key: String,
         encoder_config: EncoderConfig,
     ) {
+        if self.stream_handles.is_some() {
+            log::debug!("Ignoring duplicate StartStream command while stream is active");
+            return;
+        }
+
         let rtmp_url = match &destination {
             StreamDestination::CustomRtmp { url } => url.clone(),
             other => format!("{}/{}", other.rtmp_url(), stream_key),
@@ -832,6 +858,7 @@ impl GstThread {
                 }
                 log::info!("Stream pipeline started to {}", destination.rtmp_url());
                 self.stream_handles = Some(handles);
+                self.publish_runtime_state();
             }
             Err(e) => {
                 let _ = self.channels.error_tx.send(GstError::EncodeFailure {
@@ -855,6 +882,11 @@ impl GstThread {
         format: RecordingFormat,
         encoder_config: EncoderConfig,
     ) {
+        if self.record_handles.is_some() {
+            log::debug!("Ignoring duplicate StartRecording command while recording is active");
+            return;
+        }
+
         let audio_config = AudioEncoderConfig::default();
         match build_record_pipeline_with_audio(
             &encoder_config,
@@ -872,6 +904,8 @@ impl GstThread {
                 }
                 log::info!("Record pipeline started to {}", path.display());
                 self.record_handles = Some(handles);
+                self.record_path = Some(path);
+                self.publish_runtime_state();
             }
             Err(e) => {
                 let _ = self.channels.error_tx.send(GstError::EncodeFailure {
@@ -1388,15 +1422,23 @@ impl GstThread {
     #[cfg(target_os = "macos")]
     fn handle_start_virtual_camera(&mut self, fps: u32) {
         use super::virtual_camera;
+        if self.virtual_camera_handle.is_some() {
+            log::debug!("Ignoring duplicate StartVirtualCamera command while virtual camera is active");
+            return;
+        }
         let width = 1920u32;
         let height = 1080u32;
         match virtual_camera::start_virtual_camera(width, height, fps) {
             Ok(handle) => {
                 self.virtual_camera_handle = Some(handle);
                 log::info!("Virtual camera started ({width}x{height} @ {fps}fps)");
+                self.publish_runtime_state();
             }
             Err(e) => {
                 log::error!("Failed to start virtual camera: {e}");
+                let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                    message: format!("Failed to start virtual camera: {e}"),
+                });
             }
         }
     }
@@ -1409,11 +1451,16 @@ impl GstThread {
                 log::warn!("Error stopping virtual camera: {e}");
             }
             log::info!("Virtual camera stopped");
+            self.publish_runtime_state();
         }
     }
 
     #[cfg(not(target_os = "macos"))]
-    fn handle_start_virtual_camera(&mut self, _fps: u32) {}
+    fn handle_start_virtual_camera(&mut self, _fps: u32) {
+        let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+            message: "Virtual camera is currently supported only on macOS".to_string(),
+        });
+    }
     #[cfg(not(target_os = "macos"))]
     fn handle_stop_virtual_camera(&mut self) {}
 
@@ -1485,8 +1532,10 @@ impl GstThread {
                     );
                     let _ = handles.pipeline.set_state(gstreamer::State::Null);
                 }
+                self.record_path = None;
             }
         }
+        self.publish_runtime_state();
         log::info!("{:?} pipeline stopped", kind);
     }
 

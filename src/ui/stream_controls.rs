@@ -1,15 +1,15 @@
 use crate::state::{AppState, RecordingStatus};
 use crate::ui::layout::PanelId;
 use crate::ui::theme::active_theme;
-
-/// Destination options for the combo box
-const DESTINATIONS: &[&str] = &["Twitch", "YouTube", "Custom RTMP"];
+use crate::gstreamer::StreamDestination;
 
 /// Stream configuration panel: destination, RTMP URL, and stream key.
 ///
 /// Go Live / Record buttons now live in the toolbar (`toolbar.rs`).
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
     let theme = active_theme(ui.ctx());
+    let mut changed = false;
+
     // --- Destination selector ---
     ui.label(
         egui::RichText::new("Destination")
@@ -18,23 +18,54 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
     );
     ui.add_space(2.0);
 
-    let dest_idx_id = egui::Id::new(("stream_dest_idx", panel_id.0));
-    let mut dest_idx: usize = ui.memory(|m| m.data.get_temp::<usize>(dest_idx_id).unwrap_or(0));
+    let current_label = match &state.settings.stream.destination {
+        StreamDestination::Twitch => "Twitch",
+        StreamDestination::YouTube => "YouTube",
+        StreamDestination::CustomRtmp { .. } => "Custom RTMP",
+    };
 
     egui::ComboBox::from_id_salt(("stream_dest_combo", panel_id.0))
-        .selected_text(DESTINATIONS[dest_idx])
+        .selected_text(current_label)
         .width(ui.available_width() - 8.0)
         .show_ui(ui, |ui| {
-            for (i, &name) in DESTINATIONS.iter().enumerate() {
-                ui.selectable_value(&mut dest_idx, i, name);
+            changed |= ui
+                .selectable_value(
+                    &mut state.settings.stream.destination,
+                    StreamDestination::Twitch,
+                    "Twitch",
+                )
+                .changed();
+            changed |= ui
+                .selectable_value(
+                    &mut state.settings.stream.destination,
+                    StreamDestination::YouTube,
+                    "YouTube",
+                )
+                .changed();
+            if ui
+                .selectable_label(
+                    matches!(
+                        state.settings.stream.destination,
+                        StreamDestination::CustomRtmp { .. }
+                    ),
+                    "Custom RTMP",
+                )
+                .clicked()
+                && !matches!(
+                    state.settings.stream.destination,
+                    StreamDestination::CustomRtmp { .. }
+                )
+            {
+                state.settings.stream.destination =
+                    StreamDestination::CustomRtmp { url: String::new() };
+                changed = true;
             }
         });
-    ui.memory_mut(|m| m.data.insert_temp(dest_idx_id, dest_idx));
 
     ui.add_space(8.0);
 
     // --- Custom RTMP URL input (shown only for Custom RTMP destination) ---
-    if dest_idx == 2 {
+    if let StreamDestination::CustomRtmp { url } = &mut state.settings.stream.destination {
         ui.label(
             egui::RichText::new("RTMP URL")
                 .color(theme.text_secondary)
@@ -42,38 +73,38 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, panel_id: PanelId) {
         );
         ui.add_space(2.0);
 
-        let rtmp_url_id = egui::Id::new(("rtmp_url", panel_id.0));
-        let mut rtmp_url: String =
-            ui.memory(|m| m.data.get_temp::<String>(rtmp_url_id).unwrap_or_default());
-
-        let input = egui::TextEdit::singleline(&mut rtmp_url)
+        let input = egui::TextEdit::singleline(url)
             .hint_text("rtmp://your.server/live")
             .text_color(theme.text_primary)
             .desired_width(ui.available_width() - 8.0);
-        ui.add(input);
-        ui.memory_mut(|m| m.data.insert_temp(rtmp_url_id, rtmp_url));
+        changed |= ui.add(input).changed();
 
         ui.add_space(8.0);
     }
 
     // --- Stream key input (password style) ---
-    ui.label(
-        egui::RichText::new("Stream Key")
-            .color(theme.text_secondary)
-            .size(12.0),
-    );
-    ui.add_space(2.0);
+    if !matches!(
+        state.settings.stream.destination,
+        StreamDestination::CustomRtmp { .. }
+    ) {
+        ui.label(
+            egui::RichText::new("Stream Key")
+                .color(theme.text_secondary)
+                .size(12.0),
+        );
+        ui.add_space(2.0);
 
-    let key_id = egui::Id::new(("stream_key", panel_id.0));
-    let mut stream_key: String =
-        ui.memory(|m| m.data.get_temp::<String>(key_id).unwrap_or_default());
+        let key_input = egui::TextEdit::singleline(&mut state.settings.stream.stream_key)
+            .password(true)
+            .text_color(theme.text_primary)
+            .desired_width(ui.available_width() - 8.0);
+        changed |= ui.add(key_input).changed();
+    }
 
-    let key_input = egui::TextEdit::singleline(&mut stream_key)
-        .password(true)
-        .text_color(theme.text_primary)
-        .desired_width(ui.available_width() - 8.0);
-    ui.add(key_input);
-    ui.memory_mut(|m| m.data.insert_temp(key_id, stream_key));
+    if changed {
+        state.settings_dirty = true;
+        state.settings_last_changed = std::time::Instant::now();
+    }
 
     // --- Recording path indicator ---
     if let RecordingStatus::Recording { ref path } = state.recording_status {

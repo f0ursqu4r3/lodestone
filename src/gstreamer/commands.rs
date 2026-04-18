@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, watch};
 
 use super::error::GstError;
-use super::types::{AudioDevice, AudioLevelUpdate, PipelineStats, RgbaFrame};
+use super::types::{AudioDevice, AudioLevelUpdate, OutputRuntimeState, PipelineStats, RgbaFrame};
 use crate::scene::SourceId;
 
 /// Identifies which audio source a command targets.
@@ -289,6 +289,7 @@ pub struct GstChannels {
     pub audio_level_rx: watch::Receiver<AudioLevelUpdate>,
     pub devices_rx: watch::Receiver<Vec<AudioDevice>>,
     pub encoders_rx: watch::Receiver<Vec<AvailableEncoder>>,
+    pub runtime_state_rx: watch::Receiver<OutputRuntimeState>,
 }
 
 /// Internal channel handles held by the GStreamer thread.
@@ -305,6 +306,7 @@ pub(crate) struct GstThreadChannels {
     pub audio_level_tx: watch::Sender<AudioLevelUpdate>,
     pub devices_tx: watch::Sender<Vec<AudioDevice>>,
     pub encoders_tx: watch::Sender<Vec<AvailableEncoder>>,
+    pub runtime_state_tx: watch::Sender<OutputRuntimeState>,
 }
 
 /// Create all channels and return both ends.
@@ -317,6 +319,7 @@ pub fn create_channels() -> (GstChannels, GstThreadChannels) {
     let (audio_level_tx, audio_level_rx) = watch::channel(AudioLevelUpdate::default());
     let (devices_tx, devices_rx) = watch::channel(Vec::new());
     let (encoders_tx, encoders_rx) = watch::channel(Vec::new());
+    let (runtime_state_tx, runtime_state_rx) = watch::channel(OutputRuntimeState::default());
 
     let main_channels = GstChannels {
         command_tx,
@@ -327,6 +330,7 @@ pub fn create_channels() -> (GstChannels, GstThreadChannels) {
         audio_level_rx,
         devices_rx,
         encoders_rx,
+        runtime_state_rx,
     };
 
     let thread_channels = GstThreadChannels {
@@ -338,6 +342,7 @@ pub fn create_channels() -> (GstChannels, GstThreadChannels) {
         audio_level_tx,
         devices_tx,
         encoders_tx,
+        runtime_state_tx,
     };
 
     (main_channels, thread_channels)

@@ -16,7 +16,7 @@ use super::encode::{
     build_stream_pipeline_with_audio,
 };
 use super::error::GstError;
-use super::types::{OutputRuntimeState, RgbaFrame};
+use super::types::{OutputRuntimeState, PipelineStats, RgbaFrame};
 #[cfg(target_os = "macos")]
 use super::window_watcher::{WatchedSource, WindowWatcher};
 use crate::scene::SourceId;
@@ -105,6 +105,8 @@ struct GstThread {
     captures: HashMap<SourceId, CaptureHandle>,
     // Encode pipeline handles
     stream_handles: Option<StreamPipelineHandles>,
+    stream_started_at: Option<std::time::Instant>,
+    stream_total_frames: u64,
     record_handles: Option<RecordPipelineHandles>,
     record_path: Option<std::path::PathBuf>,
     #[cfg(target_os = "macos")]
@@ -158,6 +160,8 @@ impl GstThread {
             #[cfg(target_os = "windows")]
             game_captures: HashMap::new(),
             stream_handles: None,
+            stream_started_at: None,
+            stream_total_frames: 0,
             record_handles: None,
             record_path: None,
             #[cfg(target_os = "macos")]
@@ -858,6 +862,9 @@ impl GstThread {
                 }
                 log::info!("Stream pipeline started to {}", destination.rtmp_url());
                 self.stream_handles = Some(handles);
+                self.stream_started_at = Some(std::time::Instant::now());
+                self.stream_total_frames = 0;
+                let _ = self.channels.stats_tx.send(PipelineStats::default());
                 self.publish_runtime_state();
             }
             Err(e) => {
@@ -1517,6 +1524,9 @@ impl GstThread {
                     );
                     let _ = handles.pipeline.set_state(gstreamer::State::Null);
                 }
+                self.stream_started_at = None;
+                self.stream_total_frames = 0;
+                let _ = self.channels.stats_tx.send(PipelineStats::default());
             }
             PipelineKind::Record => {
                 if let Some(handles) = self.record_handles.take() {
@@ -1753,6 +1763,7 @@ impl GstThread {
                         gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);
                     if let Some(ref handles) = self.stream_handles {
                         Self::push_to_encode(&handles.video_appsrc, &frame.data, frame_pts);
+                        self.stream_total_frames += 1;
                     }
                     if let Some(ref handles) = self.record_handles {
                         Self::push_to_encode(&handles.video_appsrc, &frame.data, frame_pts);
@@ -1764,6 +1775,15 @@ impl GstThread {
                         log::warn!("Virtual camera frame write failed: {e}");
                     }
                 }
+            }
+
+            if let Some(started_at) = self.stream_started_at {
+                let _ = self.channels.stats_tx.send(PipelineStats {
+                    bitrate_kbps: 0.0,
+                    dropped_frames: 0,
+                    total_frames: self.stream_total_frames,
+                    uptime_secs: started_at.elapsed().as_secs_f64(),
+                });
             }
 
             // Forward mic audio to encode pipelines

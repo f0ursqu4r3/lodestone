@@ -2841,6 +2841,21 @@ impl ApplicationHandler for AppManager {
                 app_state.active_errors.push(err);
             }
 
+            if channels.stats_rx.has_changed().unwrap_or(false) {
+                let stats = channels.stats_rx.borrow_and_update().clone();
+                let mut app_state = self.state.lock().expect("lock AppState");
+                if let crate::state::StreamStatus::Live {
+                    uptime_secs,
+                    bitrate_kbps,
+                    dropped_frames,
+                } = &mut app_state.stream_status
+                {
+                    *uptime_secs = stats.uptime_secs;
+                    *bitrate_kbps = stats.bitrate_kbps;
+                    *dropped_frames = stats.dropped_frames;
+                }
+            }
+
             // Poll audio levels
             if channels.audio_level_rx.has_changed().unwrap_or(false) {
                 let levels = channels.audio_level_rx.borrow_and_update().clone();

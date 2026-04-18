@@ -512,14 +512,31 @@ pub fn find_app_window_by_process(process_name: &str) -> Option<(u64, u32, u32)>
 }
 
 /// Find any fullscreen window on Windows.
+/// Returns candidate windows in priority order.
+#[cfg(target_os = "windows")]
+pub fn find_fullscreen_windows() -> Vec<(u64, u32, u32)> {
+    let windows = enumerate_windows();
+    let foreground = get_foreground_window_hwnd();
+    let mut fullscreen: Vec<(u64, u32, u32)> = windows
+        .iter()
+        .filter(|w| w.is_fullscreen)
+        .map(|w| (w.native_handle, w.bounds.2 as u32, w.bounds.3 as u32))
+        .collect();
+
+    if let Some(fg) = foreground
+        && let Some(idx) = fullscreen.iter().position(|(hwnd, _, _)| *hwnd == fg)
+    {
+        fullscreen.swap(0, idx);
+    }
+
+    fullscreen
+}
+
+/// Find any fullscreen window on Windows.
 /// Returns (hwnd, width, height) if found.
 #[cfg(target_os = "windows")]
 pub fn find_fullscreen_window() -> Option<(u64, u32, u32)> {
-    let windows = enumerate_windows();
-    windows
-        .iter()
-        .find(|w| w.is_fullscreen)
-        .map(|w| (w.native_handle, w.bounds.2 as u32, w.bounds.3 as u32))
+    find_fullscreen_windows().into_iter().next()
 }
 
 /// Check if a window handle is still valid on Windows.

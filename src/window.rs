@@ -149,6 +149,20 @@ impl WindowState {
         }
     }
 
+    /// Windows can report a corrected client size only after the HWND is live.
+    /// Keep the surface config in sync with the actual current inner size so the
+    /// first rendered frame doesn't get clipped or leave stale margins.
+    fn sync_surface_to_window_size(&mut self, gpu: &SharedGpuState) {
+        let size = self.window.inner_size();
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+
+        if self.surface_config.width != size.width || self.surface_config.height != size.height {
+            self.resize(gpu, size.width, size.height);
+        }
+    }
+
     /// Render the window contents. Returns detach requests and whether the
     /// settings button was clicked.
     pub fn render(
@@ -156,6 +170,8 @@ impl WindowState {
         gpu: &SharedGpuState,
         state: &mut AppState,
     ) -> Result<(Vec<DetachRequest>, bool)> {
+        self.sync_surface_to_window_size(gpu);
+
         // Resolve active theme from settings, applying any per-user accent override.
         let mut theme = crate::ui::theme::Theme::builtin(state.settings.appearance.theme);
         if let Some(ref hex) = state.settings.appearance.accent_color {
@@ -258,6 +274,7 @@ impl WindowState {
                 is_main,
             ));
         });
+        let first_frame = !self.first_frame_done;
         self.first_frame_done = true;
 
         // Apply layout actions after the egui frame
@@ -361,11 +378,19 @@ impl WindowState {
         self.egui_state
             .handle_platform_output(self.window, full_output.platform_output);
 
+        // Force one follow-up frame after startup so Windows can settle any
+        // late client-size adjustment without waiting for a manual resize/move.
+        if first_frame {
+            self.window.request_redraw();
+        }
+
         Ok((detach_requests, open_settings))
     }
 
     /// Render the settings window content.
     pub fn render_settings(&mut self, gpu: &SharedGpuState, state: &mut AppState) -> Result<()> {
+        self.sync_surface_to_window_size(gpu);
+
         // Resolve active theme from settings, applying any per-user accent override.
         let mut theme = crate::ui::theme::Theme::builtin(state.settings.appearance.theme);
         if let Some(ref hex) = state.settings.appearance.accent_color {
@@ -442,6 +467,9 @@ impl WindowState {
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             crate::ui::settings::render_native(ctx, state);
         });
+
+        let first_frame = !self.first_frame_done;
+        self.first_frame_done = true;
 
         let pixels_per_point = full_output.pixels_per_point;
         let paint_jobs = self
@@ -536,6 +564,10 @@ impl WindowState {
 
         self.egui_state
             .handle_platform_output(self.window, full_output.platform_output);
+
+        if first_frame {
+            self.window.request_redraw();
+        }
 
         Ok(())
     }

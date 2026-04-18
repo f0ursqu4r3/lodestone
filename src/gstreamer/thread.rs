@@ -33,6 +33,27 @@ struct WinWindowSource {
     failed_hwnd: Option<u64>,
 }
 
+#[cfg(target_os = "windows")]
+fn select_fullscreen_candidate(
+    ws: &WinWindowSource,
+    candidates: &[(u64, u32, u32)],
+) -> Option<u64> {
+    if let Some(current) = ws.current_hwnd
+        && candidates.iter().any(|(hwnd, _, _)| *hwnd == current)
+    {
+        return Some(current);
+    }
+
+    let active_failed = ws
+        .failed_hwnd
+        .filter(|failed| candidates.iter().any(|(hwnd, _, _)| hwnd == failed));
+
+    candidates
+        .iter()
+        .find(|(hwnd, _, _)| Some(*hwnd) != active_failed)
+        .map(|(hwnd, _, _)| *hwnd)
+}
+
 /// State for a game capture source using DLL injection + DirectX hooking.
 #[cfg(target_os = "windows")]
 struct GameCaptureSource {
@@ -1099,6 +1120,12 @@ impl GstThread {
             None
         };
 
+        let fullscreen_candidates = if enum_poll_due {
+            super::devices::find_fullscreen_windows()
+        } else {
+            Vec::new()
+        };
+
         // Collect updates needed. For enum-based modes, only run on the slower tick.
         let mut updates: Vec<(SourceId, u64)> = Vec::new();
         let mut stale: Vec<SourceId> = Vec::new();
@@ -1156,7 +1183,7 @@ impl GstThread {
                     }
                 }
                 WindowCaptureMode::AnyFullscreen if enum_poll_due => {
-                    if let Some((hwnd, _, _)) = super::devices::find_fullscreen_window() {
+                    if let Some(hwnd) = select_fullscreen_candidate(ws, &fullscreen_candidates) {
                         if ws.current_hwnd != Some(hwnd) {
                             updates.push((source_id, hwnd));
                         }
@@ -1576,16 +1603,12 @@ impl GstThread {
         );
         let _ = self.channels.encoders_tx.send(encoders);
 
-        // Enumerate audio devices and start default audio capture.
+        // Enumerate audio devices for the UI, but do not auto-start capture.
+        // Persisted device settings may be stale, and default device selection
+        // is noisy when the platform has no accessible mic/loopback source.
         match super::devices::enumerate_audio_input_devices() {
             Ok(devices) => {
                 let _ = self.channels.devices_tx.send(devices.clone());
-                if let Some(mic) = devices.iter().find(|d| !d.is_loopback) {
-                    self.start_audio_capture(AudioSourceKind::Mic, &mic.uid);
-                }
-                if let Some(loopback) = devices.iter().find(|d| d.is_loopback) {
-                    self.start_audio_capture(AudioSourceKind::System, &loopback.uid);
-                }
             }
             Err(e) => log::warn!("Failed to enumerate audio devices: {e}"),
         }

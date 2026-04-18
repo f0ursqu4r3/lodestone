@@ -723,23 +723,33 @@ fn start_capture_from_properties(
             };
             let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config, fps: state.settings.video.fps });
         }
-        SourceProperties::GameCapture { process_name, .. } => {
+        SourceProperties::GameCapture {
+            process_name,
+            window_title,
+        } => {
             if !process_name.is_empty() {
                 let windows = crate::gstreamer::devices::enumerate_windows();
-                if let Some(win) = windows.iter().find(|w| {
-                    w.process_name.eq_ignore_ascii_case(process_name)
-                }) {
-                    let _ = tx.try_send(GstCommand::AddCaptureSource {
-                        source_id,
-                        config: CaptureSourceConfig::GameCapture {
-                            process_id: win.process_id,
-                            hwnd: win.native_handle,
-                            process_name: process_name.clone(),
-                        },
-                        fps: state.settings.video.fps,
-                    });
-                    state.capture_active = true;
-                }
+                let process_id = windows
+                    .iter()
+                    .find(|w| {
+                        w.process_name.eq_ignore_ascii_case(process_name)
+                            && (window_title.is_empty()
+                                || w.title == *window_title
+                                || w.title.contains(window_title))
+                    })
+                    .map(|w| w.process_id)
+                    .unwrap_or(0);
+
+                let _ = tx.try_send(GstCommand::AddCaptureSource {
+                    source_id,
+                    config: CaptureSourceConfig::GameCapture {
+                        process_id,
+                        process_name: process_name.clone(),
+                        window_title: window_title.clone(),
+                    },
+                    fps: state.settings.video.fps,
+                });
+                state.capture_active = true;
             }
         }
         // Text, Color, Browser, Image: no capture pipeline

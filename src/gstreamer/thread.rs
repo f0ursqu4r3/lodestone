@@ -57,12 +57,14 @@ fn select_fullscreen_candidate(
 /// State for a game capture source using DLL injection + DirectX hooking.
 #[cfg(target_os = "windows")]
 struct GameCaptureSource {
-    process_id: u32,
+    process_id: Option<u32>,
     process_name: String,
+    window_title: String,
     handles: Option<super::inject::SharedCaptureHandles>,
     last_frame_index: u64,
-    injected: bool,
+    failed_process_id: Option<u32>,
     last_alive_check: std::time::Instant,
+    last_resolve_attempt: std::time::Instant,
 }
 
 /// How often to poll windows on Windows.
@@ -236,10 +238,15 @@ impl GstThread {
         if let CaptureSourceConfig::GameCapture {
             process_id,
             process_name,
-            ..
+            window_title,
         } = config
         {
-            self.start_game_capture(source_id, *process_id, process_name.clone());
+            self.watch_game_capture(
+                source_id,
+                *process_id,
+                process_name.clone(),
+                window_title.clone(),
+            );
             return;
         }
 
@@ -657,7 +664,9 @@ impl GstThread {
 
         #[cfg(target_os = "windows")]
         if let Some(gc) = self.game_captures.remove(&source_id) {
-            Self::stop_game_capture_inner(gc);
+            if let Some(handles) = gc.handles {
+                Self::stop_game_capture_handles(handles);
+            }
             // Also remove from latest_frames.
             if let Ok(mut frames) = self.channels.latest_frames.lock() {
                 frames.remove(&source_id);
@@ -1308,14 +1317,59 @@ impl GstThread {
 
     /// Start a game capture: create shared memory, inject the hook DLL.
     #[cfg(target_os = "windows")]
-    fn start_game_capture(&mut self, source_id: SourceId, process_id: u32, process_name: String) {
+    fn watch_game_capture(
+        &mut self,
+        source_id: SourceId,
+        process_id: u32,
+        process_name: String,
+        window_title: String,
+    ) {
+        let now = std::time::Instant::now();
+        self.game_captures.insert(
+            source_id,
+            GameCaptureSource {
+                process_id: None,
+                process_name,
+                window_title,
+                handles: None,
+                last_frame_index: 0,
+                failed_process_id: None,
+                last_alive_check: now,
+                last_resolve_attempt: now.checked_sub(WIN_ENUM_POLL_INTERVAL).unwrap_or(now),
+            },
+        );
+
+        if process_id != 0 {
+            self.activate_game_capture(source_id, process_id);
+        } else {
+            self.resolve_game_capture(source_id);
+        }
+    }
+
+    /// Start a game capture: create shared memory, inject the hook DLL.
+    #[cfg(target_os = "windows")]
+    fn activate_game_capture(&mut self, source_id: SourceId, process_id: u32) {
         use super::inject;
+
+        let Some((process_name, failed_process_id)) = self.game_captures.get(&source_id).map(|gc| {
+            (gc.process_name.clone(), gc.failed_process_id)
+        }) else {
+            return;
+        };
+
+        if failed_process_id == Some(process_id) {
+            return;
+        }
 
         // Create shared memory and events.
         let handles = match inject::create_shared_capture(process_id) {
             Ok(h) => h,
             Err(e) => {
                 log::error!("Game capture: failed to create shared memory for {source_id:?}: {e}");
+                if let Some(gc) = self.game_captures.get_mut(&source_id) {
+                    gc.failed_process_id = Some(process_id);
+                    gc.last_resolve_attempt = std::time::Instant::now();
+                }
                 let _ = self.channels.error_tx.send(GstError::CaptureFailure {
                     message: format!("Game capture setup failed: {e}"),
                 });
@@ -1332,6 +1386,10 @@ impl GstThread {
         if !dll_path.exists() {
             log::error!("Game capture: hook DLL not found at {}", dll_path.display());
             inject::cleanup_shared_capture(handles);
+            if let Some(gc) = self.game_captures.get_mut(&source_id) {
+                gc.failed_process_id = Some(process_id);
+                gc.last_resolve_attempt = std::time::Instant::now();
+            }
             let _ = self.channels.error_tx.send(GstError::CaptureFailure {
                 message: format!(
                     "Hook DLL not found at {}. Build lodestone-hook first.",
@@ -1345,6 +1403,10 @@ impl GstThread {
         if let Err(e) = inject::inject_hook_dll(process_id, &dll_path) {
             log::error!("Game capture: injection failed for {source_id:?}: {e}");
             inject::cleanup_shared_capture(handles);
+            if let Some(gc) = self.game_captures.get_mut(&source_id) {
+                gc.failed_process_id = Some(process_id);
+                gc.last_resolve_attempt = std::time::Instant::now();
+            }
             let _ = self.channels.error_tx.send(GstError::CaptureFailure {
                 message: format!("Game capture injection failed: {e}"),
             });
@@ -1355,17 +1417,40 @@ impl GstThread {
             "Game capture started for source {source_id:?}: process \"{process_name}\" (PID {process_id})"
         );
 
-        self.game_captures.insert(
-            source_id,
-            GameCaptureSource {
-                process_id,
-                process_name,
-                handles: Some(handles),
-                last_frame_index: 0,
-                injected: true,
-                last_alive_check: std::time::Instant::now(),
-            },
-        );
+        if let Some(gc) = self.game_captures.get_mut(&source_id) {
+            gc.process_id = Some(process_id);
+            gc.handles = Some(handles);
+            gc.last_frame_index = 0;
+            gc.failed_process_id = None;
+            gc.last_alive_check = std::time::Instant::now();
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn resolve_game_capture(&mut self, source_id: SourceId) {
+        let Some((process_name, window_title, failed_process_id)) =
+            self.game_captures.get(&source_id).map(|gc| {
+                (
+                    gc.process_name.clone(),
+                    gc.window_title.clone(),
+                    gc.failed_process_id,
+                )
+            })
+        else {
+            return;
+        };
+
+        let target = super::devices::enumerate_windows().into_iter().find(|window| {
+            window.process_name.eq_ignore_ascii_case(&process_name)
+                && (window_title.is_empty()
+                    || window.title == window_title
+                    || window.title.contains(&window_title))
+                && Some(window.process_id) != failed_process_id
+        });
+
+        if let Some(window) = target {
+            self.activate_game_capture(source_id, window.process_id);
+        }
     }
 
     /// Poll all active game captures for new frames and check process liveness.
@@ -1373,10 +1458,16 @@ impl GstThread {
     fn poll_game_captures(&mut self) {
         use super::inject;
 
+        let now = std::time::Instant::now();
         let mut dead_sources: Vec<SourceId> = Vec::new();
+        let mut pending_resolve: Vec<SourceId> = Vec::new();
 
         for (&source_id, gc) in self.game_captures.iter_mut() {
             let Some(ref handles) = gc.handles else {
+                if now.duration_since(gc.last_resolve_attempt) >= WIN_ENUM_POLL_INTERVAL {
+                    gc.last_resolve_attempt = now;
+                    pending_resolve.push(source_id);
+                }
                 continue;
             };
 
@@ -1388,42 +1479,49 @@ impl GstThread {
             }
 
             // Periodically check if the target process is still alive.
-            let now = std::time::Instant::now();
             if now.duration_since(gc.last_alive_check) >= std::time::Duration::from_secs(2) {
                 gc.last_alive_check = now;
                 if !inject::is_process_alive(handles) {
                     log::info!(
                         "Game capture: process \"{}\" (PID {}) exited — stopping capture for {source_id:?}",
                         gc.process_name,
-                        gc.process_id,
+                        gc.process_id.unwrap_or_default(),
                     );
                     dead_sources.push(source_id);
                 }
             }
         }
 
-        // Clean up dead captures.
+        // Clean up dead captures but keep the watched source so it can reattach.
         for source_id in dead_sources {
-            if let Some(gc) = self.game_captures.remove(&source_id) {
-                Self::stop_game_capture_inner(gc);
+            if let Some(gc) = self.game_captures.get_mut(&source_id) {
+                if let Some(handles) = gc.handles.take() {
+                    Self::stop_game_capture_handles(handles);
+                }
+                gc.process_id = None;
+                gc.last_frame_index = 0;
+                gc.last_alive_check = now;
+                gc.last_resolve_attempt = now.checked_sub(WIN_ENUM_POLL_INTERVAL).unwrap_or(now);
                 if let Ok(mut frames) = self.channels.latest_frames.lock() {
                     frames.remove(&source_id);
                 }
             }
         }
+
+        for source_id in pending_resolve {
+            self.resolve_game_capture(source_id);
+        }
     }
 
     /// Internal: signal shutdown and clean up a game capture source.
     #[cfg(target_os = "windows")]
-    fn stop_game_capture_inner(gc: GameCaptureSource) {
+    fn stop_game_capture_handles(handles: super::inject::SharedCaptureHandles) {
         use super::inject;
 
-        if let Some(handles) = gc.handles {
-            inject::signal_shutdown(&handles);
-            // Give the hook DLL a moment to unhook before we tear down shared memory.
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            inject::cleanup_shared_capture(handles);
-        }
+        inject::signal_shutdown(&handles);
+        // Give the hook DLL a moment to unhook before we tear down shared memory.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        inject::cleanup_shared_capture(handles);
     }
 
     #[cfg(target_os = "macos")]
@@ -1503,7 +1601,9 @@ impl GstThread {
         // Stop all game captures.
         #[cfg(target_os = "windows")]
         for (_, gc) in self.game_captures.drain() {
-            Self::stop_game_capture_inner(gc);
+            if let Some(handles) = gc.handles {
+                Self::stop_game_capture_handles(handles);
+            }
         }
         true
     }

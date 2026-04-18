@@ -129,9 +129,11 @@ pub enum CaptureSourceConfig {
     },
     /// Game capture via DLL injection + DirectX hooking (Windows only).
     GameCapture {
+        /// Current target PID if already resolved, or 0 to let the backend wait and resolve later.
         process_id: u32,
-        hwnd: u64,
         process_name: String,
+        /// Optional window title used to prefer the same game window after relaunch.
+        window_title: String,
     },
 }
 

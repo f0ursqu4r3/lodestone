@@ -2249,19 +2249,25 @@ fn draw_source_properties(
                         let _ = tx.try_send(GstCommand::RemoveCaptureSource {
                             source_id: selected_id,
                         });
-                        if let Some(win) = windows.iter().find(|w| {
-                            w.process_name.eq_ignore_ascii_case(process_name)
-                        }) {
-                            let _ = tx.try_send(GstCommand::AddCaptureSource {
-                                source_id: selected_id,
-                                config: CaptureSourceConfig::GameCapture {
-                                    process_id: win.process_id,
-                                    hwnd: win.native_handle,
-                                    process_name: process_name.clone(),
-                                },
-                                fps: state.settings.video.fps,
-                            });
-                        }
+                        let process_id = windows
+                            .iter()
+                            .find(|w| {
+                                w.process_name.eq_ignore_ascii_case(process_name)
+                                    && (window_title.is_empty()
+                                        || w.title == *window_title
+                                        || w.title.contains(window_title.as_str()))
+                            })
+                            .map(|w| w.process_id)
+                            .unwrap_or(0);
+                        let _ = tx.try_send(GstCommand::AddCaptureSource {
+                            source_id: selected_id,
+                            config: CaptureSourceConfig::GameCapture {
+                                process_id,
+                                process_name: process_name.clone(),
+                                window_title: window_title.clone(),
+                            },
+                            fps: state.settings.video.fps,
+                        });
                     }
                     changed = true;
                 }

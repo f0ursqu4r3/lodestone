@@ -109,6 +109,8 @@ struct GstThread {
     stream_handles: Option<StreamPipelineHandles>,
     stream_started_at: Option<std::time::Instant>,
     stream_total_frames: u64,
+    stream_target_fps: u32,
+    stream_target_bitrate_kbps: u32,
     record_handles: Option<RecordPipelineHandles>,
     record_path: Option<std::path::PathBuf>,
     #[cfg(target_os = "macos")]
@@ -164,6 +166,8 @@ impl GstThread {
             stream_handles: None,
             stream_started_at: None,
             stream_total_frames: 0,
+            stream_target_fps: 0,
+            stream_target_bitrate_kbps: 0,
             record_handles: None,
             record_path: None,
             #[cfg(target_os = "macos")]
@@ -873,7 +877,15 @@ impl GstThread {
                 self.stream_handles = Some(handles);
                 self.stream_started_at = Some(std::time::Instant::now());
                 self.stream_total_frames = 0;
-                let _ = self.channels.stats_tx.send(PipelineStats::default());
+                self.stream_target_fps = encoder_config.fps;
+                self.stream_target_bitrate_kbps =
+                    encoder_config.bitrate_kbps + audio_config.bitrate_kbps;
+                let _ = self.channels.stats_tx.send(PipelineStats {
+                    bitrate_kbps: self.stream_target_bitrate_kbps as f64,
+                    dropped_frames: 0,
+                    total_frames: 0,
+                    uptime_secs: 0.0,
+                });
                 self.publish_runtime_state();
             }
             Err(e) => {
@@ -1626,6 +1638,8 @@ impl GstThread {
                 }
                 self.stream_started_at = None;
                 self.stream_total_frames = 0;
+                self.stream_target_fps = 0;
+                self.stream_target_bitrate_kbps = 0;
                 let _ = self.channels.stats_tx.send(PipelineStats::default());
             }
             PipelineKind::Record => {
@@ -1878,9 +1892,12 @@ impl GstThread {
             }
 
             if let Some(started_at) = self.stream_started_at {
+                let expected_frames =
+                    (started_at.elapsed().as_secs_f64() * self.stream_target_fps as f64).floor()
+                        as u64;
                 let _ = self.channels.stats_tx.send(PipelineStats {
-                    bitrate_kbps: 0.0,
-                    dropped_frames: 0,
+                    bitrate_kbps: self.stream_target_bitrate_kbps as f64,
+                    dropped_frames: expected_frames.saturating_sub(self.stream_total_frames),
                     total_frames: self.stream_total_frames,
                     uptime_secs: started_at.elapsed().as_secs_f64(),
                 });

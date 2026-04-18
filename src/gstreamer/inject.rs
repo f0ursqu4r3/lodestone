@@ -29,11 +29,9 @@ mod win32 {
     pub const MEM_RELEASE: DWORD = 0x8000;
     pub const PAGE_READWRITE: DWORD = 0x04;
     pub const FILE_MAP_ALL_ACCESS: DWORD = 0x000F_001F;
-    pub const EVENT_ALL_ACCESS: DWORD = 0x001F_0003;
     pub const WAIT_OBJECT_0: DWORD = 0;
     pub const STILL_ACTIVE: DWORD = 259;
     pub const INVALID_HANDLE_VALUE: HANDLE = -1_isize as HANDLE;
-    pub const INFINITE: DWORD = 0xFFFF_FFFF;
 
     unsafe extern "system" {
         pub fn OpenProcess(access: DWORD, inherit: i32, pid: DWORD) -> HANDLE;
@@ -145,7 +143,6 @@ pub struct SharedCaptureHandles {
     pub ready_event: HANDLE,
     pub shutdown_event: HANDLE,
     pub process_handle: HANDLE,
-    pub process_id: u32,
 }
 
 // Safety: the handles are opaque kernel objects, valid to send across threads.
@@ -236,6 +233,12 @@ pub fn create_shared_capture(target_pid: u32) -> Result<SharedCaptureHandles> {
     // Open a handle to the target process for liveness checking.
     let process_handle =
         unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, target_pid) };
+    if process_handle.is_null() {
+        log::warn!(
+            "Game capture: liveness checks unavailable for PID {target_pid} (OpenProcess error {})",
+            unsafe { GetLastError() }
+        );
+    }
 
     Ok(SharedCaptureHandles {
         file_mapping,
@@ -243,7 +246,6 @@ pub fn create_shared_capture(target_pid: u32) -> Result<SharedCaptureHandles> {
         ready_event,
         shutdown_event,
         process_handle,
-        process_id: target_pid,
     })
 }
 
@@ -445,7 +447,7 @@ pub fn signal_shutdown(handles: &SharedCaptureHandles) {
 /// Check if the target process is still alive.
 pub fn is_process_alive(handles: &SharedCaptureHandles) -> bool {
     if handles.process_handle.is_null() {
-        return false;
+        return true;
     }
     let mut exit_code: u32 = 0;
     let ok = unsafe { GetExitCodeProcess(handles.process_handle, &mut exit_code) };

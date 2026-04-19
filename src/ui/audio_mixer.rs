@@ -1,13 +1,22 @@
-use crate::gstreamer::GstCommand;
+use crate::gstreamer::{AudioLevels, GstCommand};
 use crate::scene::{AudioInput, SourceId, SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::layout::PanelId;
-use crate::ui::theme::active_theme;
+use crate::ui::theme::{Theme, active_theme};
+
+struct AudioStripData {
+    source_id: SourceId,
+    name: String,
+    input_summary: String,
+    detail_summary: String,
+    volume: f32,
+    muted: bool,
+    volume_overridden: bool,
+    muted_overridden: bool,
+    levels: Option<AudioLevels>,
+}
 
 /// Draw the audio panel for the current scene.
-///
-/// Shows audio sources that are present in the active scene, along with the
-/// source input settings and scene-effective mix controls.
 pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     let theme = active_theme(ui.ctx());
     let panel_rect = ui.available_rect_before_wrap();
@@ -19,15 +28,14 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
         state.begin_continuous_edit();
     }
 
+    let scene_name = state
+        .active_scene()
+        .map(|scene| scene.name.clone())
+        .unwrap_or_else(|| "No Scene".to_string());
+    let strips = collect_scene_audio_strips(state);
     let mut changed = false;
 
     ui.vertical(|ui| {
-        let scene_audio_ids = active_scene_audio_source_ids(state);
-        let scene_name = state
-            .active_scene()
-            .map(|scene| scene.name.clone())
-            .unwrap_or_else(|| "No Scene".to_string());
-
         ui.label(
             egui::RichText::new("CURRENT SCENE")
                 .size(9.0)
@@ -38,9 +46,9 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
                 .size(13.0)
                 .color(theme.text_primary),
         );
-        ui.add_space(8.0);
+        ui.add_space(10.0);
 
-        if scene_audio_ids.is_empty() {
+        if strips.is_empty() {
             ui.add_space(8.0);
             ui.label(
                 egui::RichText::new("No audio sources in this scene")
@@ -48,20 +56,21 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
                     .color(theme.text_muted),
             );
             ui.label(
-                egui::RichText::new("Add an Audio source to the scene to control it here.")
+                egui::RichText::new("Add an Audio source to the scene to mix it here.")
                     .size(10.0)
                     .color(theme.text_secondary),
             );
-        } else {
-            egui::ScrollArea::vertical()
+            return;
+        }
+
+        egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    for source_id in scene_audio_ids {
-                        changed |= draw_scene_audio_source(ui, state, source_id);
+                    for strip in &strips {
+                        changed |= draw_audio_strip(ui, state, strip, &theme);
                         ui.add_space(8.0);
                     }
                 });
-        }
     });
 
     if changed {
@@ -75,7 +84,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     ui.memory_mut(|m| m.data.insert_temp(editing_id, still_editing));
 }
 
-fn active_scene_audio_source_ids(state: &AppState) -> Vec<SourceId> {
+fn collect_scene_audio_strips(state: &AppState) -> Vec<AudioStripData> {
     let Some(scene) = state.active_scene() else {
         return Vec::new();
     };
@@ -84,45 +93,45 @@ fn active_scene_audio_source_ids(state: &AppState) -> Vec<SourceId> {
         .sources
         .iter()
         .filter_map(|scene_source| {
-            state
-                .library
-                .iter()
-                .find(|source| source.id == scene_source.source_id)
-                .filter(|source| matches!(source.source_type, SourceType::Audio))
-                .map(|_| scene_source.source_id)
+            let source = state.library.iter().find(|source| {
+                source.id == scene_source.source_id
+                    && matches!(source.source_type, SourceType::Audio)
+            })?;
+            let (input_summary, detail_summary) = match &source.properties {
+                SourceProperties::Audio { input } => describe_audio_input(input),
+                _ => return None,
+            };
+            Some(AudioStripData {
+                source_id: scene_source.source_id,
+                name: source.name.clone(),
+                input_summary,
+                detail_summary,
+                volume: scene_source.resolve_volume(source),
+                muted: scene_source.resolve_muted(source),
+                volume_overridden: scene_source.is_volume_overridden(),
+                muted_overridden: scene_source.is_muted_overridden(),
+                levels: state
+                    .audio_levels
+                    .source_levels
+                    .get(&scene_source.source_id)
+                    .cloned(),
+            })
         })
         .collect()
 }
 
-fn draw_scene_audio_source(ui: &mut egui::Ui, state: &mut AppState, source_id: SourceId) -> bool {
-    let theme = active_theme(ui.ctx());
-
-    let Some(lib_idx) = state.library.iter().position(|source| source.id == source_id) else {
+fn draw_audio_strip(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    strip: &AudioStripData,
+    theme: &Theme,
+) -> bool {
+    let Some(lib_idx) = state.library.iter().position(|source| source.id == strip.source_id) else {
         return false;
     };
 
-    let (name, input_summary, detail_summary, mut volume, mut muted, volume_overridden, muted_overridden) = {
-        let source = &state.library[lib_idx];
-        let Some(scene_source) = state.active_scene().and_then(|scene| scene.find_source(source_id)) else {
-            return false;
-        };
-
-        let (input_summary, detail_summary) = match &source.properties {
-            SourceProperties::Audio { input } => describe_audio_input(input),
-            _ => return false,
-        };
-
-        (
-            source.name.clone(),
-            input_summary,
-            detail_summary,
-            scene_source.resolve_volume(source),
-            scene_source.resolve_muted(source),
-            scene_source.is_volume_overridden(),
-            scene_source.is_muted_overridden(),
-        )
-    };
-
+    let mut volume = strip.volume;
+    let mut muted = strip.muted;
     let mut changed = false;
 
     egui::Frame::new()
@@ -131,129 +140,257 @@ fn draw_scene_audio_source(ui: &mut egui::Ui, state: &mut AppState, source_id: S
         .corner_radius(egui::CornerRadius::same(theme.radius_md as u8))
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
+            ui.set_min_height(84.0);
             ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(&name)
-                        .size(12.0)
-                        .color(theme.text_primary),
-                );
-                if volume_overridden || muted_overridden {
+                ui.set_width(ui.available_width());
+
+                ui.vertical(|ui| {
+                    ui.set_min_width(170.0);
                     ui.label(
-                        egui::RichText::new("SCENE OVERRIDE")
-                            .size(9.0)
-                            .color(theme.accent),
+                        egui::RichText::new(&strip.name)
+                            .size(12.0)
+                            .color(theme.text_primary),
                     );
-                }
-            });
-
-            ui.label(
-                egui::RichText::new(input_summary)
-                    .size(10.0)
-                    .color(theme.text_secondary),
-            );
-            ui.label(
-                egui::RichText::new(detail_summary)
-                    .size(10.0)
-                    .color(theme.text_muted),
-            );
-
-            ui.add_space(8.0);
-
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("Volume")
-                        .size(10.0)
-                        .color(theme.text_secondary),
-                );
-
-                let response =
-                    ui.add(egui::Slider::new(&mut volume, 0.0..=2.0).suffix("x"));
-                if response.drag_started() {
-                    state.begin_continuous_edit();
-                }
-                if response.changed() {
-                    if let Some(scene) = state.active_scene_mut()
-                        && let Some(scene_source) = scene.find_source_mut(source_id)
-                    {
-                        scene_source.overrides.volume = Some(volume);
+                    ui.label(
+                        egui::RichText::new(&strip.input_summary)
+                            .size(10.0)
+                            .color(theme.text_secondary),
+                    );
+                    ui.label(
+                        egui::RichText::new(&strip.detail_summary)
+                            .size(10.0)
+                            .color(theme.text_muted),
+                    );
+                    if strip.volume_overridden || strip.muted_overridden {
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new("SCENE OVERRIDE")
+                                .size(9.0)
+                                .color(theme.accent),
+                        );
                     }
-                    if let Some(ref tx) = state.command_tx {
-                        let _ = tx.try_send(GstCommand::SetSourceVolume { source_id, volume });
-                    }
-                    changed = true;
-                }
+                });
 
-                if volume_overridden
-                    && ui
-                        .small_button(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
-                        .on_hover_text("Reset to library volume")
+                ui.add_space(10.0);
+
+                ui.vertical(|ui| {
+                    ui.set_min_width(190.0);
+                    draw_vu_meter(ui, theme, strip.levels.as_ref(), muted);
+                    ui.add_space(4.0);
+                    let peak_db = strip
+                        .levels
+                        .as_ref()
+                        .map(|levels| format!("{:.0} dB", levels.peak_db))
+                        .unwrap_or_else(|| "-inf dB".to_string());
+                    ui.label(
+                        egui::RichText::new(peak_db)
+                            .size(10.0)
+                            .color(theme.text_muted),
+                    );
+                });
+
+                ui.add_space(12.0);
+
+                ui.vertical(|ui| {
+                    ui.set_min_width(150.0);
+                    ui.label(
+                        egui::RichText::new("Volume")
+                            .size(10.0)
+                            .color(theme.text_secondary),
+                    );
+                    let response = ui.add_sized(
+                        [150.0, 18.0],
+                        egui::Slider::new(&mut volume, 0.0..=2.0).show_value(false),
+                    );
+                    if response.drag_started() {
+                        state.begin_continuous_edit();
+                    }
+                    if response.changed() {
+                        apply_volume_override(state, strip.source_id, volume);
+                        changed = true;
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("{:.0}%", volume * 100.0))
+                            .size(10.0)
+                            .color(theme.text_muted),
+                    );
+                });
+
+                ui.add_space(12.0);
+
+                ui.vertical(|ui| {
+                    let mute_fill = if muted {
+                        theme.danger
+                    } else {
+                        theme.bg_panel
+                    };
+                    let mute_text = if muted { "Muted" } else { "Mute" };
+                    if ui
+                        .add_sized(
+                            [72.0, 28.0],
+                            egui::Button::new(
+                                egui::RichText::new(mute_text).color(if muted {
+                                    theme.bg_base
+                                } else {
+                                    theme.text_primary
+                                }),
+                            )
+                            .fill(mute_fill)
+                            .stroke(egui::Stroke::new(1.0, theme.border)),
+                        )
                         .clicked()
-                {
-                    let library_volume = state.library[lib_idx].volume;
-                    if let Some(scene) = state.active_scene_mut()
-                        && let Some(scene_source) = scene.find_source_mut(source_id)
                     {
-                        scene_source.overrides.volume = None;
+                        muted = !muted;
+                        apply_mute_override(state, strip.source_id, muted);
+                        changed = true;
                     }
-                    if let Some(ref tx) = state.command_tx {
-                        let _ = tx.try_send(GstCommand::SetSourceVolume {
-                            source_id,
-                            volume: library_volume,
-                        });
-                    }
-                    changed = true;
-                }
-            });
 
-            let mute_label = if muted { "Muted" } else { "Live" };
-            ui.horizontal(|ui| {
-                let prev_muted = muted;
-                if ui.checkbox(&mut muted, "Mute").changed() && muted != prev_muted {
-                    if let Some(scene) = state.active_scene_mut()
-                        && let Some(scene_source) = scene.find_source_mut(source_id)
-                    {
-                        scene_source.overrides.muted = Some(muted);
-                    }
-                    if let Some(ref tx) = state.command_tx {
-                        let _ = tx.try_send(GstCommand::SetSourceMuted { source_id, muted });
-                    }
-                    changed = true;
-                }
+                    ui.add_space(6.0);
 
-                ui.label(
-                    egui::RichText::new(mute_label)
-                        .size(10.0)
-                        .color(if muted {
-                            theme.danger
-                        } else {
-                            theme.text_secondary
-                        }),
-                );
+                    ui.horizontal(|ui| {
+                        if strip.volume_overridden
+                            && ui
+                                .small_button(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                                .on_hover_text("Reset to library volume")
+                                .clicked()
+                        {
+                            let library_volume = state.library[lib_idx].volume;
+                            reset_volume_override(state, strip.source_id, library_volume);
+                            changed = true;
+                        }
 
-                if muted_overridden
-                    && ui
-                        .small_button(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
-                        .on_hover_text("Reset to library mute state")
-                        .clicked()
-                {
-                    let library_muted = state.library[lib_idx].muted;
-                    if let Some(scene) = state.active_scene_mut()
-                        && let Some(scene_source) = scene.find_source_mut(source_id)
-                    {
-                        scene_source.overrides.muted = None;
-                    }
-                    if let Some(ref tx) = state.command_tx {
-                        let _ = tx.try_send(GstCommand::SetSourceMuted {
-                            source_id,
-                            muted: library_muted,
-                        });
-                    }
-                    changed = true;
-                }
+                        if strip.muted_overridden
+                            && ui
+                                .small_button(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                                .on_hover_text("Reset to library mute state")
+                                .clicked()
+                        {
+                            let library_muted = state.library[lib_idx].muted;
+                            reset_mute_override(state, strip.source_id, library_muted);
+                            changed = true;
+                        }
+                    });
+                });
             });
         });
 
     changed
+}
+
+fn draw_vu_meter(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    levels: Option<&AudioLevels>,
+    muted: bool,
+) {
+    let desired_size = egui::vec2(190.0, 22.0);
+    let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+
+    painter.rect_filled(rect, 4.0, theme.bg_panel);
+    painter.rect_stroke(
+        rect,
+        4.0,
+        egui::Stroke::new(1.0, theme.border_subtle),
+        egui::StrokeKind::Inside,
+    );
+
+    let rms = levels.map(|level| db_to_meter(level.rms_db)).unwrap_or(0.0);
+    let peak = levels.map(|level| db_to_meter(level.peak_db)).unwrap_or(0.0);
+    let segments = 20;
+    let gap = 2.0;
+    let segment_width = ((rect.width() - gap * (segments as f32 - 1.0)) / segments as f32).max(1.0);
+
+    for idx in 0..segments {
+        let x = rect.left() + idx as f32 * (segment_width + gap);
+        let seg_rect = egui::Rect::from_min_size(
+            egui::pos2(x, rect.top() + 3.0),
+            egui::vec2(segment_width, rect.height() - 6.0),
+        );
+        let fill_threshold = (idx + 1) as f32 / segments as f32;
+        let color = meter_color(theme, fill_threshold);
+        let fill = if muted || fill_threshold > rms {
+            theme.border_subtle
+        } else {
+            color
+        };
+        painter.rect_filled(seg_rect, 2.0, fill);
+    }
+
+    if !muted && peak > 0.0 {
+        let marker_x = rect.left() + peak * rect.width();
+        painter.line_segment(
+            [
+                egui::pos2(marker_x, rect.top() + 2.0),
+                egui::pos2(marker_x, rect.bottom() - 2.0),
+            ],
+            egui::Stroke::new(1.0, theme.text_primary),
+        );
+    }
+}
+
+fn meter_color(theme: &Theme, level: f32) -> egui::Color32 {
+    if level >= 0.9 {
+        theme.danger
+    } else if level >= 0.7 {
+        theme.warning
+    } else {
+        theme.success
+    }
+}
+
+fn db_to_meter(db: f32) -> f32 {
+    ((db + 60.0) / 60.0).clamp(0.0, 1.0)
+}
+
+fn apply_volume_override(state: &mut AppState, source_id: SourceId, volume: f32) {
+    if let Some(scene) = state.active_scene_mut()
+        && let Some(scene_source) = scene.find_source_mut(source_id)
+    {
+        scene_source.overrides.volume = Some(volume);
+    }
+    if let Some(ref tx) = state.command_tx {
+        let _ = tx.try_send(GstCommand::SetSourceVolume { source_id, volume });
+    }
+}
+
+fn reset_volume_override(state: &mut AppState, source_id: SourceId, library_volume: f32) {
+    if let Some(scene) = state.active_scene_mut()
+        && let Some(scene_source) = scene.find_source_mut(source_id)
+    {
+        scene_source.overrides.volume = None;
+    }
+    if let Some(ref tx) = state.command_tx {
+        let _ = tx.try_send(GstCommand::SetSourceVolume {
+            source_id,
+            volume: library_volume,
+        });
+    }
+}
+
+fn apply_mute_override(state: &mut AppState, source_id: SourceId, muted: bool) {
+    if let Some(scene) = state.active_scene_mut()
+        && let Some(scene_source) = scene.find_source_mut(source_id)
+    {
+        scene_source.overrides.muted = Some(muted);
+    }
+    if let Some(ref tx) = state.command_tx {
+        let _ = tx.try_send(GstCommand::SetSourceMuted { source_id, muted });
+    }
+}
+
+fn reset_mute_override(state: &mut AppState, source_id: SourceId, library_muted: bool) {
+    if let Some(scene) = state.active_scene_mut()
+        && let Some(scene_source) = scene.find_source_mut(source_id)
+    {
+        scene_source.overrides.muted = None;
+    }
+    if let Some(ref tx) = state.command_tx {
+        let _ = tx.try_send(GstCommand::SetSourceMuted {
+            source_id,
+            muted: library_muted,
+        });
+    }
 }
 
 fn describe_audio_input(input: &AudioInput) -> (String, String) {
@@ -276,7 +413,7 @@ fn describe_audio_input(input: &AudioInput) -> (String, String) {
                 .unwrap_or("No file selected")
                 .to_string();
             let behavior = if *looping { "Looping" } else { "Play once" };
-            ("Audio File".to_string(), format!("{filename} · {behavior}"))
+            ("Audio File".to_string(), format!("{filename} - {behavior}"))
         }
     }
 }

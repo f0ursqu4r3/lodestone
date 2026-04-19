@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
+
+use crate::scene::SourceId;
 
 /// Raw RGBA frame data from the capture pipeline.
 #[derive(Debug, Clone)]
@@ -42,10 +45,10 @@ impl Default for PipelineStats {
 pub struct AudioLevelUpdate {
     pub mic: Option<AudioLevels>,
     pub system: Option<AudioLevels>,
+    pub source_levels: HashMap<SourceId, AudioLevels>,
 }
 
 /// Peak and RMS levels for a single audio source.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AudioLevels {
     pub peak_db: f32,

@@ -613,11 +613,15 @@ impl GstThread {
         let convert = gstreamer::ElementFactory::make("audioconvert").build()?;
         let resample = gstreamer::ElementFactory::make("audioresample").build()?;
         let volume = gstreamer::ElementFactory::make("volume").build()?;
+        let level = gstreamer::ElementFactory::make("level")
+            .property("interval", 50_000_000u64)
+            .property("post-messages", true)
+            .build()?;
         let sink = gstreamer_app::AppSink::builder().build();
 
-        pipeline.add_many([&src, &convert, &resample, &volume, sink.upcast_ref()])?;
+        pipeline.add_many([&src, &convert, &resample, &volume, &level, sink.upcast_ref()])?;
         // uridecodebin pads are dynamic — link on pad-added
-        gstreamer::Element::link_many([&convert, &resample, &volume, sink.upcast_ref()])?;
+        gstreamer::Element::link_many([&convert, &resample, &volume, &level, sink.upcast_ref()])?;
 
         let convert_weak = convert.downgrade();
         src.connect_pad_added(move |_, pad| {
@@ -1709,7 +1713,12 @@ impl GstThread {
         if let Some(ref pipeline) = self.system_pipeline {
             update.system = Self::read_level_from_bus(pipeline);
         }
-        if update.mic.is_some() || update.system.is_some() {
+        for (&source_id, audio) in &self.audio_pipelines {
+            if let Some(levels) = Self::read_level_from_bus(&audio.pipeline) {
+                update.source_levels.insert(source_id, levels);
+            }
+        }
+        if update.mic.is_some() || update.system.is_some() || !update.source_levels.is_empty() {
             let _ = self.channels.audio_level_tx.send(update);
         }
     }

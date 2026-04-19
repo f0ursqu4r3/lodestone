@@ -4,12 +4,11 @@ use crate::state::AppState;
 use crate::ui::layout::PanelId;
 use crate::ui::theme::{Theme, active_theme};
 
-const STRIP_WIDTH: f32 = 82.0;
-const STRIP_MIN_HEIGHT: f32 = 176.0;
-const STRIP_MAX_HEIGHT: f32 = 220.0;
-const METER_WIDTH: f32 = 4.0;
+const STRIP_WIDTH: f32 = 88.0;
+const STRIP_MIN_HEIGHT: f32 = 180.0;
+const METER_WIDTH: f32 = 6.0;
 const SCALE_WIDTH: f32 = 18.0;
-const FADER_WIDTH: f32 = 12.0;
+const FADER_WIDTH: f32 = 16.0;
 
 struct AudioStripData {
     source_id: SourceId,
@@ -69,7 +68,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
             return;
         }
 
-        let strip_height = (ui.available_height() - 6.0).clamp(STRIP_MIN_HEIGHT, STRIP_MAX_HEIGHT);
+        let strip_height = ui.available_height().max(STRIP_MIN_HEIGHT);
 
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
@@ -158,7 +157,7 @@ fn draw_audio_strip(
                 .corner_radius(egui::CornerRadius::same(theme.radius_sm as u8))
                 .inner_margin(egui::Margin::same(8))
                 .show(ui, |ui| {
-                    let meter_cluster_height = (strip_height - 122.0).clamp(68.0, 96.0);
+                    let meter_cluster_height = (strip_height - 104.0).max(108.0);
                     ui.set_width(ui.available_width());
                     ui.set_max_height(strip_height - 2.0);
                     ui.vertical_centered(|ui| {
@@ -177,7 +176,7 @@ fn draw_audio_strip(
                             ui.label(egui::RichText::new("SCENE").size(8.0).color(theme.accent));
                         }
 
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
 
                         ui.label(
                             egui::RichText::new(format_level_readout(strip.levels.as_ref(), muted))
@@ -190,7 +189,7 @@ fn draw_audio_strip(
                                 .monospace(),
                         );
 
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
 
                         ui.horizontal_centered(|ui| {
                             draw_vu_meter(
@@ -200,14 +199,14 @@ fn draw_audio_strip(
                                 muted,
                                 egui::vec2(METER_WIDTH, meter_cluster_height),
                             );
-                            ui.add_space(2.0);
+                            ui.add_space(3.0);
                             draw_db_scale(
                                 ui,
                                 theme,
                                 muted,
                                 egui::vec2(SCALE_WIDTH, meter_cluster_height),
                             );
-                            ui.add_space(4.0);
+                            ui.add_space(6.0);
                             let response = draw_volume_fader(
                                 ui,
                                 theme,
@@ -224,7 +223,7 @@ fn draw_audio_strip(
                             }
                         });
 
-                        ui.add_space(6.0);
+                        ui.add_space(8.0);
 
                         ui.label(
                             egui::RichText::new(format!("{:.0}%", volume * 100.0))
@@ -233,7 +232,7 @@ fn draw_audio_strip(
                                 .monospace(),
                         );
 
-                        ui.add_space(6.0);
+                        ui.add_space(8.0);
 
                         ui.horizontal_centered(|ui| {
                             let reset_active = strip.volume_overridden || strip.muted_overridden;

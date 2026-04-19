@@ -1012,8 +1012,30 @@ impl ApplicationHandler for AppManager {
                                     }
                                 }
                             }
+                            crate::scene::SourceProperties::Audio { input } => {
+                                if let Some(ref tx) = state.command_tx {
+                                    let config = match input {
+                                        crate::scene::AudioInput::Device { device_uid, .. } => {
+                                            gstreamer::CaptureSourceConfig::AudioDevice {
+                                                device_uid: device_uid.clone(),
+                                            }
+                                        }
+                                        crate::scene::AudioInput::File { path, looping } => {
+                                            gstreamer::CaptureSourceConfig::AudioFile {
+                                                path: path.clone(),
+                                                looping: *looping,
+                                            }
+                                        }
+                                    };
+                                    let _ = tx.try_send(gstreamer::GstCommand::AddCaptureSource {
+                                        source_id: src_id,
+                                        config,
+                                        fps: state.settings.video.fps,
+                                    });
+                                }
+                            }
                             _ => {
-                                // Text, Color, Audio, Browser sources don't use a capture pipeline yet.
+                                // Text, Color, and Browser sources don't use a capture pipeline.
                             }
                         }
                     }

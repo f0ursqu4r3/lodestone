@@ -301,6 +301,7 @@ mod win32 {
         pub fn IsWindowVisible(hwnd: HWND) -> BOOL;
         pub fn GetWindowTextW(hwnd: HWND, lpString: *mut u16, nMaxCount: i32) -> i32;
         pub fn GetWindowTextLengthW(hwnd: HWND) -> i32;
+        pub fn GetClassNameW(hwnd: HWND, lpClassName: *mut u16, nMaxCount: i32) -> i32;
         pub fn GetWindowThreadProcessId(hwnd: HWND, lpdwProcessId: *mut u32) -> u32;
         pub fn GetForegroundWindow() -> HWND;
         pub fn GetClientRect(hwnd: HWND, lpRect: *mut RECT) -> i32;
@@ -324,6 +325,12 @@ mod win32 {
     pub const PROCESS_QUERY_LIMITED_INFORMATION: DWORD = 0x1000;
     pub const SM_CXSCREEN: i32 = 0;
     pub const SM_CYSCREEN: i32 = 1;
+}
+
+#[cfg(target_os = "windows")]
+fn is_known_non_capturable_window(title: &str, class_name: &str) -> bool {
+    matches!(title, "Program Manager")
+        || matches!(class_name, "Progman" | "WorkerW" | "Shell_TrayWnd")
 }
 
 /// Get the process executable name for a PID on Windows.
@@ -389,6 +396,10 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
             if title.is_empty() {
                 return 1;
             }
+            let class_name = get_window_class_from_hwnd(hwnd as u64);
+            if is_known_non_capturable_window(&title, &class_name) {
+                return 1;
+            }
 
             // Get PID and skip our own process.
             let mut pid: u32 = 0;
@@ -441,6 +452,8 @@ pub fn get_foreground_window_hwnd() -> Option<u64> {
     let hwnd = unsafe { win32::GetForegroundWindow() };
     if hwnd.is_null() {
         None
+    } else if !is_window_capturable(hwnd as u64) {
+        None
     } else {
         Some(hwnd as u64)
     }
@@ -456,6 +469,18 @@ pub fn get_window_title_from_hwnd(hwnd: u64) -> String {
     }
     let mut buf = vec![0u16; (len + 1) as usize];
     unsafe { win32::GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+    String::from_utf16_lossy(&buf[..len as usize])
+}
+
+/// Get the class name of a window by its HWND on Windows.
+#[cfg(target_os = "windows")]
+pub fn get_window_class_from_hwnd(hwnd: u64) -> String {
+    let hwnd = hwnd as win32::HWND;
+    let mut buf = vec![0u16; 256];
+    let len = unsafe { win32::GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+    if len <= 0 {
+        return String::new();
+    }
     String::from_utf16_lossy(&buf[..len as usize])
 }
 
@@ -543,6 +568,19 @@ pub fn find_fullscreen_window() -> Option<(u64, u32, u32)> {
 #[cfg(target_os = "windows")]
 pub fn is_window_valid(hwnd: u64) -> bool {
     unsafe { win32::IsWindow(hwnd as win32::HWND) != 0 }
+}
+
+/// Returns `true` when the HWND looks like a real user window that WGC can target.
+#[cfg(target_os = "windows")]
+pub fn is_window_capturable(hwnd: u64) -> bool {
+    if !is_window_valid(hwnd) {
+        return false;
+    }
+    let title = get_window_title_from_hwnd(hwnd);
+    let class_name = get_window_class_from_hwnd(hwnd);
+    !title.is_empty()
+        && !is_known_non_capturable_window(&title, &class_name)
+        && get_window_size_from_hwnd(hwnd).is_some_and(|(w, h)| w >= 50 && h >= 50)
 }
 
 /// Group windows by owning application (macOS).
@@ -812,5 +850,13 @@ mod tests {
         }
         assert!(!is_loopback("Built-in Microphone"));
         assert!(!is_loopback("USB Audio Device"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn known_shell_windows_are_not_capturable() {
+        assert!(is_known_non_capturable_window("Program Manager", "Progman"));
+        assert!(is_known_non_capturable_window("Anything", "WorkerW"));
+        assert!(!is_known_non_capturable_window("Untitled - Notepad", "Notepad"));
     }
 }

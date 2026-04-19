@@ -261,7 +261,12 @@ impl GstThread {
         if let CaptureSourceConfig::AudioDevice { device_uid } = config {
             match self.build_audio_device_pipeline(source_id, device_uid) {
                 Ok(()) => log::info!("Started audio device capture for {source_id:?}"),
-                Err(e) => log::error!("Failed to start audio device capture: {e}"),
+                Err(e) => {
+                    log::error!("Failed to start audio device capture: {e}");
+                    let _ = self.channels.error_tx.send(GstError::AudioCaptureFailure {
+                        message: e.to_string(),
+                    });
+                }
             }
             return;
         }
@@ -572,6 +577,14 @@ impl GstThread {
         source_id: SourceId,
         device_uid: &str,
     ) -> anyhow::Result<()> {
+        if !device_uid.is_empty() {
+            let devices = super::devices::enumerate_audio_input_devices()
+                .context("Failed to enumerate audio devices")?;
+            if !devices.iter().any(|device| device.uid == device_uid) {
+                anyhow::bail!("Selected audio device is no longer available");
+            }
+        }
+
         let (pipeline, _appsink, volume_name) = build_audio_capture_pipeline(
             AudioSourceKind::Mic,
             device_uid,
@@ -580,7 +593,31 @@ impl GstThread {
         let volume = pipeline
             .by_name(&volume_name)
             .context("Failed to find audio source volume element")?;
-        pipeline.set_state(gstreamer::State::Playing)?;
+        if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
+            let detail = pipeline
+                .bus()
+                .and_then(|bus| {
+                    bus.timed_pop_filtered(
+                        gstreamer::ClockTime::from_mseconds(100),
+                        &[gstreamer::MessageType::Error],
+                    )
+                })
+                .and_then(|msg| match msg.view() {
+                    gstreamer::MessageView::Error(err) => {
+                        let mut detail = err.error().to_string();
+                        if let Some(debug) = err.debug()
+                            && !debug.is_empty()
+                        {
+                            detail.push_str(&format!(" ({debug})"));
+                        }
+                        Some(detail)
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| e.to_string());
+            let _ = pipeline.set_state(gstreamer::State::Null);
+            anyhow::bail!("Failed to start selected audio device: {detail}");
+        }
 
         self.audio_pipelines.insert(
             source_id,
@@ -1075,6 +1112,19 @@ impl GstThread {
             }
             None => return,
         };
+
+        if !super::devices::is_window_capturable(hwnd) {
+            if let Some(ws) = self.win_watched_windows.get_mut(&source_id) {
+                ws.current_hwnd = None;
+                ws.failed_hwnd = Some(hwnd);
+            }
+            let title = super::devices::get_window_title_from_hwnd(hwnd);
+            let class_name = super::devices::get_window_class_from_hwnd(hwnd);
+            log::info!(
+                "Skipping non-capturable window for {source_id:?}: \"{title}\" ({class_name}, HWND {hwnd:#x})"
+            );
+            return;
+        }
 
         // Remove existing capture pipeline for this source (if any).
         if let Some(handle) = self.captures.remove(&source_id) {

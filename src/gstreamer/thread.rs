@@ -109,8 +109,9 @@ struct GstThread {
     stream_handles: Option<StreamPipelineHandles>,
     stream_started_at: Option<std::time::Instant>,
     stream_total_frames: u64,
-    stream_target_fps: u32,
-    stream_target_bitrate_kbps: u32,
+    stream_dropped_frames: u64,
+    stream_last_stats_at: Option<std::time::Instant>,
+    stream_last_output_bytes: u64,
     record_handles: Option<RecordPipelineHandles>,
     record_path: Option<std::path::PathBuf>,
     #[cfg(target_os = "macos")]
@@ -166,8 +167,9 @@ impl GstThread {
             stream_handles: None,
             stream_started_at: None,
             stream_total_frames: 0,
-            stream_target_fps: 0,
-            stream_target_bitrate_kbps: 0,
+            stream_dropped_frames: 0,
+            stream_last_stats_at: None,
+            stream_last_output_bytes: 0,
             record_handles: None,
             record_path: None,
             #[cfg(target_os = "macos")]
@@ -774,7 +776,7 @@ impl GstThread {
     }
 
     /// Push a frame buffer to an active encode appsrc.
-    fn push_to_encode(appsrc: &AppSrc, data: &[u8], pts: gstreamer::ClockTime) {
+    fn push_to_encode(appsrc: &AppSrc, data: &[u8], pts: gstreamer::ClockTime) -> bool {
         let mut buffer = gstreamer::Buffer::with_size(data.len()).unwrap();
         {
             let buffer_ref = buffer.get_mut().unwrap();
@@ -784,7 +786,9 @@ impl GstThread {
         }
         if let Err(e) = appsrc.push_buffer(buffer) {
             log::warn!("Failed to push frame to encoder: {e}");
+            return false;
         }
+        true
     }
 
     fn handle_command(&mut self, cmd: GstCommand) -> bool {
@@ -875,17 +879,13 @@ impl GstThread {
                 }
                 log::info!("Stream pipeline started to {}", destination.rtmp_url());
                 self.stream_handles = Some(handles);
-                self.stream_started_at = Some(std::time::Instant::now());
+                let now = std::time::Instant::now();
+                self.stream_started_at = Some(now);
                 self.stream_total_frames = 0;
-                self.stream_target_fps = encoder_config.fps;
-                self.stream_target_bitrate_kbps =
-                    encoder_config.bitrate_kbps + audio_config.bitrate_kbps;
-                let _ = self.channels.stats_tx.send(PipelineStats {
-                    bitrate_kbps: self.stream_target_bitrate_kbps as f64,
-                    dropped_frames: 0,
-                    total_frames: 0,
-                    uptime_secs: 0.0,
-                });
+                self.stream_dropped_frames = 0;
+                self.stream_last_stats_at = Some(now);
+                self.stream_last_output_bytes = 0;
+                let _ = self.channels.stats_tx.send(PipelineStats::default());
                 self.publish_runtime_state();
             }
             Err(e) => {
@@ -1638,8 +1638,9 @@ impl GstThread {
                 }
                 self.stream_started_at = None;
                 self.stream_total_frames = 0;
-                self.stream_target_fps = 0;
-                self.stream_target_bitrate_kbps = 0;
+                self.stream_dropped_frames = 0;
+                self.stream_last_stats_at = None;
+                self.stream_last_output_bytes = 0;
                 let _ = self.channels.stats_tx.send(PipelineStats::default());
             }
             PipelineKind::Record => {
@@ -1720,10 +1721,10 @@ impl GstThread {
         {
             let data = map.as_slice();
             if let Some(appsrc) = stream_appsrc {
-                Self::push_to_encode(appsrc, data, pts);
+                let _ = Self::push_to_encode(appsrc, data, pts);
             }
             if let Some(appsrc) = record_appsrc {
-                Self::push_to_encode(appsrc, data, pts);
+                let _ = Self::push_to_encode(appsrc, data, pts);
             }
         }
     }
@@ -1876,11 +1877,14 @@ impl GstThread {
                     let frame_pts =
                         gstreamer::ClockTime::from_nseconds(start_time.elapsed().as_nanos() as u64);
                     if let Some(ref handles) = self.stream_handles {
-                        Self::push_to_encode(&handles.video_appsrc, &frame.data, frame_pts);
-                        self.stream_total_frames += 1;
+                        if Self::push_to_encode(&handles.video_appsrc, &frame.data, frame_pts) {
+                            self.stream_total_frames += 1;
+                        } else {
+                            self.stream_dropped_frames += 1;
+                        }
                     }
                     if let Some(ref handles) = self.record_handles {
-                        Self::push_to_encode(&handles.video_appsrc, &frame.data, frame_pts);
+                        let _ = Self::push_to_encode(&handles.video_appsrc, &frame.data, frame_pts);
                     }
                     #[cfg(target_os = "macos")]
                     if let Some(ref handle) = self.virtual_camera_handle
@@ -1892,12 +1896,29 @@ impl GstThread {
             }
 
             if let Some(started_at) = self.stream_started_at {
-                let expected_frames =
-                    (started_at.elapsed().as_secs_f64() * self.stream_target_fps as f64).floor()
-                        as u64;
+                let now = std::time::Instant::now();
+                let output_bytes = self
+                    .stream_handles
+                    .as_ref()
+                    .map(|handles| handles.telemetry.output_bytes())
+                    .unwrap_or(0);
+                let bitrate_kbps = self
+                    .stream_last_stats_at
+                    .map(|last_at| {
+                        let elapsed = now.duration_since(last_at).as_secs_f64();
+                        if elapsed <= f64::EPSILON {
+                            0.0
+                        } else {
+                            let delta_bytes = output_bytes.saturating_sub(self.stream_last_output_bytes);
+                            ((delta_bytes as f64) * 8.0 / 1000.0) / elapsed
+                        }
+                    })
+                    .unwrap_or(0.0);
+                self.stream_last_stats_at = Some(now);
+                self.stream_last_output_bytes = output_bytes;
                 let _ = self.channels.stats_tx.send(PipelineStats {
-                    bitrate_kbps: self.stream_target_bitrate_kbps as f64,
-                    dropped_frames: expected_frames.saturating_sub(self.stream_total_frames),
+                    bitrate_kbps,
+                    dropped_frames: self.stream_dropped_frames,
                     total_frames: self.stream_total_frames,
                     uptime_secs: started_at.elapsed().as_secs_f64(),
                 });

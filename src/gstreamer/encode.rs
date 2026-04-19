@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use gstreamer::prelude::*;
 use gstreamer_app::AppSrc;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::commands::{AudioEncoderConfig, EncoderConfig, EncoderType, RecordingFormat};
 
@@ -11,6 +13,22 @@ pub struct StreamPipelineHandles {
     pub video_appsrc: AppSrc,
     pub audio_appsrc_mic: AppSrc,
     pub audio_appsrc_system: Option<AppSrc>,
+    pub telemetry: Arc<StreamTelemetry>,
+}
+
+#[derive(Debug, Default)]
+pub struct StreamTelemetry {
+    output_bytes: AtomicU64,
+}
+
+impl StreamTelemetry {
+    pub fn record_output_bytes(&self, bytes: usize) {
+        self.output_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+
+    pub fn output_bytes(&self) -> u64 {
+        self.output_bytes.load(Ordering::Relaxed)
+    }
 }
 
 /// Handles for the recording pipeline (separate audio tracks).
@@ -171,6 +189,10 @@ pub fn build_stream_pipeline_with_audio(
         .property_from_str("streamable", "true")
         .build()
         .context("Failed to create flvmux")?;
+    let probe = gstreamer::ElementFactory::make("identity")
+        .name("stream-stats-probe")
+        .build()
+        .context("Failed to create stream stats probe")?;
 
     let sink = gstreamer::ElementFactory::make("rtmpsink")
         .name("stream-sink")
@@ -218,6 +240,7 @@ pub fn build_stream_pipeline_with_audio(
             &audio_encoder,
             &audio_parser,
             &mux,
+            &probe,
             &sink,
         ])
         .context("Failed to add stream audio elements")?;
@@ -279,14 +302,27 @@ pub fn build_stream_pipeline_with_audio(
         .context("Failed to link audio to flvmux")?;
 
     // Link mux → sink
-    mux.link(&sink)
+    gstreamer::Element::link_many([&mux, &probe, &sink])
         .context("Failed to link flvmux to rtmpsink")?;
+
+    let telemetry = Arc::new(StreamTelemetry::default());
+    let telemetry_for_probe = telemetry.clone();
+    probe
+        .static_pad("src")
+        .context("Failed to get stream stats probe src pad")?
+        .add_probe(gstreamer::PadProbeType::BUFFER, move |_pad, info| {
+            if let Some(gstreamer::PadProbeData::Buffer(ref buffer)) = info.data {
+                telemetry_for_probe.record_output_bytes(buffer.size());
+            }
+            gstreamer::PadProbeReturn::Ok
+        });
 
     Ok(StreamPipelineHandles {
         pipeline,
         video_appsrc,
         audio_appsrc_mic: mic_appsrc,
         audio_appsrc_system: system_appsrc,
+        telemetry,
     })
 }
 

@@ -23,7 +23,10 @@
       "Bash(export PATH=\"/c/Program Files/gstreamer/1.0/msvc_x86_64/bin:$PATH\")",
       "Bash(cargo clippy:*)",
       "WebSearch",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(cargo doc *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

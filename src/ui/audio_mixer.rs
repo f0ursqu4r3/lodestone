@@ -4,15 +4,17 @@ use crate::state::AppState;
 use crate::ui::layout::PanelId;
 use crate::ui::theme::{Theme, active_theme};
 
-const STRIP_WIDTH: f32 = 88.0;
-const STRIP_HEIGHT_PADDING: f32 = 12.0;
-const METER_WIDTH: f32 = 6.0;
-const SCALE_WIDTH: f32 = 18.0;
-const FADER_WIDTH: f32 = 16.0;
+const ROW_PADDING_X: f32 = 12.0;
+const ROW_SPACING: f32 = 12.0;
+const METER_HEIGHT: f32 = 10.0;
+const SCALE_HEIGHT: f32 = 11.0;
+const FADER_HEIGHT: f32 = 14.0;
+const BUTTON_SIZE: egui::Vec2 = egui::vec2(24.0, 20.0);
 
 struct AudioStripData {
     source_id: SourceId,
     name: String,
+    #[allow(dead_code)]
     detail_summary: String,
     volume: f32,
     muted: bool,
@@ -40,53 +42,28 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
     let strips = collect_scene_audio_strips(state);
     let mut changed = false;
 
-    ui.vertical(|ui| {
-        ui.label(
-            egui::RichText::new("CURRENT SCENE")
-                .size(9.0)
-                .color(theme.text_muted),
-        );
-        ui.label(
-            egui::RichText::new(scene_name)
-                .size(13.0)
-                .color(theme.text_primary),
-        );
-        ui.add_space(10.0);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.add_space(10.0);
+            draw_panel_header(ui, &theme, &scene_name);
+            ui.add_space(12.0);
 
-        if strips.is_empty() {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new("No audio sources in this scene")
-                    .size(11.0)
-                    .color(theme.text_muted),
-            );
-            ui.label(
-                egui::RichText::new("Add an Audio source to the scene to mix it here.")
-                    .size(10.0)
-                    .color(theme.text_secondary),
-            );
-            return;
-        }
+            if strips.is_empty() {
+                draw_empty_state(ui, &theme);
+                return;
+            }
 
-        let strip_height = (ui.available_height() - STRIP_HEIGHT_PADDING)
-            .max(0.0)
-            .min(ui.available_height());
-
-        if strip_height <= 0.0 {
-            return;
-        }
-
-        egui::ScrollArea::horizontal()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    for strip in &strips {
-                        changed |= draw_audio_strip(ui, state, strip, &theme, strip_height);
-                    }
-                });
-            });
-    });
+            let mut first = true;
+            for strip in &strips {
+                if !first {
+                    ui.add_space(ROW_SPACING);
+                }
+                first = false;
+                changed |= draw_audio_strip(ui, state, strip, &theme);
+            }
+            ui.add_space(10.0);
+        });
 
     if changed {
         state.mark_dirty();
@@ -97,6 +74,42 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
         state.end_continuous_edit();
     }
     ui.memory_mut(|m| m.data.insert_temp(editing_id, still_editing));
+}
+
+fn draw_panel_header(ui: &mut egui::Ui, theme: &Theme, scene_name: &str) {
+    ui.horizontal(|ui| {
+        ui.add_space(ROW_PADDING_X);
+        ui.vertical(|ui| {
+            ui.label(
+                egui::RichText::new("CURRENT SCENE")
+                    .size(9.0)
+                    .color(theme.text_muted),
+            );
+            ui.label(
+                egui::RichText::new(scene_name)
+                    .size(13.0)
+                    .color(theme.text_primary),
+            );
+        });
+    });
+}
+
+fn draw_empty_state(ui: &mut egui::Ui, theme: &Theme) {
+    ui.horizontal(|ui| {
+        ui.add_space(ROW_PADDING_X);
+        ui.vertical(|ui| {
+            ui.label(
+                egui::RichText::new("No audio sources in this scene")
+                    .size(11.0)
+                    .color(theme.text_muted),
+            );
+            ui.label(
+                egui::RichText::new("Add an Audio source to the scene to mix it here.")
+                    .size(10.0)
+                    .color(theme.text_secondary),
+            );
+        });
+    });
 }
 
 fn collect_scene_audio_strips(state: &AppState) -> Vec<AudioStripData> {
@@ -139,7 +152,6 @@ fn draw_audio_strip(
     state: &mut AppState,
     strip: &AudioStripData,
     theme: &Theme,
-    strip_height: f32,
 ) -> bool {
     let Some(lib_idx) = state
         .library
@@ -152,177 +164,164 @@ fn draw_audio_strip(
     let mut volume = strip.volume;
     let mut muted = strip.muted;
     let mut changed = false;
+    let overridden = strip.volume_overridden || strip.muted_overridden;
 
-    ui.allocate_ui_with_layout(
-        egui::vec2(STRIP_WIDTH, strip_height),
-        egui::Layout::top_down(egui::Align::Center),
-        |ui| {
-            egui::Frame::new()
-                .fill(theme.bg_elevated)
-                .stroke(egui::Stroke::new(1.0, theme.border))
-                .corner_radius(egui::CornerRadius::same(theme.radius_sm as u8))
-                .inner_margin(egui::Margin::same(8))
-                .show(ui, |ui| {
-                    let meter_cluster_height =
-                        (strip_height - 124.0).clamp(32.0, (strip_height - 84.0).max(32.0));
-                    ui.set_width(ui.available_width());
-                    ui.set_max_height(strip_height - 2.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label(
-                            egui::RichText::new(&strip.name)
-                                .size(10.0)
-                                .color(theme.text_primary),
-                        );
-                        ui.label(
-                            egui::RichText::new(compact_detail_summary(&strip.detail_summary))
-                                .size(8.0)
-                                .color(theme.text_secondary),
-                        );
-                        if strip.volume_overridden || strip.muted_overridden {
-                            ui.add_space(1.0);
-                            ui.label(egui::RichText::new("SCENE").size(8.0).color(theme.accent));
-                        }
+    ui.horizontal(|ui| {
+        ui.add_space(ROW_PADDING_X);
+        ui.vertical(|ui| {
+            let content_width = (ui.available_width() - ROW_PADDING_X).max(80.0);
+            ui.set_min_width(content_width);
+            ui.set_max_width(content_width);
 
-                        ui.add_space(6.0);
+            // Header: name + optional SCENE tag on the left; dB readout,
+            // reset (if overridden), mute on the right.
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(&strip.name)
+                        .size(12.0)
+                        .color(theme.text_primary),
+                );
+                if overridden {
+                    ui.label(
+                        egui::RichText::new("SCENE")
+                            .size(9.0)
+                            .color(theme.accent),
+                    );
+                }
 
-                        ui.label(
-                            egui::RichText::new(format_level_readout(strip.levels.as_ref(), muted))
-                                .size(9.0)
-                                .color(if muted {
-                                    theme.text_muted
-                                } else {
-                                    theme.text_primary
-                                })
-                                .monospace(),
-                        );
-
-                        ui.add_space(6.0);
-
-                        ui.horizontal_centered(|ui| {
-                            draw_vu_meter(
-                                ui,
-                                theme,
-                                strip.levels.as_ref(),
-                                muted,
-                                egui::vec2(METER_WIDTH, meter_cluster_height),
-                            );
-                            ui.add_space(3.0);
-                            draw_db_scale(
-                                ui,
-                                theme,
-                                muted,
-                                egui::vec2(SCALE_WIDTH, meter_cluster_height),
-                            );
-                            ui.add_space(6.0);
-                            let response = draw_volume_fader(
-                                ui,
-                                theme,
-                                &mut volume,
-                                muted,
-                                egui::vec2(FADER_WIDTH, meter_cluster_height),
-                            );
-                            if response.drag_started() {
-                                state.begin_continuous_edit();
-                            }
-                            if response.changed() {
-                                apply_volume_override(state, strip.source_id, volume);
-                                changed = true;
-                            }
-                        });
-
-                        ui.add_space(8.0);
-
-                        ui.label(
-                            egui::RichText::new(format!("{:.0}%", volume * 100.0))
-                                .size(8.0)
-                                .color(theme.text_muted)
-                                .monospace(),
-                        );
-
-                        ui.add_space(8.0);
-
-                        ui.horizontal_centered(|ui| {
-                            let reset_active = strip.volume_overridden || strip.muted_overridden;
-                            let reset_icon =
-                                egui::RichText::new(egui_phosphor::regular::DOTS_SIX_VERTICAL)
-                                    .size(13.0)
-                                    .color(if reset_active {
-                                        theme.text_primary
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let speaker_icon = if muted {
+                        egui_phosphor::regular::SPEAKER_NONE
+                    } else {
+                        egui_phosphor::regular::SPEAKER_HIGH
+                    };
+                    let mute_response = ui
+                        .add_sized(
+                            BUTTON_SIZE,
+                            egui::Button::new(
+                                egui::RichText::new(speaker_icon).size(13.0).color(
+                                    if muted {
+                                        theme.bg_base
                                     } else {
-                                        theme.text_muted
-                                    });
-                            if ui
-                                .add_sized(
-                                    [18.0, 18.0],
-                                    egui::Button::new(reset_icon)
-                                        .fill(if reset_active {
-                                            theme.border_subtle
-                                        } else {
-                                            theme.bg_panel
-                                        })
-                                        .stroke(egui::Stroke::new(1.0, theme.border)),
-                                )
-                                .on_hover_text("Reset scene overrides")
-                                .clicked()
-                            {
-                                if strip.volume_overridden {
-                                    let library_volume = state.library[lib_idx].volume;
-                                    reset_volume_override(state, strip.source_id, library_volume);
-                                }
-                                if strip.muted_overridden {
-                                    let library_muted = state.library[lib_idx].muted;
-                                    reset_mute_override(state, strip.source_id, library_muted);
-                                }
-                                changed = true;
-                            }
+                                        theme.text_primary
+                                    },
+                                ),
+                            )
+                            .fill(if muted { theme.danger } else { theme.bg_panel })
+                            .stroke(egui::Stroke::new(1.0, theme.border)),
+                        )
+                        .on_hover_text(if muted { "Unmute" } else { "Mute" });
+                    if mute_response.clicked() {
+                        muted = !muted;
+                        apply_mute_override(state, strip.source_id, muted);
+                        changed = true;
+                    }
 
-                            ui.add_space(4.0);
-
-                            let speaker_icon = if muted {
-                                egui_phosphor::regular::SPEAKER_NONE
-                            } else {
-                                egui_phosphor::regular::SPEAKER_HIGH
-                            };
-                            if ui
-                                .add_sized(
-                                    [18.0, 18.0],
-                                    egui::Button::new(
-                                        egui::RichText::new(speaker_icon).size(11.5).color(
-                                            if muted {
-                                                theme.bg_base
-                                            } else {
-                                                theme.text_primary
-                                            },
-                                        ),
+                    if overridden {
+                        ui.add_space(4.0);
+                        let reset_response = ui
+                            .add_sized(
+                                BUTTON_SIZE,
+                                egui::Button::new(
+                                    egui::RichText::new(
+                                        egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE,
                                     )
-                                    .fill(if muted { theme.danger } else { theme.bg_panel })
-                                    .stroke(egui::Stroke::new(1.0, theme.border)),
+                                    .size(12.0)
+                                    .color(theme.text_primary),
                                 )
-                                .on_hover_text(if muted { "Unmute" } else { "Mute" })
-                                .clicked()
-                            {
-                                muted = !muted;
-                                apply_mute_override(state, strip.source_id, muted);
-                                changed = true;
+                                .fill(theme.border_subtle)
+                                .stroke(egui::Stroke::new(1.0, theme.border)),
+                            )
+                            .on_hover_text("Reset scene overrides");
+                        if reset_response.clicked() {
+                            if strip.volume_overridden {
+                                let library_volume = state.library[lib_idx].volume;
+                                reset_volume_override(state, strip.source_id, library_volume);
                             }
-                        });
-                    });
+                            if strip.muted_overridden {
+                                let library_muted = state.library[lib_idx].muted;
+                                reset_mute_override(state, strip.source_id, library_muted);
+                            }
+                            changed = true;
+                        }
+                    }
+
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(format_level_readout(strip.levels.as_ref(), muted))
+                            .size(11.0)
+                            .monospace()
+                            .color(if muted {
+                                theme.text_muted
+                            } else {
+                                theme.text_primary
+                            }),
+                    );
                 });
-        },
-    );
+            });
+
+            ui.add_space(4.0);
+
+            // Meter, scale, fader take the full content width. Reserve a
+            // small inset on each end so the fader thumb doesn't get clipped
+            // by the track edges and scale labels at 0/-60 don't get cut off.
+            let track_inset = 6.0;
+            let track_width = (ui.available_width() - track_inset * 2.0).max(40.0);
+
+            draw_horizontal_vu_meter(
+                ui,
+                theme,
+                strip.levels.as_ref(),
+                muted,
+                egui::vec2(track_width, METER_HEIGHT),
+                track_inset,
+            );
+            draw_horizontal_db_scale(
+                ui,
+                theme,
+                muted,
+                egui::vec2(track_width, SCALE_HEIGHT),
+                track_inset,
+            );
+            let fader_response = draw_horizontal_fader(
+                ui,
+                theme,
+                &mut volume,
+                muted,
+                egui::vec2(track_width, FADER_HEIGHT),
+                track_inset,
+            );
+            if fader_response.drag_started() {
+                state.begin_continuous_edit();
+            }
+            if fader_response.changed() {
+                apply_volume_override(state, strip.source_id, volume);
+                changed = true;
+            }
+        });
+        ui.add_space(ROW_PADDING_X);
+    });
 
     changed
 }
 
-fn draw_vu_meter(
+fn draw_horizontal_vu_meter(
     ui: &mut egui::Ui,
     theme: &Theme,
     levels: Option<&AudioLevels>,
     muted: bool,
     desired_size: egui::Vec2,
+    inset: f32,
 ) {
-    let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
-    let painter = ui.painter_at(rect);
+    let (row_rect, _) = ui.allocate_exact_size(
+        egui::vec2(desired_size.x + inset * 2.0, desired_size.y),
+        egui::Sense::hover(),
+    );
+    let rect = egui::Rect::from_min_size(
+        egui::pos2(row_rect.left() + inset, row_rect.top()),
+        desired_size,
+    );
+    let painter = ui.painter_at(row_rect);
 
     painter.rect_filled(rect, 2.0, theme.bg_panel);
     painter.rect_stroke(
@@ -336,16 +335,18 @@ fn draw_vu_meter(
     let peak = levels
         .map(|level| db_to_meter(level.peak_db))
         .unwrap_or(0.0);
-    let segments = 28;
+
+    // Use one segment per ~4px so the meter stays detailed at any width.
+    let segments = (rect.width() / 4.0).round().max(12.0) as usize;
     let gap = 1.0;
-    let segment_height =
-        ((rect.height() - gap * (segments as f32 - 1.0)) / segments as f32).max(1.0);
+    let total_gap = gap * (segments as f32 - 1.0);
+    let segment_width = ((rect.width() - 2.0 - total_gap) / segments as f32).max(1.0);
 
     for idx in 0..segments {
-        let y = rect.bottom() - (idx + 1) as f32 * segment_height - idx as f32 * gap;
+        let x = rect.left() + 1.0 + idx as f32 * (segment_width + gap);
         let seg_rect = egui::Rect::from_min_size(
-            egui::pos2(rect.left() + 1.0, y),
-            egui::vec2(rect.width() - 2.0, segment_height),
+            egui::pos2(x, rect.top() + 1.0),
+            egui::vec2(segment_width, rect.height() - 2.0),
         );
         let fill_threshold = (idx + 1) as f32 / segments as f32;
         let db_level = -60.0 + fill_threshold * 60.0;
@@ -355,92 +356,127 @@ fn draw_vu_meter(
         } else {
             color
         };
-        painter.rect_filled(seg_rect, 2.0, fill);
+        painter.rect_filled(seg_rect, 1.0, fill);
     }
 
     if !muted && peak > 0.0 {
-        let marker_y = rect.bottom() - peak * rect.height();
+        let marker_x = rect.left() + 1.0 + peak * (rect.width() - 2.0);
         painter.line_segment(
             [
-                egui::pos2(rect.left() - 1.0, marker_y),
-                egui::pos2(rect.right() + 1.0, marker_y),
+                egui::pos2(marker_x, rect.top() - 1.0),
+                egui::pos2(marker_x, rect.bottom() + 1.0),
             ],
             egui::Stroke::new(1.0, theme.text_primary.gamma_multiply(0.85)),
         );
     }
 }
 
-fn draw_db_scale(ui: &mut egui::Ui, theme: &Theme, muted: bool, desired_size: egui::Vec2) {
-    let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
-    let painter = ui.painter_at(rect);
-    let labels = [0, -5, -10, -15, -20, -25, -30, -35, -40, -45, -50, -55, -60];
+fn draw_horizontal_db_scale(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    muted: bool,
+    desired_size: egui::Vec2,
+    inset: f32,
+) {
+    let (row_rect, _) = ui.allocate_exact_size(
+        egui::vec2(desired_size.x + inset * 2.0, desired_size.y),
+        egui::Sense::hover(),
+    );
+    let rect = egui::Rect::from_min_size(
+        egui::pos2(row_rect.left() + inset, row_rect.top()),
+        desired_size,
+    );
+    let painter = ui.painter_at(row_rect);
+    let color = if muted {
+        theme.text_muted.gamma_multiply(0.7)
+    } else {
+        theme.text_muted
+    };
 
-    for db in labels {
+    // Pick label density based on available width so we don't overcrowd.
+    let labels: &[i32] = if rect.width() < 220.0 {
+        &[-60, -40, -20, 0]
+    } else if rect.width() < 360.0 {
+        &[-60, -50, -40, -30, -20, -10, 0]
+    } else {
+        &[-60, -50, -40, -30, -20, -15, -10, -5, 0]
+    };
+
+    for &db in labels {
         let t = db_to_meter(db as f32);
-        let y = rect.bottom() - rect.height() * t;
+        let x = rect.left() + t * rect.width();
         painter.text(
-            egui::pos2(rect.left(), y),
-            egui::Align2::LEFT_CENTER,
+            egui::pos2(x, rect.center().y),
+            egui::Align2::CENTER_CENTER,
             db.to_string(),
-            egui::FontId::monospace(7.0),
-            if muted {
-                theme.text_muted.gamma_multiply(0.7)
-            } else {
-                theme.text_muted
-            },
+            egui::FontId::monospace(8.0),
+            color,
         );
     }
 }
 
-fn draw_volume_fader(
+fn draw_horizontal_fader(
     ui: &mut egui::Ui,
     theme: &Theme,
     volume: &mut f32,
     muted: bool,
     desired_size: egui::Vec2,
+    inset: f32,
 ) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
+    let (row_rect, mut response) = ui.allocate_exact_size(
+        egui::vec2(desired_size.x + inset * 2.0, desired_size.y),
+        egui::Sense::click_and_drag(),
+    );
+    let rect = egui::Rect::from_min_size(
+        egui::pos2(row_rect.left() + inset, row_rect.top()),
+        desired_size,
+    );
+
     if (response.dragged() || response.clicked())
         && let Some(pointer) = response.interact_pointer_pos()
     {
-        let t = ((rect.bottom() - pointer.y) / rect.height()).clamp(0.0, 1.0);
-        *volume = t * 2.0;
+        let t = ((pointer.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+        let new_volume = t * 2.0;
+        if (new_volume - *volume).abs() > f32::EPSILON {
+            *volume = new_volume;
+            response.mark_changed();
+        }
     }
 
-    let track_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(4.0, rect.height()));
+    let track_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 4.0));
     let normalized = (*volume / 2.0).clamp(0.0, 1.0);
-    let thumb_center_y = rect.bottom() - normalized * rect.height();
+    let thumb_center_x = rect.left() + normalized * rect.width();
     let thumb_rect = egui::Rect::from_center_size(
-        egui::pos2(rect.center().x, thumb_center_y),
-        egui::vec2(10.0, 8.0),
+        egui::pos2(thumb_center_x, rect.center().y),
+        egui::vec2(10.0, rect.height() - 2.0),
     );
 
-    let painter = ui.painter_at(rect);
-    painter.rect_filled(track_rect, 3.0, theme.bg_panel);
+    let painter = ui.painter_at(row_rect);
+    painter.rect_filled(track_rect, 2.0, theme.bg_panel);
     painter.rect_stroke(
         track_rect,
-        3.0,
+        2.0,
         egui::Stroke::new(1.0, theme.border),
         egui::StrokeKind::Inside,
     );
 
     let active_rect = egui::Rect::from_min_max(
-        egui::pos2(track_rect.left(), thumb_center_y),
-        track_rect.max,
+        track_rect.min,
+        egui::pos2(thumb_center_x, track_rect.bottom()),
     );
     painter.rect_filled(
         active_rect,
-        3.0,
+        2.0,
         if muted {
             theme.border_subtle
         } else {
-            theme.accent.gamma_multiply(0.18)
+            theme.accent.gamma_multiply(0.35)
         },
     );
 
     painter.rect_filled(
         thumb_rect,
-        3.0,
+        2.0,
         if response.dragged() || response.hovered() {
             theme.text_primary
         } else {
@@ -449,7 +485,7 @@ fn draw_volume_fader(
     );
     painter.rect_stroke(
         thumb_rect,
-        3.0,
+        2.0,
         egui::Stroke::new(1.0, theme.border),
         egui::StrokeKind::Inside,
     );
@@ -482,16 +518,6 @@ fn format_level_readout(levels: Option<&AudioLevels>, muted: bool) -> String {
         "-inf dB".to_string()
     } else {
         format!("{:.1} dB", levels.rms_db)
-    }
-}
-
-fn compact_detail_summary(detail: &str) -> String {
-    let text = detail.trim();
-    if text.chars().count() <= 12 {
-        text.to_string()
-    } else {
-        let short: String = text.chars().take(9).collect();
-        format!("{short}...")
     }
 }
 

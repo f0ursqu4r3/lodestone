@@ -1,3 +1,4 @@
+use anyhow::Context;
 use gstreamer::prelude::*;
 use gstreamer_app::{AppSink, AppSrc};
 use log;
@@ -571,17 +572,14 @@ impl GstThread {
         source_id: SourceId,
         device_uid: &str,
     ) -> anyhow::Result<()> {
-        let pipeline = gstreamer::Pipeline::new();
-        let src = gstreamer::ElementFactory::make("osxaudiosrc")
-            .property("unique-id", device_uid)
-            .build()?;
-        let convert = gstreamer::ElementFactory::make("audioconvert").build()?;
-        let resample = gstreamer::ElementFactory::make("audioresample").build()?;
-        let volume = gstreamer::ElementFactory::make("volume").build()?;
-        let sink = gstreamer_app::AppSink::builder().build();
-
-        pipeline.add_many([&src, &convert, &resample, &volume, sink.upcast_ref()])?;
-        gstreamer::Element::link_many([&src, &convert, &resample, &volume, sink.upcast_ref()])?;
+        let (pipeline, _appsink, volume_name) = build_audio_capture_pipeline(
+            AudioSourceKind::Mic,
+            device_uid,
+            AudioEncoderConfig::default().sample_rate,
+        )?;
+        let volume = pipeline
+            .by_name(&volume_name)
+            .context("Failed to find audio source volume element")?;
         pipeline.set_state(gstreamer::State::Playing)?;
 
         self.audio_pipelines.insert(
@@ -1111,10 +1109,17 @@ impl GstThread {
                         );
                     }
                     let _ = pipeline.set_state(gstreamer::State::Null);
-                    // Mark this HWND as failed to avoid retry spam.
+                    // Clear the active target and mark this HWND as failed to avoid retry spam.
                     if let Some(ws) = self.win_watched_windows.get_mut(&source_id) {
+                        ws.current_hwnd = None;
                         ws.failed_hwnd = Some(hwnd);
                     }
+                    let title = super::devices::get_window_title_from_hwnd(hwnd);
+                    let _ = self.channels.error_tx.send(GstError::CaptureFailure {
+                        message: format!(
+                            "Window capture failed for \"{title}\". This window may not support Windows Graphics Capture."
+                        ),
+                    });
                     return;
                 }
                 if let Some(ws) = self.win_watched_windows.get_mut(&source_id) {
@@ -1148,6 +1153,7 @@ impl GstThread {
                 );
                 // Mark as failed to prevent retry spam.
                 if let Some(ws) = self.win_watched_windows.get_mut(&source_id) {
+                    ws.current_hwnd = None;
                     ws.failed_hwnd = Some(hwnd);
                 }
                 let _ = self.channels.error_tx.send(GstError::CaptureFailure {

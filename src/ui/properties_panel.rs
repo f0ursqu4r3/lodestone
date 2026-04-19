@@ -100,18 +100,21 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _id: PanelId) {
     }
 
     let mut changed = false;
+    let show_visual_controls = !matches!(state.library[lib_idx].source_type, SourceType::Audio);
 
-    changed |= draw_transform_section(ui, state, selected_id, lib_idx, in_active_scene);
+    if show_visual_controls {
+        changed |= draw_transform_section(ui, state, selected_id, lib_idx, in_active_scene);
 
-    ui.add_space(12.0);
+        ui.add_space(12.0);
 
-    changed |= draw_opacity_section(ui, state, selected_id, lib_idx, in_active_scene);
+        changed |= draw_opacity_section(ui, state, selected_id, lib_idx, in_active_scene);
 
-    ui.add_space(12.0);
+        ui.add_space(12.0);
 
-    changed |= draw_effects_section(ui, state, selected_id, lib_idx, in_active_scene);
+        changed |= draw_effects_section(ui, state, selected_id, lib_idx, in_active_scene);
 
-    ui.add_space(12.0);
+        ui.add_space(12.0);
+    }
 
     changed |= draw_source_properties(ui, state, selected_id, lib_idx);
 

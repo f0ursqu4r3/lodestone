@@ -175,6 +175,14 @@ struct GstThread {
     stream_dropped_frames: u64,
     stream_last_stats_at: Option<std::time::Instant>,
     stream_last_output_bytes: u64,
+    /// Last wall-clock time we observed the stream sink's byte counter
+    /// advance. Used by the watchdog to detect silent RTMP stalls where the
+    /// socket is still "connected" but no data is flowing. `None` until the
+    /// first post-handshake byte arrives.
+    stream_last_progress_at: Option<std::time::Instant>,
+    /// Whether the watchdog has already fired for the current stream session.
+    /// Prevents spamming error_tx when repeated ticks notice the same stall.
+    stream_stall_reported: bool,
     record_handles: Option<RecordPipelineHandles>,
     record_path: Option<std::path::PathBuf>,
     #[cfg(target_os = "macos")]
@@ -233,6 +241,8 @@ impl GstThread {
             stream_dropped_frames: 0,
             stream_last_stats_at: None,
             stream_last_output_bytes: 0,
+            stream_last_progress_at: None,
+            stream_stall_reported: false,
             record_handles: None,
             record_path: None,
             #[cfg(target_os = "macos")]
@@ -1146,6 +1156,8 @@ impl GstThread {
                 self.stream_dropped_frames = 0;
                 self.stream_last_stats_at = Some(now);
                 self.stream_last_output_bytes = 0;
+                self.stream_last_progress_at = None;
+                self.stream_stall_reported = false;
                 let _ = self.channels.stats_tx.send(PipelineStats::default());
                 self.publish_runtime_state();
             }
@@ -1921,6 +1933,8 @@ impl GstThread {
                 self.stream_dropped_frames = 0;
                 self.stream_last_stats_at = None;
                 self.stream_last_output_bytes = 0;
+                self.stream_last_progress_at = None;
+                self.stream_stall_reported = false;
                 let _ = self.channels.stats_tx.send(PipelineStats::default());
             }
             PipelineKind::Record => {
@@ -2012,6 +2026,58 @@ impl GstThread {
             }
         }
         result
+    }
+
+    /// How long a freshly-started stream has to produce its first output byte
+    /// before the watchdog gives up. Covers RTMP TCP + handshake round trips
+    /// on slow networks.
+    const STREAM_HANDSHAKE_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
+    /// How long the output byte counter may stay flat before the watchdog
+    /// treats the connection as dead. A healthy stream emits at least a mux
+    /// header every few hundred ms, so several seconds of zero bytes always
+    /// means the sink or socket has stalled.
+    const STREAM_STALL_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(5);
+
+    /// Detect silent RTMP stalls by watching the sink's byte counter. The bus
+    /// listener catches *reported* errors; this catches the case where the
+    /// pipeline is still alive but no data is actually leaving the machine —
+    /// a TCP write timeout that hasn't surfaced yet, a dead socket the kernel
+    /// hasn't reset, or a server-side RTMP hang.
+    fn check_stream_watchdog(&mut self, started_at: std::time::Instant, now: std::time::Instant) {
+        if self.stream_stall_reported {
+            return;
+        }
+
+        let since_start = now.duration_since(started_at);
+        let stalled = match self.stream_last_progress_at {
+            // Seen at least one byte: stall starts from the last byte we saw.
+            Some(last) => now.duration_since(last) > Self::STREAM_STALL_THRESHOLD,
+            // Never seen bytes: only stall after the handshake grace window.
+            None => since_start > Self::STREAM_HANDSHAKE_GRACE,
+        };
+
+        if !stalled {
+            return;
+        }
+
+        let message = match self.stream_last_progress_at {
+            Some(last) => format!(
+                "RTMP sink stalled: no bytes sent for {:.1}s",
+                now.duration_since(last).as_secs_f64(),
+            ),
+            None => format!(
+                "RTMP sink never sent any data within {:.1}s of start (handshake failed)",
+                since_start.as_secs_f64(),
+            ),
+        };
+        log::error!("[stream-pipeline] watchdog tripped: {message}");
+        self.stream_stall_reported = true;
+        let _ = self
+            .channels
+            .error_tx
+            .send(GstError::StreamConnectionLost { message });
+        self.stop_pipeline(PipelineKind::Stream);
     }
 
     /// Poll the stream and record pipeline buses for errors, warnings, and
@@ -2314,6 +2380,10 @@ impl GstThread {
                     .as_ref()
                     .map(|handles| handles.telemetry.output_bytes())
                     .unwrap_or(0);
+                let delta_bytes = output_bytes.saturating_sub(self.stream_last_output_bytes);
+                if delta_bytes > 0 {
+                    self.stream_last_progress_at = Some(now);
+                }
                 let bitrate_kbps = self
                     .stream_last_stats_at
                     .map(|last_at| {
@@ -2321,8 +2391,6 @@ impl GstThread {
                         if elapsed <= f64::EPSILON {
                             0.0
                         } else {
-                            let delta_bytes =
-                                output_bytes.saturating_sub(self.stream_last_output_bytes);
                             ((delta_bytes as f64) * 8.0 / 1000.0) / elapsed
                         }
                     })
@@ -2335,6 +2403,8 @@ impl GstThread {
                     total_frames: self.stream_total_frames,
                     uptime_secs: started_at.elapsed().as_secs_f64(),
                 });
+
+                self.check_stream_watchdog(started_at, now);
             }
 
             // Forward mic audio to encode pipelines

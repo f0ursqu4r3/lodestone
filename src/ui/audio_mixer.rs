@@ -4,12 +4,12 @@ use crate::state::AppState;
 use crate::ui::layout::PanelId;
 use crate::ui::theme::{Theme, active_theme};
 
-const STRIP_WIDTH: f32 = 96.0;
-const STRIP_MIN_HEIGHT: f32 = 248.0;
-const METER_CLUSTER_HEIGHT: f32 = 142.0;
-const METER_WIDTH: f32 = 6.0;
-const SCALE_WIDTH: f32 = 20.0;
-const FADER_WIDTH: f32 = 14.0;
+const STRIP_WIDTH: f32 = 82.0;
+const STRIP_MIN_HEIGHT: f32 = 176.0;
+const STRIP_MAX_HEIGHT: f32 = 220.0;
+const METER_WIDTH: f32 = 4.0;
+const SCALE_WIDTH: f32 = 18.0;
+const FADER_WIDTH: f32 = 12.0;
 
 struct AudioStripData {
     source_id: SourceId,
@@ -69,13 +69,15 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
             return;
         }
 
+        let strip_height = (ui.available_height() - 6.0).clamp(STRIP_MIN_HEIGHT, STRIP_MAX_HEIGHT);
+
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
+                    ui.spacing_mut().item_spacing.x = 8.0;
                     for strip in &strips {
-                        changed |= draw_audio_strip(ui, state, strip, &theme);
+                        changed |= draw_audio_strip(ui, state, strip, &theme, strip_height);
                     }
                 });
             });
@@ -132,6 +134,7 @@ fn draw_audio_strip(
     state: &mut AppState,
     strip: &AudioStripData,
     theme: &Theme,
+    strip_height: f32,
 ) -> bool {
     let Some(lib_idx) = state
         .library
@@ -148,32 +151,33 @@ fn draw_audio_strip(
     egui::Frame::new()
         .fill(theme.bg_elevated)
         .stroke(egui::Stroke::new(1.0, theme.border))
-        .corner_radius(egui::CornerRadius::same(theme.radius_md as u8))
-        .inner_margin(egui::Margin::same(10))
+        .corner_radius(egui::CornerRadius::same(theme.radius_sm as u8))
+        .inner_margin(egui::Margin::same(8))
         .show(ui, |ui| {
+            let meter_cluster_height = (strip_height - 112.0).clamp(84.0, 112.0);
             ui.set_width(STRIP_WIDTH);
-            ui.set_min_height(STRIP_MIN_HEIGHT);
+            ui.set_min_height(strip_height);
             ui.vertical_centered(|ui| {
                 ui.label(
                     egui::RichText::new(&strip.name)
-                        .size(10.5)
+                        .size(10.0)
                         .color(theme.text_primary),
                 );
                 ui.label(
                     egui::RichText::new(compact_detail_summary(&strip.detail_summary))
-                        .size(8.5)
+                        .size(8.0)
                         .color(theme.text_secondary),
                 );
                 if strip.volume_overridden || strip.muted_overridden {
-                    ui.add_space(2.0);
+                    ui.add_space(1.0);
                     ui.label(egui::RichText::new("SCENE").size(8.0).color(theme.accent));
                 }
 
-                ui.add_space(6.0);
+                ui.add_space(4.0);
 
                 ui.label(
                     egui::RichText::new(format_level_readout(strip.levels.as_ref(), muted))
-                        .size(9.5)
+                        .size(9.0)
                         .color(if muted {
                             theme.text_muted
                         } else {
@@ -182,7 +186,7 @@ fn draw_audio_strip(
                         .monospace(),
                 );
 
-                ui.add_space(6.0);
+                ui.add_space(4.0);
 
                 ui.horizontal_centered(|ui| {
                     draw_vu_meter(
@@ -190,22 +194,22 @@ fn draw_audio_strip(
                         theme,
                         strip.levels.as_ref(),
                         muted,
-                        egui::vec2(METER_WIDTH, METER_CLUSTER_HEIGHT),
+                        egui::vec2(METER_WIDTH, meter_cluster_height),
                     );
-                    ui.add_space(3.0);
+                    ui.add_space(2.0);
                     draw_db_scale(
                         ui,
                         theme,
                         muted,
-                        egui::vec2(SCALE_WIDTH, METER_CLUSTER_HEIGHT),
+                        egui::vec2(SCALE_WIDTH, meter_cluster_height),
                     );
-                    ui.add_space(6.0);
+                    ui.add_space(4.0);
                     let response = draw_volume_fader(
                         ui,
                         theme,
                         &mut volume,
                         muted,
-                        egui::vec2(FADER_WIDTH, METER_CLUSTER_HEIGHT),
+                        egui::vec2(FADER_WIDTH, meter_cluster_height),
                     );
                     if response.drag_started() {
                         state.begin_continuous_edit();
@@ -216,16 +220,16 @@ fn draw_audio_strip(
                     }
                 });
 
-                ui.add_space(8.0);
+                ui.add_space(6.0);
 
                 ui.label(
                     egui::RichText::new(format!("{:.0}%", volume * 100.0))
-                        .size(8.5)
+                        .size(8.0)
                         .color(theme.text_muted)
                         .monospace(),
                 );
 
-                ui.add_space(8.0);
+                ui.add_space(6.0);
 
                 ui.horizontal_centered(|ui| {
                     let reset_active = strip.volume_overridden || strip.muted_overridden;
@@ -238,7 +242,7 @@ fn draw_audio_strip(
                         });
                     if ui
                         .add_sized(
-                            [22.0, 20.0],
+                            [18.0, 18.0],
                             egui::Button::new(reset_icon)
                                 .fill(if reset_active {
                                     theme.border_subtle
@@ -261,7 +265,7 @@ fn draw_audio_strip(
                         changed = true;
                     }
 
-                    ui.add_space(6.0);
+                    ui.add_space(4.0);
 
                     let speaker_icon = if muted {
                         egui_phosphor::regular::SPEAKER_NONE
@@ -270,8 +274,8 @@ fn draw_audio_strip(
                     };
                     if ui
                         .add_sized(
-                            [22.0, 20.0],
-                            egui::Button::new(egui::RichText::new(speaker_icon).size(13.0).color(
+                            [18.0, 18.0],
+                            egui::Button::new(egui::RichText::new(speaker_icon).size(11.5).color(
                                 if muted {
                                     theme.bg_base
                                 } else {
@@ -317,7 +321,7 @@ fn draw_vu_meter(
     let peak = levels
         .map(|level| db_to_meter(level.peak_db))
         .unwrap_or(0.0);
-    let segments = 40;
+    let segments = 28;
     let gap = 1.0;
     let segment_height =
         ((rect.height() - gap * (segments as f32 - 1.0)) / segments as f32).max(1.0);
@@ -363,7 +367,7 @@ fn draw_db_scale(ui: &mut egui::Ui, theme: &Theme, muted: bool, desired_size: eg
             egui::pos2(rect.left(), y),
             egui::Align2::LEFT_CENTER,
             db.to_string(),
-            egui::FontId::monospace(8.0),
+            egui::FontId::monospace(7.0),
             if muted {
                 theme.text_muted.gamma_multiply(0.7)
             } else {
@@ -388,12 +392,12 @@ fn draw_volume_fader(
         *volume = t * 2.0;
     }
 
-    let track_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(6.0, rect.height()));
+    let track_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(4.0, rect.height()));
     let normalized = (*volume / 2.0).clamp(0.0, 1.0);
     let thumb_center_y = rect.bottom() - normalized * rect.height();
     let thumb_rect = egui::Rect::from_center_size(
         egui::pos2(rect.center().x, thumb_center_y),
-        egui::vec2(14.0, 10.0),
+        egui::vec2(10.0, 8.0),
     );
 
     let painter = ui.painter_at(rect);
@@ -468,10 +472,10 @@ fn format_level_readout(levels: Option<&AudioLevels>, muted: bool) -> String {
 
 fn compact_detail_summary(detail: &str) -> String {
     let text = detail.trim();
-    if text.chars().count() <= 16 {
+    if text.chars().count() <= 12 {
         text.to_string()
     } else {
-        let short: String = text.chars().take(13).collect();
+        let short: String = text.chars().take(9).collect();
         format!("{short}...")
     }
 }

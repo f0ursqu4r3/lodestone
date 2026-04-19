@@ -85,6 +85,7 @@ enum PipelineKind {
 /// Per-source audio pipeline (device or file), keyed by SourceId.
 struct AudioPipeline {
     pipeline: gstreamer::Pipeline,
+    appsink: AppSink,
     volume_element: gstreamer::Element,
     /// Holds the bus watch guard alive — dropping it removes the watch.
     _bus_watch: Option<gstreamer::bus::BusWatchGuard>,
@@ -585,7 +586,7 @@ impl GstThread {
             }
         }
 
-        let (pipeline, _appsink, volume_name) = build_audio_capture_pipeline(
+        let (pipeline, appsink, volume_name) = build_audio_capture_pipeline(
             AudioSourceKind::Mic,
             device_uid,
             AudioEncoderConfig::default().sample_rate,
@@ -623,6 +624,7 @@ impl GstThread {
             source_id,
             AudioPipeline {
                 pipeline,
+                appsink,
                 volume_element: volume,
                 _bus_watch: None,
             },
@@ -656,7 +658,14 @@ impl GstThread {
             .build()?;
         let sink = gstreamer_app::AppSink::builder().build();
 
-        pipeline.add_many([&src, &convert, &resample, &volume, &level, sink.upcast_ref()])?;
+        pipeline.add_many([
+            &src,
+            &convert,
+            &resample,
+            &volume,
+            &level,
+            sink.upcast_ref(),
+        ])?;
         // uridecodebin pads are dynamic — link on pad-added
         gstreamer::Element::link_many([&convert, &resample, &volume, &level, sink.upcast_ref()])?;
 
@@ -693,6 +702,7 @@ impl GstThread {
             source_id,
             AudioPipeline {
                 pipeline,
+                appsink: sink,
                 volume_element: volume,
                 _bus_watch: bus_watch,
             },
@@ -1067,20 +1077,15 @@ impl GstThread {
 
         // Try to resolve target immediately for modes that don't wait for a trigger.
         let resolved = match &mode {
-            WindowCaptureMode::ForegroundWindow => {
-                super::devices::get_foreground_window_hwnd()
-            }
+            WindowCaptureMode::ForegroundWindow => super::devices::get_foreground_window_hwnd(),
             WindowCaptureMode::SpecificWindow {
                 process_name,
                 window_title,
             } => super::devices::find_window_by_process_and_title(process_name, window_title)
                 .map(|(hwnd, _, _)| hwnd),
-            WindowCaptureMode::Application {
-                bundle_id, ..
-            } => {
+            WindowCaptureMode::Application { bundle_id, .. } => {
                 // On Windows, bundle_id stores the process name.
-                super::devices::find_app_window_by_process(bundle_id)
-                    .map(|(hwnd, _, _)| hwnd)
+                super::devices::find_app_window_by_process(bundle_id).map(|(hwnd, _, _)| hwnd)
             }
             WindowCaptureMode::AnyFullscreen => {
                 super::devices::find_fullscreen_window().map(|(hwnd, _, _)| hwnd)
@@ -1134,10 +1139,7 @@ impl GstThread {
             let _ = handle.pipeline.set_state(gstreamer::State::Null);
         }
 
-        let config = CaptureSourceConfig::WindowHandle {
-            hwnd,
-            capture_size,
-        };
+        let config = CaptureSourceConfig::WindowHandle { hwnd, capture_size };
 
         match build_capture_pipeline(&config, capture_size.0, capture_size.1, fps) {
             Ok((pipeline, appsink)) => {
@@ -1280,12 +1282,10 @@ impl GstThread {
                             .current_hwnd
                             .is_some_and(|h| !super::devices::is_window_valid(h));
                     if needs_resolve {
-                        if let Some((hwnd, _, _)) =
-                            super::devices::find_window_by_process_and_title(
-                                process_name,
-                                window_title,
-                            )
-                        {
+                        if let Some((hwnd, _, _)) = super::devices::find_window_by_process_and_title(
+                            process_name,
+                            window_title,
+                        ) {
                             updates.push((source_id, hwnd));
                         } else if ws.current_hwnd.is_some() {
                             stale.push(source_id);
@@ -1364,7 +1364,6 @@ impl GstThread {
         }
     }
 
-
     #[cfg(not(target_os = "windows"))]
     fn handle_capture_foreground_window(&mut self) {
         log::warn!("CaptureForegroundWindow is only supported on Windows");
@@ -1423,9 +1422,11 @@ impl GstThread {
     fn activate_game_capture(&mut self, source_id: SourceId, process_id: u32) {
         use super::inject;
 
-        let Some((process_name, failed_process_id)) = self.game_captures.get(&source_id).map(|gc| {
-            (gc.process_name.clone(), gc.failed_process_id)
-        }) else {
+        let Some((process_name, failed_process_id)) = self
+            .game_captures
+            .get(&source_id)
+            .map(|gc| (gc.process_name.clone(), gc.failed_process_id))
+        else {
             return;
         };
 
@@ -1451,7 +1452,10 @@ impl GstThread {
 
         // Locate the hook DLL next to our executable.
         let dll_path = match std::env::current_exe() {
-            Ok(exe) => exe.parent().unwrap_or(std::path::Path::new(".")).join("lodestone_hook.dll"),
+            Ok(exe) => exe
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .join("lodestone_hook.dll"),
             Err(_) => std::path::PathBuf::from("lodestone_hook.dll"),
         };
 
@@ -1512,13 +1516,15 @@ impl GstThread {
             return;
         };
 
-        let target = super::devices::enumerate_windows().into_iter().find(|window| {
-            window.process_name.eq_ignore_ascii_case(&process_name)
-                && (window_title.is_empty()
-                    || window.title == window_title
-                    || window.title.contains(&window_title))
-                && Some(window.process_id) != failed_process_id
-        });
+        let target = super::devices::enumerate_windows()
+            .into_iter()
+            .find(|window| {
+                window.process_name.eq_ignore_ascii_case(&process_name)
+                    && (window_title.is_empty()
+                        || window.title == window_title
+                        || window.title.contains(&window_title))
+                    && Some(window.process_id) != failed_process_id
+            });
 
         if let Some(window) = target {
             self.activate_game_capture(source_id, window.process_id);
@@ -1600,7 +1606,9 @@ impl GstThread {
     fn handle_start_virtual_camera(&mut self, fps: u32) {
         use super::virtual_camera;
         if self.virtual_camera_handle.is_some() {
-            log::debug!("Ignoring duplicate StartVirtualCamera command while virtual camera is active");
+            log::debug!(
+                "Ignoring duplicate StartVirtualCamera command while virtual camera is active"
+            );
             return;
         }
         let width = 1920u32;
@@ -1794,6 +1802,14 @@ impl GstThread {
         }
     }
 
+    /// Drain samples from a per-source audio appsink so the capture pipeline keeps flowing.
+    fn drain_audio(appsink: &AppSink) {
+        while appsink
+            .try_pull_sample(gstreamer::ClockTime::from_mseconds(0))
+            .is_some()
+        {}
+    }
+
     /// Probe GStreamer for available H.264 encoders.
     fn enumerate_encoders() -> Vec<AvailableEncoder> {
         let mut encoders = Vec::new();
@@ -1974,7 +1990,8 @@ impl GstThread {
                         if elapsed <= f64::EPSILON {
                             0.0
                         } else {
-                            let delta_bytes = output_bytes.saturating_sub(self.stream_last_output_bytes);
+                            let delta_bytes =
+                                output_bytes.saturating_sub(self.stream_last_output_bytes);
                             ((delta_bytes as f64) * 8.0 / 1000.0) / elapsed
                         }
                     })
@@ -2007,6 +2024,10 @@ impl GstThread {
                     .as_ref()
                     .and_then(|h| h.system_appsrc.as_ref());
                 Self::forward_audio(appsink, stream_appsrc, record_appsrc, pts);
+            }
+
+            for audio in self.audio_pipelines.values() {
+                Self::drain_audio(&audio.appsink);
             }
 
             // Poll audio levels

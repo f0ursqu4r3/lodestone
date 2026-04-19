@@ -351,7 +351,7 @@ pub fn build_audio_effect_element(
             gstreamer::ElementFactory::make("audioamplify")
                 .name(name)
                 .property("amplification", linear)
-                .property_from_str("clipping-method", "normal")
+                .property_from_str("clipping-method", "clip")
                 .build()
                 .context("Failed to create audioamplify (Gain)")
         }

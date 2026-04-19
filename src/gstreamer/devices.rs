@@ -754,6 +754,11 @@ pub fn enumerate_cameras() -> Result<Vec<CameraDevice>> {
 }
 
 /// Enumerate available audio input devices using GStreamer's DeviceMonitor.
+///
+/// On Windows the monitor returns each physical endpoint once per audio
+/// provider (`wasapi2`, `wasapi`, `directsoundsrc`, ...), which would surface
+/// duplicates in the UI. We de-duplicate by display name and keep the entry
+/// from the highest-ranked provider (preferring `wasapi2`).
 pub fn enumerate_audio_input_devices() -> Result<Vec<AudioDevice>> {
     let monitor = gstreamer::DeviceMonitor::new();
 
@@ -764,23 +769,60 @@ pub fn enumerate_audio_input_devices() -> Result<Vec<AudioDevice>> {
     let devices = monitor.devices();
     monitor.stop();
 
-    let mut result = Vec::new();
+    let mut by_name: std::collections::HashMap<String, (i32, AudioDevice)> =
+        std::collections::HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+
     for device in devices {
         let name = device.display_name().to_string();
         let uid = audio_device_uid(&device).unwrap_or_else(|| name.clone());
-
         let is_loopback = LOOPBACK_DEVICE_NAMES
             .iter()
             .any(|known| name.contains(known));
+        let rank = audio_provider_rank(&device);
 
-        result.push(AudioDevice {
+        let entry = AudioDevice {
             uid,
-            name,
+            name: name.clone(),
             is_loopback,
-        });
+        };
+
+        match by_name.get(&name) {
+            Some((existing_rank, _)) if *existing_rank >= rank => {}
+            Some(_) => {
+                by_name.insert(name, (rank, entry));
+            }
+            None => {
+                order.push(name.clone());
+                by_name.insert(name, (rank, entry));
+            }
+        }
     }
 
-    Ok(result)
+    Ok(order
+        .into_iter()
+        .filter_map(|n| by_name.remove(&n).map(|(_, d)| d))
+        .collect())
+}
+
+/// Rank an audio device's provider so that de-duplication prefers the modern
+/// backend. Higher is better. Unknown providers get 0 so they're only kept
+/// when no ranked alternative exists.
+fn audio_provider_rank(device: &gstreamer::Device) -> i32 {
+    let api = device
+        .properties()
+        .and_then(|props| props.get::<String>("device.api").ok())
+        .unwrap_or_default();
+    match api.as_str() {
+        "wasapi2" => 3,
+        "wasapi" => 2,
+        "coreaudio" => 2,
+        "pipewire" => 2,
+        "pulse" => 1,
+        "alsa" => 1,
+        "directsound" => 1,
+        _ => 0,
+    }
 }
 
 fn audio_device_uid(device: &gstreamer::Device) -> Option<String> {

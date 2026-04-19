@@ -978,9 +978,15 @@ fn draw_source_row(
                 .font(egui::FontId::proportional(11.0));
             let te_response = child_ui.add(te);
 
-            // Auto-focus on first frame.
-            if te_response.gained_focus() || !te_response.has_focus() {
+            // Focus on first frame only — check a generation counter
+            // that resets each time a rename starts.
+            let gen_id = egui::Id::new("rename_gen");
+            let focused_gen_id = egui::Id::new(("rename_focused_gen", row.id.0));
+            let current_gen: u64 = ui.data(|d| d.get_temp(gen_id).unwrap_or(0));
+            let focused_gen: u64 = ui.data(|d| d.get_temp(focused_gen_id).unwrap_or(0));
+            if focused_gen != current_gen {
                 te_response.request_focus();
+                ui.data_mut(|d| d.insert_temp(focused_gen_id, current_gen));
             }
 
             // Confirm on Enter or loss of focus, cancel on Escape.

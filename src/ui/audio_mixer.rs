@@ -4,6 +4,13 @@ use crate::state::AppState;
 use crate::ui::layout::PanelId;
 use crate::ui::theme::{Theme, active_theme};
 
+const STRIP_WIDTH: f32 = 96.0;
+const STRIP_MIN_HEIGHT: f32 = 248.0;
+const METER_CLUSTER_HEIGHT: f32 = 142.0;
+const METER_WIDTH: f32 = 6.0;
+const SCALE_WIDTH: f32 = 20.0;
+const FADER_WIDTH: f32 = 14.0;
+
 struct AudioStripData {
     source_id: SourceId,
     name: String,
@@ -144,8 +151,8 @@ fn draw_audio_strip(
         .corner_radius(egui::CornerRadius::same(theme.radius_md as u8))
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
-            ui.set_width(104.0);
-            ui.set_min_height(286.0);
+            ui.set_width(STRIP_WIDTH);
+            ui.set_min_height(STRIP_MIN_HEIGHT);
             ui.vertical_centered(|ui| {
                 ui.label(
                     egui::RichText::new(&strip.name)
@@ -178,11 +185,28 @@ fn draw_audio_strip(
                 ui.add_space(6.0);
 
                 ui.horizontal_centered(|ui| {
-                    draw_vu_meter(ui, theme, strip.levels.as_ref(), muted);
-                    ui.add_space(4.0);
-                    draw_db_scale(ui, theme, muted);
-                    ui.add_space(8.0);
-                    let response = draw_volume_fader(ui, theme, &mut volume, muted);
+                    draw_vu_meter(
+                        ui,
+                        theme,
+                        strip.levels.as_ref(),
+                        muted,
+                        egui::vec2(METER_WIDTH, METER_CLUSTER_HEIGHT),
+                    );
+                    ui.add_space(3.0);
+                    draw_db_scale(
+                        ui,
+                        theme,
+                        muted,
+                        egui::vec2(SCALE_WIDTH, METER_CLUSTER_HEIGHT),
+                    );
+                    ui.add_space(6.0);
+                    let response = draw_volume_fader(
+                        ui,
+                        theme,
+                        &mut volume,
+                        muted,
+                        egui::vec2(FADER_WIDTH, METER_CLUSTER_HEIGHT),
+                    );
                     if response.drag_started() {
                         state.begin_continuous_edit();
                     }
@@ -271,8 +295,13 @@ fn draw_audio_strip(
     changed
 }
 
-fn draw_vu_meter(ui: &mut egui::Ui, theme: &Theme, levels: Option<&AudioLevels>, muted: bool) {
-    let desired_size = egui::vec2(10.0, 196.0);
+fn draw_vu_meter(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    levels: Option<&AudioLevels>,
+    muted: bool,
+    desired_size: egui::Vec2,
+) {
     let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
     let painter = ui.painter_at(rect);
 
@@ -322,8 +351,7 @@ fn draw_vu_meter(ui: &mut egui::Ui, theme: &Theme, levels: Option<&AudioLevels>,
     }
 }
 
-fn draw_db_scale(ui: &mut egui::Ui, theme: &Theme, muted: bool) {
-    let desired_size = egui::vec2(24.0, 196.0);
+fn draw_db_scale(ui: &mut egui::Ui, theme: &Theme, muted: bool, desired_size: egui::Vec2) {
     let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
     let painter = ui.painter_at(rect);
     let labels = [0, -5, -10, -15, -20, -25, -30, -35, -40, -45, -50, -55, -60];
@@ -350,8 +378,8 @@ fn draw_volume_fader(
     theme: &Theme,
     volume: &mut f32,
     muted: bool,
+    desired_size: egui::Vec2,
 ) -> egui::Response {
-    let desired_size = egui::vec2(16.0, 196.0);
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
     if (response.dragged() || response.clicked())
         && let Some(pointer) = response.interact_pointer_pos()

@@ -86,6 +86,49 @@ enum PipelineKind {
     Record,
 }
 
+impl PipelineKind {
+    fn log_tag(&self) -> &'static str {
+        match self {
+            Self::Stream => "stream-pipeline",
+            Self::Record => "record-pipeline",
+        }
+    }
+}
+
+/// A fatal error posted by a pipeline on its GStreamer bus.
+#[derive(Debug)]
+struct BusError {
+    /// Name of the element that emitted the error, if available.
+    element: Option<String>,
+    /// Human-readable error message from GStreamer.
+    message: String,
+    /// GStreamer debug string, if any (often contains element state + source location).
+    debug: Option<String>,
+}
+
+impl BusError {
+    fn formatted(&self) -> String {
+        let element = self.element.as_deref().unwrap_or("?");
+        match self.debug.as_deref() {
+            Some(d) if !d.is_empty() => format!("{element}: {} ({d})", self.message),
+            _ => format!("{element}: {}", self.message),
+        }
+    }
+}
+
+/// Result of draining a pipeline's bus for a single tick.
+#[derive(Debug, Default)]
+struct BusDrainResult {
+    /// First fatal error posted (subsequent errors are collapsed into `extra_errors`).
+    error: Option<BusError>,
+    /// Non-fatal warning strings (pre-formatted with the emitting element name).
+    warnings: Vec<String>,
+    /// Pipeline posted an end-of-stream message. Always unexpected for long-lived
+    /// encode pipelines (we only EOS them during a deliberate stop, and stop_pipeline
+    /// pops the EOS itself before draining reaches it).
+    got_eos: bool,
+}
+
 /// Per-source audio pipeline (device or file), keyed by SourceId.
 struct AudioPipeline {
     pipeline: gstreamer::Pipeline,
@@ -1931,6 +1974,101 @@ impl GstThread {
         result
     }
 
+    /// Drain all pending bus messages for `pipeline`, collecting fatal errors,
+    /// warnings, and EOS signals. Does not block.
+    ///
+    /// Intended for long-lived encode pipelines that have no dedicated bus
+    /// watcher — the main loop calls this each tick so errors surface
+    /// immediately instead of piling up silently on the bus.
+    fn drain_bus_messages(pipeline: &gstreamer::Pipeline) -> BusDrainResult {
+        let mut result = BusDrainResult::default();
+        let Some(bus) = pipeline.bus() else {
+            return result;
+        };
+        while let Some(msg) = bus.pop() {
+            match msg.view() {
+                gstreamer::MessageView::Error(err) => {
+                    if result.error.is_none() {
+                        let element = msg.src().map(|s| s.name().to_string());
+                        let debug = err.debug().map(|d| d.to_string());
+                        result.error = Some(BusError {
+                            element,
+                            message: err.error().to_string(),
+                            debug,
+                        });
+                    }
+                }
+                gstreamer::MessageView::Warning(w) => {
+                    let element = msg
+                        .src()
+                        .map(|s| s.name().to_string())
+                        .unwrap_or_else(|| "?".into());
+                    result.warnings.push(format!("{element}: {}", w.error()));
+                }
+                gstreamer::MessageView::Eos(_) => {
+                    result.got_eos = true;
+                }
+                _ => {}
+            }
+        }
+        result
+    }
+
+    /// Poll the stream and record pipeline buses for errors, warnings, and
+    /// unexpected EOS. On fatal error, emits a typed `GstError` and tears the
+    /// offending pipeline down so UI state (`OutputRuntimeState`) reflects
+    /// reality immediately.
+    fn poll_encode_buses(&mut self) {
+        let stream_result = self
+            .stream_handles
+            .as_ref()
+            .map(|h| Self::drain_bus_messages(&h.pipeline));
+        if let Some(r) = stream_result {
+            self.handle_bus_drain(PipelineKind::Stream, r);
+        }
+
+        let record_result = self
+            .record_handles
+            .as_ref()
+            .map(|h| Self::drain_bus_messages(&h.pipeline));
+        if let Some(r) = record_result {
+            self.handle_bus_drain(PipelineKind::Record, r);
+        }
+    }
+
+    fn handle_bus_drain(&mut self, kind: PipelineKind, drain: BusDrainResult) {
+        let tag = kind.log_tag();
+        for w in &drain.warnings {
+            log::warn!("[{tag}] {w}");
+        }
+        if let Some(err) = drain.error {
+            let detail = err.formatted();
+            log::error!("[{tag}] fatal bus error: {detail}");
+            let gst_err = match kind {
+                // RTMP sink errors are almost always network/connection issues;
+                // tag them accordingly so the UI can distinguish "stream died"
+                // from "encoder blew up".
+                PipelineKind::Stream if err.element.as_deref() == Some("stream-sink") => {
+                    GstError::StreamConnectionLost { message: detail }
+                }
+                _ => GstError::EncodeFailure { message: detail },
+            };
+            let _ = self.channels.error_tx.send(gst_err);
+            self.stop_pipeline(kind);
+            return;
+        }
+        if drain.got_eos {
+            log::warn!("[{tag}] unexpected EOS from pipeline, stopping");
+            let msg = format!("{tag} ended unexpectedly");
+            let gst_err = match kind {
+                PipelineKind::Stream => GstError::StreamConnectionLost { message: msg },
+                PipelineKind::Record => GstError::EncodeFailure { message: msg },
+            };
+            let _ = self.channels.error_tx.send(gst_err);
+            self.stop_pipeline(kind);
+        }
+    }
+
     fn pipeline_error_detail(pipeline: &gstreamer::Pipeline, fallback: &str) -> String {
         pipeline
             .bus()
@@ -2225,6 +2363,11 @@ impl GstThread {
 
             // Poll audio levels
             self.poll_audio_levels();
+
+            // Drain encode pipeline buses so fatal errors (RTMP disconnect,
+            // encoder failure, mux deadlock) surface immediately instead of
+            // silently piling up while the UI shows "streaming".
+            self.poll_encode_buses();
 
             // Brief sleep to avoid busy-spinning
             std::thread::sleep(std::time::Duration::from_millis(1));

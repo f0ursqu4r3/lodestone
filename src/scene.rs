@@ -51,6 +51,10 @@ pub struct LibrarySource {
     /// Ordered chain of shader effects applied to this source.
     #[serde(default)]
     pub effects: Vec<EffectInstance>,
+    /// Ordered chain of audio effects (pre-fader). Only meaningful for
+    /// `SourceType::Audio`; empty for other types.
+    #[serde(default)]
+    pub audio_effects: Vec<AudioEffectInstance>,
 }
 
 /// Per-scene reference to a library source, with optional property overrides.
@@ -98,6 +102,99 @@ pub struct EffectInstance {
 
 fn default_true() -> bool {
     true
+}
+
+/// A single audio effect in a source's pre-fader chain.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AudioEffectInstance {
+    pub kind: AudioEffectKind,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl AudioEffectInstance {
+    pub fn new(kind: AudioEffectKind) -> Self {
+        Self {
+            kind,
+            enabled: true,
+        }
+    }
+}
+
+/// All supported audio effect kinds. Parameters live on the variant so we
+/// don't need a separate registry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum AudioEffectKind {
+    /// High-pass filter — removes low-frequency rumble below `cutoff_hz`.
+    HighPass {
+        #[serde(default = "default_highpass_cutoff")]
+        cutoff_hz: f32,
+    },
+    /// ML-assisted noise suppression via GStreamer's `webrtcdsp` element.
+    /// `level` maps to WebRTC's noise-suppression-level (0..=3).
+    NoiseSuppression {
+        #[serde(default = "default_ns_level")]
+        level: u32,
+    },
+    /// Noise gate — attenuates audio below `threshold_db` by `ratio`.
+    /// Implemented on top of GStreamer's `audiodynamic` expander mode.
+    NoiseGate {
+        #[serde(default = "default_gate_threshold_db")]
+        threshold_db: f32,
+        #[serde(default = "default_gate_ratio")]
+        ratio: f32,
+    },
+    /// Compressor — attenuates audio above `threshold_db` by `ratio`.
+    Compressor {
+        #[serde(default = "default_comp_threshold_db")]
+        threshold_db: f32,
+        #[serde(default = "default_comp_ratio")]
+        ratio: f32,
+    },
+    /// Pre-fader gain trim in decibels. Negative values attenuate.
+    Gain {
+        #[serde(default)]
+        gain_db: f32,
+    },
+}
+
+impl AudioEffectKind {
+    /// Human-readable label shown in the properties panel.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::HighPass { .. } => "High-Pass Filter",
+            Self::NoiseSuppression { .. } => "Noise Suppression",
+            Self::NoiseGate { .. } => "Noise Gate",
+            Self::Compressor { .. } => "Compressor",
+            Self::Gain { .. } => "Gain",
+        }
+    }
+
+    /// Whether two kinds are the same variant (regardless of parameter values).
+    /// Used to decide whether a pipeline rebuild is required when effects change.
+    pub fn same_variant(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+fn default_highpass_cutoff() -> f32 {
+    100.0
+}
+fn default_ns_level() -> u32 {
+    2
+}
+fn default_gate_threshold_db() -> f32 {
+    -45.0
+}
+fn default_gate_ratio() -> f32 {
+    8.0
+}
+fn default_comp_threshold_db() -> f32 {
+    -18.0
+}
+fn default_comp_ratio() -> f32 {
+    3.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -664,6 +761,7 @@ impl SceneCollection {
                 volume: 1.0,
                 folder: None,
                 effects: Vec::new(),
+                audio_effects: Vec::new(),
             }],
             active_scene_id: Some(scene_id),
             next_scene_id: 2,
@@ -711,6 +809,7 @@ mod tests {
             volume: 1.0,
             folder: None,
             effects: Vec::new(),
+            audio_effects: Vec::new(),
         }
     }
 
@@ -858,6 +957,7 @@ mod tests {
             volume: 1.0,
             folder: None,
             effects: Vec::new(),
+            audio_effects: Vec::new(),
         };
         let serialized = toml::to_string(&source).unwrap();
         let deserialized: LibrarySource = toml::from_str(&serialized).unwrap();

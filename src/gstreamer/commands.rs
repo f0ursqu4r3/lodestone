@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, watch};
 
 use super::error::GstError;
 use super::types::{AudioDevice, AudioLevelUpdate, OutputRuntimeState, PipelineStats, RgbaFrame};
-use crate::scene::SourceId;
+use crate::scene::{AudioEffectInstance, SourceId};
 
 /// Identifies which audio source a command targets.
 #[derive(Debug, Clone, Copy)]
@@ -92,6 +92,15 @@ pub enum GstCommand {
         source_id: SourceId,
         muted: bool,
     },
+    /// Replace the pre-fader audio effect chain for a source.
+    ///
+    /// If the chain's structural shape (kinds in order, enabled flags) matches
+    /// the currently-running pipeline, effect parameters are updated live.
+    /// Otherwise the audio pipeline is rebuilt with the new chain.
+    SetSourceAudioEffects {
+        source_id: SourceId,
+        effects: Vec<AudioEffectInstance>,
+    },
     /// Trigger foreground window capture for all ForegroundOnHotkey sources.
     CaptureForegroundWindow,
     #[allow(dead_code)]
@@ -124,10 +133,17 @@ pub enum CaptureSourceConfig {
     },
     AudioDevice {
         device_uid: String,
+        /// Pre-fader effect chain to insert into the capture pipeline.
+        /// Empty if no effects are configured.
+        #[allow(dead_code)]
+        effects: Vec<AudioEffectInstance>,
     },
     AudioFile {
         path: String,
         looping: bool,
+        /// Pre-fader effect chain to insert into the playback pipeline.
+        #[allow(dead_code)]
+        effects: Vec<AudioEffectInstance>,
     },
     /// Game capture via DLL injection + DirectX hooking (Windows only).
     GameCapture {

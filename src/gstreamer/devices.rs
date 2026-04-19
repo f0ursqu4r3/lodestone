@@ -767,10 +767,7 @@ pub fn enumerate_audio_input_devices() -> Result<Vec<AudioDevice>> {
     let mut result = Vec::new();
     for device in devices {
         let name = device.display_name().to_string();
-        let uid = device
-            .properties()
-            .and_then(|props| props.get::<String>("unique-id").ok())
-            .unwrap_or_else(|| name.clone());
+        let uid = audio_device_uid(&device).unwrap_or_else(|| name.clone());
 
         let is_loopback = LOOPBACK_DEVICE_NAMES
             .iter()
@@ -784,6 +781,47 @@ pub fn enumerate_audio_input_devices() -> Result<Vec<AudioDevice>> {
     }
 
     Ok(result)
+}
+
+fn audio_device_uid(device: &gstreamer::Device) -> Option<String> {
+    device
+        .properties()
+        .and_then(|props| props.get::<String>("unique-id").ok())
+}
+
+/// Look up the `gstreamer::Device` whose `unique-id` matches `device_uid`.
+///
+/// Returns `None` if no device matches or the monitor can't start. Using this
+/// Device with `create_element()` lets GStreamer select the provider-correct
+/// source element (e.g. wasapi2src vs wasapisrc) and set its device property
+/// using the provider's own ID format, which isn't guaranteed to match the
+/// `unique-id` string across providers.
+pub fn find_audio_input_device(device_uid: &str) -> Option<gstreamer::Device> {
+    if device_uid.is_empty() {
+        return None;
+    }
+    let monitor = gstreamer::DeviceMonitor::new();
+    let caps = gstreamer::Caps::new_empty_simple("audio/x-raw");
+    monitor.add_filter(Some("Audio/Source"), Some(&caps));
+    if monitor.start().is_err() {
+        return None;
+    }
+    let devices = monitor.devices();
+    monitor.stop();
+
+    // Prefer an exact `unique-id` match, then fall back to display-name
+    // equality — enumeration stores the display name as the uid when a
+    // device doesn't expose a `unique-id` property, so stored uids may be
+    // display names in practice.
+    devices
+        .iter()
+        .find(|device| audio_device_uid(device).as_deref() == Some(device_uid))
+        .cloned()
+        .or_else(|| {
+            devices
+                .into_iter()
+                .find(|device| device.display_name().as_str() == device_uid)
+        })
 }
 
 #[cfg(test)]

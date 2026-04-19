@@ -93,6 +93,20 @@ struct AudioPipeline {
     volume_element: gstreamer::Element,
     /// Holds the bus watch guard alive — dropping it removes the watch.
     _bus_watch: Option<gstreamer::bus::BusWatchGuard>,
+    /// Effect chain currently wired into the pipeline, in order. Skipped
+    /// (disabled) effects in the user's chain are NOT included here — only
+    /// those actually materialized as pipeline elements.
+    effects: Vec<crate::scene::AudioEffectInstance>,
+    /// Source configuration needed to rebuild the pipeline when the effect
+    /// chain's structure changes.
+    source: AudioPipelineSource,
+}
+
+/// Identifies how an AudioPipeline was constructed, so it can be rebuilt.
+#[derive(Clone)]
+enum AudioPipelineSource {
+    Device { device_uid: String },
+    File { path: String, looping: bool },
 }
 
 /// Per-source capture pipeline and its appsink.
@@ -263,8 +277,12 @@ impl GstThread {
         }
 
         // Audio sources use dedicated audio pipelines (no video).
-        if let CaptureSourceConfig::AudioDevice { device_uid } = config {
-            match self.build_audio_device_pipeline(source_id, device_uid) {
+        if let CaptureSourceConfig::AudioDevice {
+            device_uid,
+            effects,
+        } = config
+        {
+            match self.build_audio_device_pipeline(source_id, device_uid, effects) {
                 Ok(()) => log::info!("Started audio device capture for {source_id:?}"),
                 Err(e) => {
                     log::error!("Failed to start audio device capture: {e}");
@@ -275,8 +293,13 @@ impl GstThread {
             }
             return;
         }
-        if let CaptureSourceConfig::AudioFile { path, looping } = config {
-            match self.build_audio_file_pipeline(source_id, path, *looping) {
+        if let CaptureSourceConfig::AudioFile {
+            path,
+            looping,
+            effects,
+        } = config
+        {
+            match self.build_audio_file_pipeline(source_id, path, *looping, effects) {
                 Ok(()) => log::info!("Started audio file playback for {source_id:?}"),
                 Err(e) => log::error!("Failed to start audio file playback: {e}"),
             }
@@ -581,6 +604,7 @@ impl GstThread {
         &mut self,
         source_id: SourceId,
         device_uid: &str,
+        effects: &[crate::scene::AudioEffectInstance],
     ) -> anyhow::Result<()> {
         if !device_uid.is_empty() {
             let devices = super::devices::enumerate_audio_input_devices()
@@ -590,8 +614,8 @@ impl GstThread {
             }
         }
 
-        let (pipeline, appsink, volume_name) = self
-            .build_started_audio_capture_pipeline(AudioSourceKind::Mic, device_uid)
+        let (pipeline, appsink, volume_name, applied_effects) = self
+            .build_started_audio_capture_pipeline(AudioSourceKind::Mic, device_uid, effects)
             .map_err(|err| anyhow::anyhow!("Failed to start selected audio device: {err}"))?;
         let volume = pipeline
             .by_name(&volume_name)
@@ -604,6 +628,10 @@ impl GstThread {
                 appsink,
                 volume_element: volume,
                 _bus_watch: None,
+                effects: applied_effects,
+                source: AudioPipelineSource::Device {
+                    device_uid: device_uid.to_string(),
+                },
             },
         );
         Ok(())
@@ -615,6 +643,7 @@ impl GstThread {
         source_id: SourceId,
         path: &str,
         looping: bool,
+        effects: &[crate::scene::AudioEffectInstance],
     ) -> anyhow::Result<()> {
         let uri = if path.starts_with("file://") {
             path.to_string()
@@ -622,7 +651,8 @@ impl GstThread {
             format!("file://{path}")
         };
 
-        let pipeline = gstreamer::Pipeline::new();
+        let pipeline_name = format!("audio-file-{}", source_id.0);
+        let pipeline = gstreamer::Pipeline::with_name(&pipeline_name);
         let src = gstreamer::ElementFactory::make("uridecodebin")
             .property("uri", &uri)
             .build()?;
@@ -635,6 +665,8 @@ impl GstThread {
             .build()?;
         let sink = gstreamer_app::AppSink::builder().build();
 
+        let effect_elements = super::capture::build_audio_effect_chain(effects, &pipeline_name)?;
+
         pipeline.add_many([
             &src,
             &convert,
@@ -643,8 +675,19 @@ impl GstThread {
             &level,
             sink.upcast_ref(),
         ])?;
-        // uridecodebin pads are dynamic — link on pad-added
-        gstreamer::Element::link_many([&convert, &resample, &volume, &level, sink.upcast_ref()])?;
+        for (element, _) in &effect_elements {
+            pipeline.add(element)?;
+        }
+        // uridecodebin pads are dynamic — link on pad-added.
+        // Link convert → resample → [effects...] → volume → level → sink.
+        gstreamer::Element::link_many([&convert, &resample])?;
+        let mut prev = resample.clone();
+        for (element, _) in &effect_elements {
+            prev.link(element)?;
+            prev = element.clone();
+        }
+        prev.link(&volume)?;
+        gstreamer::Element::link_many([&volume, &level, sink.upcast_ref()])?;
 
         let convert_weak = convert.downgrade();
         src.connect_pad_added(move |_, pad| {
@@ -675,6 +718,8 @@ impl GstThread {
 
         pipeline.set_state(gstreamer::State::Playing)?;
 
+        let applied_effects: Vec<crate::scene::AudioEffectInstance> =
+            effect_elements.into_iter().map(|(_, fx)| fx).collect();
         self.audio_pipelines.insert(
             source_id,
             AudioPipeline {
@@ -682,6 +727,11 @@ impl GstThread {
                 appsink: sink,
                 volume_element: volume,
                 _bus_watch: bus_watch,
+                effects: applied_effects,
+                source: AudioPipelineSource::File {
+                    path: path.to_string(),
+                    looping,
+                },
             },
         );
         Ok(())
@@ -730,8 +780,9 @@ impl GstThread {
     fn start_audio_capture(&mut self, kind: AudioSourceKind, device_uid: &str) {
         self.stop_audio_capture(kind);
 
-        match self.build_started_audio_capture_pipeline(kind, device_uid) {
-            Ok((pipeline, appsink, volume_name)) => {
+        // Global mic/system captures don't carry a per-source effect chain.
+        match self.build_started_audio_capture_pipeline(kind, device_uid, &[]) {
+            Ok((pipeline, appsink, volume_name, _applied_effects)) => {
                 log::info!("Starting {kind:?} audio pipeline for device '{device_uid}'");
                 match kind {
                     AudioSourceKind::Mic => {
@@ -770,7 +821,13 @@ impl GstThread {
         &self,
         kind: AudioSourceKind,
         device_uid: &str,
-    ) -> anyhow::Result<(gstreamer::Pipeline, AppSink, String)> {
+        effects: &[crate::scene::AudioEffectInstance],
+    ) -> anyhow::Result<(
+        gstreamer::Pipeline,
+        AppSink,
+        String,
+        Vec<crate::scene::AudioEffectInstance>,
+    )> {
         let mut errors = Vec::new();
 
         for source_name in Self::audio_capture_source_candidates() {
@@ -781,6 +838,7 @@ impl GstThread {
                     device_uid,
                     AudioEncoderConfig::default().sample_rate,
                     Some(source_name),
+                    effects,
                 )
             };
 
@@ -789,9 +847,10 @@ impl GstThread {
                 kind,
                 device_uid,
                 AudioEncoderConfig::default().sample_rate,
+                effects,
             );
 
-            let (pipeline, appsink, volume_name) = match build_result {
+            let (pipeline, appsink, volume_name, applied_effects) = match build_result {
                 Ok(parts) => parts,
                 Err(err) => {
                     #[cfg(target_os = "windows")]
@@ -818,7 +877,7 @@ impl GstThread {
                     errors.push(detail);
                 }
             } else {
-                return Ok((pipeline, appsink, volume_name));
+                return Ok((pipeline, appsink, volume_name, applied_effects));
             }
         }
 
@@ -833,6 +892,83 @@ impl GstThread {
     }
 
     /// Stop audio capture for the given source kind.
+    /// Apply a new audio effect chain to a running per-source pipeline.
+    ///
+    /// If the chain's structure (ordered kinds + enabled flags of enabled
+    /// effects) matches what's currently wired up, parameters are applied
+    /// live to the existing elements. Otherwise the pipeline is torn down
+    /// and rebuilt with the new chain.
+    fn handle_set_source_audio_effects(
+        &mut self,
+        source_id: SourceId,
+        effects: Vec<crate::scene::AudioEffectInstance>,
+    ) {
+        // Snapshot what we need from the existing pipeline, then drop the
+        // borrow before taking mutable self operations (rebuild).
+        let (structural_match, source_meta) = match self.audio_pipelines.get(&source_id) {
+            Some(pipeline) => {
+                let enabled_new: Vec<&crate::scene::AudioEffectInstance> =
+                    effects.iter().filter(|fx| fx.enabled).collect();
+                let same_length = enabled_new.len() == pipeline.effects.len();
+                let same_kinds = same_length
+                    && enabled_new
+                        .iter()
+                        .zip(pipeline.effects.iter())
+                        .all(|(new_fx, running_fx)| new_fx.kind.same_variant(&running_fx.kind));
+                (same_kinds, pipeline.source.clone())
+            }
+            None => {
+                // No active pipeline for this source — nothing to update.
+                return;
+            }
+        };
+
+        if structural_match {
+            // Live update: walk enabled effects in order, find element by name,
+            // and push new parameters.
+            if let Some(pipeline) = self.audio_pipelines.get_mut(&source_id) {
+                let prefix = pipeline.pipeline.name().to_string();
+                for (idx, fx) in effects.iter().filter(|fx| fx.enabled).enumerate() {
+                    let name = super::capture::audio_effect_element_name(&prefix, idx);
+                    if let Some(element) = pipeline.pipeline.by_name(&name) {
+                        super::capture::apply_audio_effect_params(&element, fx);
+                    } else {
+                        log::warn!(
+                            "Effect element '{name}' not found when applying live update for {source_id:?}"
+                        );
+                    }
+                }
+                pipeline.effects = effects
+                    .iter()
+                    .filter(|fx| fx.enabled)
+                    .cloned()
+                    .collect();
+            }
+            return;
+        }
+
+        // Structural change — rebuild the pipeline from scratch.
+        if let Some(old) = self.audio_pipelines.remove(&source_id) {
+            let _ = old.pipeline.set_state(gstreamer::State::Null);
+        }
+        let result = match source_meta {
+            AudioPipelineSource::Device { device_uid } => {
+                self.build_audio_device_pipeline(source_id, &device_uid, &effects)
+            }
+            AudioPipelineSource::File { path, looping } => {
+                self.build_audio_file_pipeline(source_id, &path, looping, &effects)
+            }
+        };
+        if let Err(err) = result {
+            log::error!(
+                "Failed to rebuild audio pipeline for {source_id:?} after effect change: {err}"
+            );
+            let _ = self.channels.error_tx.send(GstError::AudioCaptureFailure {
+                message: format!("Failed to apply audio effects: {err}"),
+            });
+        }
+    }
+
     fn stop_audio_capture(&mut self, kind: AudioSourceKind) {
         match kind {
             AudioSourceKind::Mic => {
@@ -919,6 +1055,10 @@ impl GstThread {
                     audio.volume_element.set_property("mute", muted);
                 }
             }
+            GstCommand::SetSourceAudioEffects {
+                source_id,
+                effects,
+            } => self.handle_set_source_audio_effects(source_id, effects),
             GstCommand::CaptureForegroundWindow => self.handle_capture_foreground_window(),
             GstCommand::Shutdown => return self.handle_shutdown(),
         }

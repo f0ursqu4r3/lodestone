@@ -881,16 +881,19 @@ pub fn apply_scene_diff(
                     });
                 }
                 crate::scene::SourceProperties::Audio { input } => {
+                    let effects = source.audio_effects.clone();
                     let config = match input {
                         crate::scene::AudioInput::Device { device_uid, .. } => {
                             CaptureSourceConfig::AudioDevice {
                                 device_uid: device_uid.clone(),
+                                effects,
                             }
                         }
                         crate::scene::AudioInput::File { path, looping } => {
                             CaptureSourceConfig::AudioFile {
                                 path: path.clone(),
                                 looping: *looping,
+                                effects,
                             }
                         }
                     };
@@ -977,16 +980,19 @@ pub fn start_capture_source(
             });
         }
         crate::scene::SourceProperties::Audio { input } => {
+            let effects = source.audio_effects.clone();
             let config = match input {
                 crate::scene::AudioInput::Device { device_uid, .. } => {
                     CaptureSourceConfig::AudioDevice {
                         device_uid: device_uid.clone(),
+                        effects,
                     }
                 }
                 crate::scene::AudioInput::File { path, looping } => {
                     CaptureSourceConfig::AudioFile {
                         path: path.clone(),
                         looping: *looping,
+                        effects,
                     }
                 }
             };
@@ -1166,16 +1172,19 @@ pub(crate) fn send_capture_for_scene(
                     any_started = true;
                 }
                 crate::scene::SourceProperties::Audio { input } => {
+                    let effects = source.audio_effects.clone();
                     let config = match input {
                         crate::scene::AudioInput::Device { device_uid, .. } => {
                             CaptureSourceConfig::AudioDevice {
                                 device_uid: device_uid.clone(),
+                                effects,
                             }
                         }
                         crate::scene::AudioInput::File { path, looping } => {
                             CaptureSourceConfig::AudioFile {
                                 path: path.clone(),
                                 looping: *looping,
+                                effects,
                             }
                         }
                     };

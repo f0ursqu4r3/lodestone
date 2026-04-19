@@ -1014,16 +1014,19 @@ impl ApplicationHandler for AppManager {
                             }
                             crate::scene::SourceProperties::Audio { input } => {
                                 if let Some(ref tx) = state.command_tx {
+                                    let effects = source.audio_effects.clone();
                                     let config = match input {
                                         crate::scene::AudioInput::Device { device_uid, .. } => {
                                             gstreamer::CaptureSourceConfig::AudioDevice {
                                                 device_uid: device_uid.clone(),
+                                                effects,
                                             }
                                         }
                                         crate::scene::AudioInput::File { path, looping } => {
                                             gstreamer::CaptureSourceConfig::AudioFile {
                                                 path: path.clone(),
                                                 looping: *looping,
+                                                effects,
                                             }
                                         }
                                     };

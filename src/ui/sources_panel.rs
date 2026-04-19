@@ -722,16 +722,24 @@ fn start_capture_from_properties(
             state.capture_active = true;
         }
         SourceProperties::Audio { input } => {
+            let effects = state
+                .library
+                .iter()
+                .find(|s| s.id == source_id)
+                .map(|s| s.audio_effects.clone())
+                .unwrap_or_default();
             let config = match input {
                 crate::scene::AudioInput::Device { device_uid, .. } => {
                     CaptureSourceConfig::AudioDevice {
                         device_uid: device_uid.clone(),
+                        effects,
                     }
                 }
                 crate::scene::AudioInput::File { path, looping } => {
                     CaptureSourceConfig::AudioFile {
                         path: path.clone(),
                         looping: *looping,
+                        effects,
                     }
                 }
             };

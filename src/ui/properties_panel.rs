@@ -8,8 +8,8 @@
 use crate::gstreamer::types::RgbaFrame;
 use crate::gstreamer::{CaptureSourceConfig, GstCommand, GstError};
 use crate::scene::{
-    AudioInput, ColorFill, GradientStop, SourceId, SourceProperties, SourceType, TextAlignment,
-    WindowCaptureMode,
+    AudioEffectInstance, AudioEffectKind, AudioInput, ColorFill, GradientStop, SourceId,
+    SourceProperties, SourceType, TextAlignment, WindowCaptureMode,
 };
 use crate::state::AppState;
 use crate::ui::layout::tree::PanelId;
@@ -2037,6 +2037,7 @@ fn draw_source_properties(
             let cmd_tx = state.command_tx.clone();
             let src_id = selected_id;
             let source = &mut state.library[lib_idx];
+            let current_effects = source.audio_effects.clone();
             if let SourceProperties::Audio { ref mut input } = source.properties {
                 // Input type toggle.
                 let is_device = matches!(input, AudioInput::Device { .. });
@@ -2109,6 +2110,7 @@ fn draw_source_properties(
                                         source_id: src_id,
                                         config: CaptureSourceConfig::AudioDevice {
                                             device_uid: device_uid.clone(),
+                                            effects: current_effects.clone(),
                                         },
                                         fps: state.settings.video.fps,
                                     });
@@ -2156,6 +2158,7 @@ fn draw_source_properties(
                                     config: CaptureSourceConfig::AudioFile {
                                         path: path.clone(),
                                         looping: *looping,
+                                        effects: current_effects.clone(),
                                     },
                                     fps: state.settings.video.fps,
                                 });
@@ -2199,6 +2202,14 @@ fn draw_source_properties(
                         muted: source.muted,
                     });
                 }
+                changed = true;
+            }
+
+            ui.add_space(12.0);
+            section_label(ui, "AUDIO EFFECTS");
+            ui.add_space(4.0);
+            let source = &mut state.library[lib_idx];
+            if draw_audio_effects(ui, &theme, src_id, source, &cmd_tx) {
                 changed = true;
             }
         }
@@ -2388,6 +2399,306 @@ fn override_dot(ui: &mut egui::Ui, is_overridden: bool) -> bool {
         });
     }
     reset
+}
+
+/// Render the audio-effects editor for the given library source.
+///
+/// Returns `true` if the chain (or a parameter) was modified. When modified,
+/// a `SetSourceAudioEffects` command is sent so the pipeline reflects the
+/// change live.
+fn draw_audio_effects(
+    ui: &mut egui::Ui,
+    theme: &crate::ui::theme::Theme,
+    source_id: SourceId,
+    source: &mut crate::scene::LibrarySource,
+    cmd_tx: &Option<tokio::sync::mpsc::Sender<GstCommand>>,
+) -> bool {
+    let mut dirty = false;
+    let mut pending_action: Option<EffectAction> = None;
+
+    if source.audio_effects.is_empty() {
+        ui.label(
+            egui::RichText::new("No effects. Add one below to shape the signal pre-fader.")
+                .size(10.0)
+                .color(theme.text_muted),
+        );
+        ui.add_space(6.0);
+    }
+
+    for (i, fx) in source.audio_effects.iter_mut().enumerate() {
+        let chain_len = 0; // resolved later for bounds checks
+        let _ = chain_len;
+        egui::Frame::new()
+            .fill(theme.bg_elevated)
+            .stroke(egui::Stroke::new(1.0, theme.border_subtle))
+            .corner_radius(egui::CornerRadius::same(theme.radius_sm as u8))
+            .inner_margin(egui::Margin::same(6))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let prev_enabled = fx.enabled;
+                    if ui.checkbox(&mut fx.enabled, "").changed() && fx.enabled != prev_enabled {
+                        dirty = true;
+                    }
+                    ui.label(
+                        egui::RichText::new(fx.kind.display_name())
+                            .size(12.0)
+                            .color(if fx.enabled {
+                                theme.text_primary
+                            } else {
+                                theme.text_muted
+                            }),
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button(egui_phosphor::regular::TRASH)
+                            .on_hover_text("Remove effect")
+                            .clicked()
+                        {
+                            pending_action = Some(EffectAction::Remove(i));
+                        }
+                        if ui
+                            .small_button(egui_phosphor::regular::ARROW_DOWN)
+                            .on_hover_text("Move down")
+                            .clicked()
+                        {
+                            pending_action = Some(EffectAction::MoveDown(i));
+                        }
+                        if ui
+                            .small_button(egui_phosphor::regular::ARROW_UP)
+                            .on_hover_text("Move up")
+                            .clicked()
+                        {
+                            pending_action = Some(EffectAction::MoveUp(i));
+                        }
+                    });
+                });
+
+                ui.add_space(2.0);
+                if draw_audio_effect_params(ui, theme, source_id, i, &mut fx.kind) {
+                    dirty = true;
+                }
+            });
+        ui.add_space(4.0);
+    }
+
+    // "+ Add Effect" menu.
+    ui.menu_button(
+        format!("{} Add effect", egui_phosphor::regular::PLUS),
+        |ui| {
+            let options: [(&str, AudioEffectKind); 5] = [
+                (
+                    "High-Pass Filter",
+                    AudioEffectKind::HighPass { cutoff_hz: 100.0 },
+                ),
+                (
+                    "Noise Suppression",
+                    AudioEffectKind::NoiseSuppression { level: 2 },
+                ),
+                (
+                    "Noise Gate",
+                    AudioEffectKind::NoiseGate {
+                        threshold_db: -45.0,
+                        ratio: 8.0,
+                    },
+                ),
+                (
+                    "Compressor",
+                    AudioEffectKind::Compressor {
+                        threshold_db: -18.0,
+                        ratio: 3.0,
+                    },
+                ),
+                ("Gain", AudioEffectKind::Gain { gain_db: 0.0 }),
+            ];
+            for (label, kind) in options {
+                if ui.button(label).clicked() {
+                    source.audio_effects.push(AudioEffectInstance::new(kind));
+                    dirty = true;
+                    ui.close();
+                }
+            }
+        },
+    );
+
+    // Apply pending structural change after the iteration to avoid
+    // mutating the list while borrowed.
+    if let Some(action) = pending_action {
+        let len = source.audio_effects.len();
+        match action {
+            EffectAction::Remove(i) if i < len => {
+                source.audio_effects.remove(i);
+                dirty = true;
+            }
+            EffectAction::MoveUp(i) if i > 0 && i < len => {
+                source.audio_effects.swap(i, i - 1);
+                dirty = true;
+            }
+            EffectAction::MoveDown(i) if i + 1 < len => {
+                source.audio_effects.swap(i, i + 1);
+                dirty = true;
+            }
+            _ => {}
+        }
+    }
+
+    if dirty && let Some(tx) = cmd_tx {
+        let _ = tx.try_send(GstCommand::SetSourceAudioEffects {
+            source_id,
+            effects: source.audio_effects.clone(),
+        });
+    }
+
+    dirty
+}
+
+#[derive(Clone, Copy)]
+enum EffectAction {
+    Remove(usize),
+    MoveUp(usize),
+    MoveDown(usize),
+}
+
+fn draw_audio_effect_params(
+    ui: &mut egui::Ui,
+    theme: &crate::ui::theme::Theme,
+    source_id: SourceId,
+    index: usize,
+    kind: &mut AudioEffectKind,
+) -> bool {
+    let mut dirty = false;
+    let salt = egui::Id::new("audio_fx_params")
+        .with(source_id.0)
+        .with(index);
+
+    // `Slider` doesn't take an id_salt directly, so we scope each slider via
+    // `ui.push_id` to avoid id collisions between multiple effects.
+    let slider = |ui: &mut egui::Ui, key: &'static str, s: egui::Slider<'_>| -> bool {
+        let mut changed = false;
+        ui.push_id(salt.with(key), |ui| {
+            changed = ui.add(s).changed();
+        });
+        changed
+    };
+
+    match kind {
+        AudioEffectKind::HighPass { cutoff_hz } => {
+            ui.horizontal(|ui| {
+                param_label(ui, theme, "Cutoff");
+                if slider(
+                    ui,
+                    "cutoff",
+                    egui::Slider::new(cutoff_hz, 20.0..=800.0)
+                        .logarithmic(true)
+                        .suffix(" Hz")
+                        .custom_formatter(|v, _| format!("{v:.0}")),
+                ) {
+                    dirty = true;
+                }
+            });
+        }
+        AudioEffectKind::NoiseSuppression { level } => {
+            ui.horizontal(|ui| {
+                param_label(ui, theme, "Strength");
+                let labels = ["Low", "Moderate", "High", "Very High"];
+                let current = (*level).min(3) as usize;
+                let mut choice = current;
+                egui::ComboBox::from_id_salt(salt.with("level"))
+                    .selected_text(labels[current])
+                    .show_ui(ui, |ui| {
+                        for (i, l) in labels.iter().enumerate() {
+                            ui.selectable_value(&mut choice, i, *l);
+                        }
+                    });
+                if choice != current {
+                    *level = choice as u32;
+                    dirty = true;
+                }
+            });
+        }
+        AudioEffectKind::NoiseGate {
+            threshold_db,
+            ratio,
+        } => {
+            ui.horizontal(|ui| {
+                param_label(ui, theme, "Threshold");
+                if slider(
+                    ui,
+                    "gate_thresh",
+                    egui::Slider::new(threshold_db, -80.0..=0.0)
+                        .suffix(" dB")
+                        .custom_formatter(|v, _| format!("{v:.1}")),
+                ) {
+                    dirty = true;
+                }
+            });
+            ui.horizontal(|ui| {
+                param_label(ui, theme, "Ratio");
+                if slider(
+                    ui,
+                    "gate_ratio",
+                    egui::Slider::new(ratio, 1.0..=20.0)
+                        .custom_formatter(|v, _| format!("{v:.1}:1")),
+                ) {
+                    dirty = true;
+                }
+            });
+        }
+        AudioEffectKind::Compressor {
+            threshold_db,
+            ratio,
+        } => {
+            ui.horizontal(|ui| {
+                param_label(ui, theme, "Threshold");
+                if slider(
+                    ui,
+                    "comp_thresh",
+                    egui::Slider::new(threshold_db, -60.0..=0.0)
+                        .suffix(" dB")
+                        .custom_formatter(|v, _| format!("{v:.1}")),
+                ) {
+                    dirty = true;
+                }
+            });
+            ui.horizontal(|ui| {
+                param_label(ui, theme, "Ratio");
+                if slider(
+                    ui,
+                    "comp_ratio",
+                    egui::Slider::new(ratio, 1.0..=20.0)
+                        .custom_formatter(|v, _| format!("{v:.1}:1")),
+                ) {
+                    dirty = true;
+                }
+            });
+        }
+        AudioEffectKind::Gain { gain_db } => {
+            ui.horizontal(|ui| {
+                param_label(ui, theme, "Gain");
+                if slider(
+                    ui,
+                    "gain_db",
+                    egui::Slider::new(gain_db, -24.0..=24.0)
+                        .suffix(" dB")
+                        .custom_formatter(|v, _| format!("{v:+.1}")),
+                ) {
+                    dirty = true;
+                }
+            });
+        }
+    }
+    dirty
+}
+
+fn param_label(ui: &mut egui::Ui, theme: &crate::ui::theme::Theme, text: &str) {
+    ui.add_sized(
+        [72.0, 16.0],
+        egui::Label::new(
+            egui::RichText::new(text)
+                .color(theme.text_secondary)
+                .size(10.0),
+        ),
+    );
 }
 
 /// Render a section heading with subtle underline, matching settings panel style.

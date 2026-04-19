@@ -5,6 +5,7 @@ use gstreamer_app::AppSink;
 use gstreamer_app::AppSrc;
 
 use super::commands::{AudioSourceKind, CaptureSourceConfig};
+use crate::scene::{AudioEffectInstance, AudioEffectKind};
 
 /// Build a GStreamer capture pipeline for the given source.
 ///
@@ -256,8 +257,163 @@ pub fn build_audio_capture_pipeline(
     source_kind: AudioSourceKind,
     device_uid: &str,
     sample_rate: u32,
-) -> Result<(gstreamer::Pipeline, AppSink, String)> {
-    build_audio_capture_pipeline_with_source(source_kind, device_uid, sample_rate, None)
+    effects: &[AudioEffectInstance],
+) -> Result<(gstreamer::Pipeline, AppSink, String, Vec<AudioEffectInstance>)> {
+    build_audio_capture_pipeline_with_source(source_kind, device_uid, sample_rate, None, effects)
+}
+
+/// Convert a user-facing dB value to a linear amplitude multiplier.
+pub fn db_to_linear(db: f32) -> f64 {
+    10f64.powf(db as f64 / 20.0)
+}
+
+/// The standard name used for an effect element at a given chain position.
+/// Live updates rely on this to look up the element by name.
+pub fn audio_effect_element_name(pipeline_prefix: &str, index: usize) -> String {
+    format!("{pipeline_prefix}-fx-{index}")
+}
+
+/// Build the GStreamer element for a single audio effect.
+///
+/// Callers pass the pre-computed element name (see
+/// [`audio_effect_element_name`]) so it can be found later for live updates.
+pub fn build_audio_effect_element(
+    effect: &AudioEffectInstance,
+    name: &str,
+) -> Result<gstreamer::Element> {
+    match &effect.kind {
+        AudioEffectKind::HighPass { cutoff_hz } => {
+            let cutoff = cutoff_hz.max(20.0) as f32;
+            gstreamer::ElementFactory::make("audiocheblimit")
+                .name(name)
+                .property_from_str("mode", "high-pass")
+                .property("cutoff", cutoff)
+                .property("poles", 4i32)
+                .build()
+                .context("Failed to create audiocheblimit (High-Pass)")
+        }
+        AudioEffectKind::NoiseSuppression { level } => {
+            let level_name = match level.min(&3u32) {
+                0 => "low",
+                1 => "moderate",
+                2 => "high",
+                _ => "very-high",
+            };
+            gstreamer::ElementFactory::make("webrtcdsp")
+                .name(name)
+                .property_from_str("noise-suppression-level", level_name)
+                .property("echo-cancel", false)
+                .property("voice-detection", false)
+                .property("high-pass-filter", false)
+                .property("gain-control", false)
+                .build()
+                .context(
+                    "Failed to create webrtcdsp (Noise Suppression). \
+                    The gst-plugins-bad `webrtc` plugin is required for this effect.",
+                )
+        }
+        AudioEffectKind::NoiseGate {
+            threshold_db,
+            ratio,
+        } => {
+            let threshold_linear = db_to_linear(*threshold_db).clamp(0.0, 1.0);
+            // User-facing ratio is "N:1 attenuation"; audiodynamic's expander
+            // ratio is a linear coefficient where lower = more attenuation.
+            let gst_ratio = (1.0 / ratio.max(1.0) as f64).clamp(0.0, 1.0);
+            gstreamer::ElementFactory::make("audiodynamic")
+                .name(name)
+                .property_from_str("mode", "expander")
+                .property_from_str("characteristics", "soft-knee")
+                .property("threshold", threshold_linear)
+                .property("ratio", gst_ratio)
+                .build()
+                .context("Failed to create audiodynamic (Noise Gate)")
+        }
+        AudioEffectKind::Compressor {
+            threshold_db,
+            ratio,
+        } => {
+            let threshold_linear = db_to_linear(*threshold_db).clamp(0.0, 1.0);
+            // User-facing ratio is "N:1"; audiodynamic compressor ratio is a
+            // linear coefficient where lower = more compression above threshold.
+            let gst_ratio = (1.0 / ratio.max(1.0) as f64).clamp(0.0, 1.0);
+            gstreamer::ElementFactory::make("audiodynamic")
+                .name(name)
+                .property_from_str("mode", "compressor")
+                .property_from_str("characteristics", "soft-knee")
+                .property("threshold", threshold_linear)
+                .property("ratio", gst_ratio)
+                .build()
+                .context("Failed to create audiodynamic (Compressor)")
+        }
+        AudioEffectKind::Gain { gain_db } => {
+            let linear = db_to_linear(*gain_db) as f32;
+            gstreamer::ElementFactory::make("audioamplify")
+                .name(name)
+                .property("amplification", linear)
+                .property_from_str("clipping-method", "normal")
+                .build()
+                .context("Failed to create audioamplify (Gain)")
+        }
+    }
+}
+
+/// Apply new parameter values to an already-built effect element. Used for
+/// live updates when the chain's structure hasn't changed.
+pub fn apply_audio_effect_params(element: &gstreamer::Element, effect: &AudioEffectInstance) {
+    match &effect.kind {
+        AudioEffectKind::HighPass { cutoff_hz } => {
+            element.set_property("cutoff", cutoff_hz.max(20.0) as f32);
+        }
+        AudioEffectKind::NoiseSuppression { level } => {
+            let level_name = match level.min(&3u32) {
+                0 => "low",
+                1 => "moderate",
+                2 => "high",
+                _ => "very-high",
+            };
+            element.set_property_from_str("noise-suppression-level", level_name);
+        }
+        AudioEffectKind::NoiseGate {
+            threshold_db,
+            ratio,
+        } => {
+            element.set_property("threshold", db_to_linear(*threshold_db).clamp(0.0, 1.0));
+            element.set_property(
+                "ratio",
+                (1.0 / ratio.max(1.0) as f64).clamp(0.0, 1.0),
+            );
+        }
+        AudioEffectKind::Compressor {
+            threshold_db,
+            ratio,
+        } => {
+            element.set_property("threshold", db_to_linear(*threshold_db).clamp(0.0, 1.0));
+            element.set_property(
+                "ratio",
+                (1.0 / ratio.max(1.0) as f64).clamp(0.0, 1.0),
+            );
+        }
+        AudioEffectKind::Gain { gain_db } => {
+            element.set_property("amplification", db_to_linear(*gain_db) as f32);
+        }
+    }
+}
+
+/// Build the enabled subset of an effect chain, returning (element, instance)
+/// pairs in pipeline order.
+pub fn build_audio_effect_chain(
+    effects: &[AudioEffectInstance],
+    name_prefix: &str,
+) -> Result<Vec<(gstreamer::Element, AudioEffectInstance)>> {
+    let mut out = Vec::new();
+    for effect in effects.iter().filter(|e| e.enabled) {
+        let index = out.len();
+        let name = audio_effect_element_name(name_prefix, index);
+        let element = build_audio_effect_element(effect, &name)?;
+        out.push((element, effect.clone()));
+    }
+    Ok(out)
 }
 
 /// Build an audio capture pipeline, optionally forcing a specific platform source element.
@@ -266,7 +422,8 @@ pub fn build_audio_capture_pipeline_with_source(
     device_uid: &str,
     sample_rate: u32,
     #[allow(unused_variables)] preferred_source: Option<&str>,
-) -> Result<(gstreamer::Pipeline, AppSink, String)> {
+    effects: &[AudioEffectInstance],
+) -> Result<(gstreamer::Pipeline, AppSink, String, Vec<AudioEffectInstance>)> {
     let name = match source_kind {
         AudioSourceKind::Mic => "mic-capture",
         AudioSourceKind::System => "system-capture",
@@ -285,16 +442,60 @@ pub fn build_audio_capture_pipeline_with_source(
         #[cfg(target_os = "windows")]
         {
             let source_name = preferred_source.unwrap_or("wasapi2src");
-            let builder = gstreamer::ElementFactory::make(source_name).name(format!("{name}-src"));
-            if device_uid.is_empty() {
-                builder
-                    .build()
-                    .context(format!("Failed to create {source_name} for {name}"))?
+            let src_name = format!("{name}-src");
+
+            // If we have a specific device_uid, prefer letting GStreamer's
+            // DeviceMonitor build the source element — it picks the provider
+            // (wasapi2 vs wasapi) that owns the device and sets the right
+            // device property for that provider. Falling back to factory
+            // construction with `device = <uid>` only works when the uid
+            // happens to match what the factory's provider expects, which
+            // isn't guaranteed across providers.
+            let device_element = if device_uid.is_empty() {
+                None
             } else {
-                builder
-                    .property("device", device_uid)
-                    .build()
-                    .context(format!("Failed to create {source_name} for {name}"))?
+                match super::devices::find_audio_input_device(device_uid) {
+                    Some(device) => match device.create_element(Some(&src_name)) {
+                        Ok(element) => {
+                            log::info!(
+                                "Built {name} source for uid='{device_uid}' via Device provider (factory='{factory}')",
+                                factory = element
+                                    .factory()
+                                    .map(|f| f.name().to_string())
+                                    .unwrap_or_else(|| "unknown".to_string()),
+                            );
+                            Some(element)
+                        }
+                        Err(err) => {
+                            log::warn!(
+                                "Device provider failed to create element for uid='{device_uid}': {err}; falling back to {source_name}"
+                            );
+                            None
+                        }
+                    },
+                    None => {
+                        log::warn!(
+                            "No DeviceMonitor match for audio uid='{device_uid}'; falling back to {source_name} with device=<uid>"
+                        );
+                        None
+                    }
+                }
+            };
+
+            if let Some(element) = device_element {
+                element
+            } else {
+                let builder = gstreamer::ElementFactory::make(source_name).name(&src_name);
+                if device_uid.is_empty() {
+                    builder
+                        .build()
+                        .context(format!("Failed to create {source_name} for {name}"))?
+                } else {
+                    builder
+                        .property("device", device_uid)
+                        .build()
+                        .context(format!("Failed to create {source_name} for {name}"))?
+                }
             }
         }
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -340,6 +541,8 @@ pub fn build_audio_capture_pipeline_with_source(
         .drop(true)
         .build();
 
+    let effect_elements = build_audio_effect_chain(effects, name)?;
+
     pipeline
         .add_many([
             &src,
@@ -350,18 +553,29 @@ pub fn build_audio_capture_pipeline_with_source(
             appsink.upcast_ref(),
         ])
         .context("Failed to add audio capture elements")?;
+    for (element, _) in &effect_elements {
+        pipeline
+            .add(element)
+            .context("Failed to add audio effect element to pipeline")?;
+    }
 
-    gstreamer::Element::link_many([
-        &src,
-        &convert,
-        &resample,
-        &volume,
-        &level,
-        appsink.upcast_ref(),
-    ])
-    .context("Failed to link audio capture elements")?;
+    // Link src → convert → resample → [effects...] → volume → level → appsink.
+    gstreamer::Element::link_many([&src, &convert, &resample])
+        .context("Failed to link audio capture pre-effect chain")?;
+    let mut prev = resample.clone();
+    for (element, _) in &effect_elements {
+        prev.link(element)
+            .context("Failed to link audio effect into pipeline")?;
+        prev = element.clone();
+    }
+    prev.link(&volume)
+        .context("Failed to link audio effect chain to volume")?;
+    gstreamer::Element::link_many([&volume, &level, appsink.upcast_ref()])
+        .context("Failed to link audio capture post-effect chain")?;
 
-    Ok((pipeline, appsink, volume_name))
+    let applied_effects: Vec<AudioEffectInstance> =
+        effect_elements.into_iter().map(|(_, fx)| fx).collect();
+    Ok((pipeline, appsink, volume_name, applied_effects))
 }
 
 #[cfg(test)]

@@ -45,6 +45,7 @@ pub struct AudioLevelUpdate {
 }
 
 /// Peak and RMS levels for a single audio source.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AudioLevels {
     pub peak_db: f32,

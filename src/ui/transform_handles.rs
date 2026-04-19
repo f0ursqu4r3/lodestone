@@ -2,7 +2,7 @@
 
 use egui::{Pos2, Rect, Stroke, StrokeKind, Vec2, pos2};
 
-use crate::scene::Transform;
+use crate::scene::{SourceId, SourceType, Transform};
 use crate::state::AppState;
 use crate::ui::theme::active_theme;
 
@@ -115,6 +115,14 @@ fn transform_to_screen_rect(t: &Transform, viewport: Rect, canvas_size: Vec2) ->
         canvas_size,
     );
     Rect::from_min_max(min, max)
+}
+
+fn is_preview_interactable_source(state: &AppState, source_id: SourceId) -> bool {
+    state
+        .library
+        .iter()
+        .find(|source| source.id == source_id)
+        .is_some_and(|source| !matches!(source.source_type, SourceType::Audio))
 }
 
 // ── Rotation Helpers ────────────────────────────────────────────────────────
@@ -832,6 +840,9 @@ pub fn draw_transform_handles(
                 .iter()
                 .rev() // topmost source first
                 .filter_map(|ss| {
+                    if !is_preview_interactable_source(state, ss.source_id) {
+                        return None;
+                    }
                     state
                         .library
                         .iter()
@@ -977,6 +988,7 @@ pub fn draw_transform_handles(
     // ── Flash outline for library-selected source ──
     if let Some(flash_id) = state.flash_source_id
         && let Some(start) = state.flash_start
+        && is_preview_interactable_source(state, flash_id)
     {
         let elapsed = start.elapsed().as_secs_f32();
         let duration = 0.6;
@@ -1009,8 +1021,16 @@ pub fn draw_transform_handles(
     }
 
     // ── Draw selection outlines for all selected sources ──
-    let selected_ids = state.selected_source_ids.clone();
-    let primary_id = state.primary_selected_id;
+    let selected_ids: Vec<SourceId> = state
+        .selected_source_ids
+        .iter()
+        .copied()
+        .filter(|&source_id| is_preview_interactable_source(state, source_id))
+        .collect();
+    let primary_id = state
+        .primary_selected_id
+        .filter(|&source_id| is_preview_interactable_source(state, source_id))
+        .or_else(|| selected_ids.last().copied());
     for &sel_id in &selected_ids {
         let Some(lib) = state.library.iter().find(|s| s.id == sel_id) else {
             continue;
@@ -1070,7 +1090,7 @@ pub fn draw_transform_handles(
     }
 
     // ── Handles + dragging for selected source ──
-    let Some(selected_id) = state.selected_source_id() else {
+    let Some(selected_id) = primary_id else {
         // No primary selection — still need to handle marquee drag.
         let drag_id = egui::Id::new("transform_drag_marquee");
         let mut drag_mode: DragMode = ui.memory(|m| m.data.get_temp(drag_id).unwrap_or_default());

@@ -366,7 +366,7 @@ pub(crate) fn render_tab_bar(
                     tab_index: group.active_tab,
                 });
                 ui.close();
-        }
+            }
             if tab_count > 0 {
                 ui.separator();
                 if menu_item(ui, "Close Group") {

@@ -196,9 +196,8 @@ fn draw_inner(ui: &mut egui::Ui, state: &mut AppState) {
     // Resolution label (bottom-right)
     {
         let fps = state.settings.video.fps;
-        let (out_w, out_h) = crate::renderer::compositor::parse_resolution(
-            &state.settings.video.output_resolution,
-        );
+        let (out_w, out_h) =
+            crate::renderer::compositor::parse_resolution(&state.settings.video.output_resolution);
         let overlay_text = format!("{}\u{00d7}{} \u{00b7} {}fps", out_w, out_h, fps);
         let font = egui::FontId::new(9.0, egui::FontFamily::Proportional);
         let text_galley = painter.layout_no_wrap(overlay_text, font, theme.text_muted);

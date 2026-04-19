@@ -78,7 +78,9 @@ pub enum GstCommand {
     UpdateDisplayExclusion {
         exclude_self: bool,
     },
-    StartVirtualCamera { fps: u32 },
+    StartVirtualCamera {
+        fps: u32,
+    },
     StopVirtualCamera,
     /// Per-source volume control (distinct from global SetAudioVolume).
     SetSourceVolume {
@@ -471,9 +473,6 @@ mod tests {
     #[test]
     fn create_channels_returns_valid_handles() {
         let (main_ch, _thread_ch) = create_channels();
-        main_ch
-            .command_tx
-            .try_send(GstCommand::Shutdown)
-            .unwrap();
+        main_ch.command_tx.try_send(GstCommand::Shutdown).unwrap();
     }
 }

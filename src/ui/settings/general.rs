@@ -70,7 +70,11 @@ pub(super) fn draw(ui: &mut Ui, state: &mut AppState) -> bool {
                         let mut c = false;
                         for &preset in PRESETS {
                             c |= ui
-                                .selectable_value(&mut settings.grid_preset, preset.to_string(), preset)
+                                .selectable_value(
+                                    &mut settings.grid_preset,
+                                    preset.to_string(),
+                                    preset,
+                                )
                                 .changed();
                         }
                         c

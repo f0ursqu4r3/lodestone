@@ -182,10 +182,9 @@ pub fn create_shared_capture(target_pid: u32) -> Result<SharedCaptureHandles> {
         )
     };
     if file_mapping.is_null() {
-        bail!(
-            "CreateFileMappingW failed (error {})",
-            unsafe { GetLastError() }
-        );
+        bail!("CreateFileMappingW failed (error {})", unsafe {
+            GetLastError()
+        });
     }
 
     let mapped = unsafe { MapViewOfFile(file_mapping, FILE_MAP_ALL_ACCESS, 0, 0, SHARED_MEM_SIZE) };
@@ -211,10 +210,8 @@ pub fn create_shared_capture(target_pid: u32) -> Result<SharedCaptureHandles> {
     }
 
     // Create events (auto-reset for ready, manual-reset for shutdown).
-    let ready_event =
-        unsafe { CreateEventW(std::ptr::null(), 0, 0, ready_name.as_ptr()) }; // auto-reset
-    let shutdown_event =
-        unsafe { CreateEventW(std::ptr::null(), 1, 0, shutdown_name.as_ptr()) }; // manual-reset
+    let ready_event = unsafe { CreateEventW(std::ptr::null(), 0, 0, ready_name.as_ptr()) }; // auto-reset
+    let shutdown_event = unsafe { CreateEventW(std::ptr::null(), 1, 0, shutdown_name.as_ptr()) }; // manual-reset
 
     if ready_event.is_null() || shutdown_event.is_null() {
         unsafe {
@@ -231,8 +228,7 @@ pub fn create_shared_capture(target_pid: u32) -> Result<SharedCaptureHandles> {
     }
 
     // Open a handle to the target process for liveness checking.
-    let process_handle =
-        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, target_pid) };
+    let process_handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, target_pid) };
     if process_handle.is_null() {
         log::warn!(
             "Game capture: liveness checks unavailable for PID {target_pid} (OpenProcess error {})",
@@ -293,7 +289,9 @@ fn inject_into_process(process: HANDLE, dll_path: &Path) -> Result<()> {
         )
     };
     if remote_mem.is_null() {
-        bail!("VirtualAllocEx failed (error {})", unsafe { GetLastError() });
+        bail!("VirtualAllocEx failed (error {})", unsafe {
+            GetLastError()
+        });
     }
 
     // Write the path into the allocated memory.

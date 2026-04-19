@@ -7,9 +7,9 @@ use egui::{self, Color32, RichText, Sense, Vec2};
 
 use crate::gstreamer::EncoderConfig;
 use crate::renderer::compositor::parse_resolution;
-use crate::ui::scenes_panel::trigger_scene_transition;
 use crate::scene::SceneId;
 use crate::state::{AppState, RecordingStatus, StreamStatus};
+use crate::ui::scenes_panel::trigger_scene_transition;
 use crate::ui::theme::{BTN_PADDING, BTN_PILL_PADDING, active_theme};
 
 /// Draw the toolbar. Returns `true` if the settings button was clicked.
@@ -153,12 +153,8 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
 
         // Red dot for the live (program) scene.
         if is_live {
-            let dot_center = egui::pos2(
-                response.rect.left() + 10.0,
-                response.rect.center().y,
-            );
-            ui.painter()
-                .circle_filled(dot_center, 3.0, theme.danger);
+            let dot_center = egui::pos2(response.rect.left() + 10.0, response.rect.center().y);
+            ui.painter().circle_filled(dot_center, 3.0, theme.danger);
         }
 
         if response.clicked() {
@@ -167,11 +163,12 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     // Transition button — animates in when editing scene differs from live scene.
-    let can_transition = active_id != program_id
-        && active_id.is_some()
-        && state.active_transition.is_none();
+    let can_transition =
+        active_id != program_id && active_id.is_some() && state.active_transition.is_none();
     let anim_id = egui::Id::new("toolbar_transition_btn_anim");
-    let t = ui.ctx().animate_bool_with_time(anim_id, can_transition, 0.2);
+    let t = ui
+        .ctx()
+        .animate_bool_with_time(anim_id, can_transition, 0.2);
     if t > 0.0 {
         let opacity = t;
         let accent = theme.accent;
@@ -185,10 +182,13 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
         let text_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, text_alpha);
 
         let btn = egui::Button::new(
-            RichText::new(format!("{} Transition", egui_phosphor::regular::ARROW_RIGHT))
-                .size(11.0)
-                .strong()
-                .color(text_color),
+            RichText::new(format!(
+                "{} Transition",
+                egui_phosphor::regular::ARROW_RIGHT
+            ))
+            .size(11.0)
+            .strong()
+            .color(text_color),
         )
         .fill(fill)
         .corner_radius(theme.radius_sm)
@@ -303,10 +303,18 @@ fn draw_virtual_camera_button(ui: &mut egui::Ui, state: &mut AppState) {
     let (label, fill, text_color) = if is_active {
         (format!("{icon} V-Cam"), theme.success, Color32::WHITE)
     } else {
-        (format!("{icon} V-Cam"), theme.bg_elevated, theme.text_secondary)
+        (
+            format!("{icon} V-Cam"),
+            theme.bg_elevated,
+            theme.text_secondary,
+        )
     };
 
-    let stroke_color = if is_active { theme.success } else { theme.border };
+    let stroke_color = if is_active {
+        theme.success
+    } else {
+        theme.border
+    };
 
     let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
         .fill(fill)
@@ -357,7 +365,11 @@ fn draw_record_button(ui: &mut egui::Ui, state: &mut AppState) {
         (theme.bg_elevated, theme.text_secondary)
     };
 
-    let stroke_color = if is_recording { theme.danger } else { theme.border };
+    let stroke_color = if is_recording {
+        theme.danger
+    } else {
+        theme.border
+    };
 
     let btn = egui::Button::new(RichText::new(&label).size(11.0).strong().color(text_color))
         .fill(fill)

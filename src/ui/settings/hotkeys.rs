@@ -1,6 +1,6 @@
 use egui::{Align, Layout, Ui};
 
-use crate::settings::{HotkeyBinding, HotkeySettings, HOTKEY_ACTIONS};
+use crate::settings::{HOTKEY_ACTIONS, HotkeyBinding, HotkeySettings};
 use crate::ui::theme::active_theme;
 
 use super::{labeled_row, section_header};
@@ -14,9 +14,8 @@ pub(super) fn draw(ui: &mut Ui, settings: &mut HotkeySettings) -> bool {
 
     // Track which action is in recording mode (persisted across frames).
     let recording_id = egui::Id::new(RECORDING_ID);
-    let mut recording_action: Option<String> = ui
-        .ctx()
-        .data_mut(|d| d.get_temp::<String>(recording_id));
+    let mut recording_action: Option<String> =
+        ui.ctx().data_mut(|d| d.get_temp::<String>(recording_id));
 
     section_header(ui, "BINDINGS");
 

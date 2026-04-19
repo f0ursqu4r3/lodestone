@@ -109,7 +109,10 @@ fn build_hook_dll() {
     let target = env::var("TARGET").expect("TARGET not set");
     let opt_level = env::var("OPT_LEVEL").unwrap_or_else(|_| "0".to_string());
     let debug = env::var("DEBUG").unwrap_or_default();
-    let hook_src = manifest_dir.join("lodestone-hook").join("src").join("lib.rs");
+    let hook_src = manifest_dir
+        .join("lodestone-hook")
+        .join("src")
+        .join("lib.rs");
 
     let mut cmd = Command::new(rustc);
     cmd.arg("--crate-name")

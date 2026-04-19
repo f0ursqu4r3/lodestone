@@ -98,7 +98,11 @@ pub fn toggle_switch(ui: &mut Ui, on: &mut bool) -> bool {
         let anim_id = response.id.with("toggle_anim");
         let t = ui.ctx().animate_bool_with_time(anim_id, *on, 0.15);
 
-        let bg_color = if *on { theme.accent } else { theme.border_subtle };
+        let bg_color = if *on {
+            theme.accent
+        } else {
+            theme.border_subtle
+        };
 
         let knob_radius = 7.0;
         let knob_x = egui::lerp(
@@ -112,7 +116,11 @@ pub fn toggle_switch(ui: &mut Ui, on: &mut bool) -> bool {
             .rect_filled(rect, CornerRadius::same(10), bg_color);
 
         // Knob: white when on, muted when off
-        let knob_color = if *on { Color32::WHITE } else { theme.text_muted };
+        let knob_color = if *on {
+            Color32::WHITE
+        } else {
+            theme.text_muted
+        };
         ui.painter()
             .circle_filled(knob_center, knob_radius, knob_color);
     }

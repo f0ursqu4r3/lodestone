@@ -91,8 +91,7 @@ impl SharedGpuState {
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
 
-        let effect_pipeline =
-            EffectPipeline::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let effect_pipeline = EffectPipeline::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb);
 
         Ok(Self {
             instance,

@@ -213,7 +213,10 @@ impl EffectPipeline {
             return false;
         }
 
-        log::info!("Compiled effect shader '{id}' ({} bytes)", wgsl_source.len());
+        log::info!(
+            "Compiled effect shader '{id}' ({} bytes)",
+            wgsl_source.len()
+        );
         self.compiled.insert(id.to_string(), render_pipeline);
         true
     }
@@ -399,9 +402,10 @@ impl EffectPipeline {
             let write_index = if pass_idx % 2 == 0 { 0 } else { 1 };
             last_output_index = write_index;
 
-            let tt = self.temp_textures.get(&source_id).expect(
-                "temp textures must exist after ensure_temp_textures",
-            );
+            let tt = self
+                .temp_textures
+                .get(&source_id)
+                .expect("temp textures must exist after ensure_temp_textures");
             let target_view = &tt.views[write_index];
 
             let input_bind_group: &wgpu::BindGroup = if pass_idx == 0 {
@@ -448,7 +452,11 @@ impl EffectPipeline {
     /// After `apply_chain` returns `Some(index)`, call this to get the texture view
     /// for the resulting texture. Used by the compositor to create a bind group with
     /// its own layout.
-    pub fn result_texture_view(&self, source_id: SourceId, index: usize) -> Option<&wgpu::TextureView> {
+    pub fn result_texture_view(
+        &self,
+        source_id: SourceId,
+        index: usize,
+    ) -> Option<&wgpu::TextureView> {
         self.temp_textures
             .get(&source_id)
             .map(|tt| &tt.views[index])
@@ -468,8 +476,7 @@ impl EffectPipeline {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: self.intermediate_format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         };
 

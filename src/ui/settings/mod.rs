@@ -375,7 +375,11 @@ pub(super) fn toggle_switch(on: &mut bool) -> impl Widget + '_ {
                 .rect_filled(rect, CornerRadius::same(10), bg_color);
 
             // Knob: white when on, muted when off
-            let knob_color = if *on { Color32::WHITE } else { toggle_theme.text_muted };
+            let knob_color = if *on {
+                Color32::WHITE
+            } else {
+                toggle_theme.text_muted
+            };
             ui.painter()
                 .circle_filled(knob_center, knob_radius, knob_color);
         }

@@ -998,8 +998,8 @@ impl ApplicationHandler for AppManager {
                                             })
                                             .map(|w| w.process_id)
                                             .unwrap_or(0);
-                                        let _ = tx.try_send(
-                                            gstreamer::GstCommand::AddCaptureSource {
+                                        let _ =
+                                            tx.try_send(gstreamer::GstCommand::AddCaptureSource {
                                                 source_id: src_id,
                                                 config:
                                                     gstreamer::CaptureSourceConfig::GameCapture {
@@ -1008,8 +1008,7 @@ impl ApplicationHandler for AppManager {
                                                         window_title: window_title.clone(),
                                                     },
                                                 fps: state.settings.video.fps,
-                                            },
-                                        );
+                                            });
                                     }
                                 }
                             }

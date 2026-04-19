@@ -143,7 +143,9 @@ pub fn render_menu_bar(
 
                     // ── File ──
                     ui.menu_button(
-                        egui::RichText::new("File").color(theme.text_secondary).size(12.0),
+                        egui::RichText::new("File")
+                            .color(theme.text_secondary)
+                            .size(12.0),
                         |ui| {
                             if ui.button("Open Effects Folder").clicked() {
                                 state.menu_open_effects_folder = true;
@@ -158,7 +160,9 @@ pub fn render_menu_bar(
 
                     // ── Edit ──
                     ui.menu_button(
-                        egui::RichText::new("Edit").color(theme.text_secondary).size(12.0),
+                        egui::RichText::new("Edit")
+                            .color(theme.text_secondary)
+                            .size(12.0),
                         |ui| {
                             if ui.button("Undo").clicked() {
                                 state.menu_undo = true;
@@ -173,14 +177,15 @@ pub fn render_menu_bar(
 
                     // ── View ──
                     ui.menu_button(
-                        egui::RichText::new("View").color(theme.text_secondary).size(12.0),
+                        egui::RichText::new("View")
+                            .color(theme.text_secondary)
+                            .size(12.0),
                         |ui| {
                             ui.menu_button("Add Panel", |ui| {
                                 for &pt in DOCKABLE_TYPES {
                                     if ui.button(pt.display_name()).clicked() {
-                                        actions.push(LayoutAction::AddPanelAtRoot {
-                                            panel_type: pt,
-                                        });
+                                        actions
+                                            .push(LayoutAction::AddPanelAtRoot { panel_type: pt });
                                         ui.close();
                                     }
                                 }

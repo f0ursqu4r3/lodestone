@@ -678,7 +678,13 @@ fn compute_resize_snap(
 }
 
 /// Apply a snap offset to a resize transform, adjusting position/size for the active edge.
-fn apply_resize_snap_offset(transform: &mut Transform, edge_x: Option<SnapEdgeX>, offset_x: f32, edge_y: Option<SnapEdgeY>, offset_y: f32) {
+fn apply_resize_snap_offset(
+    transform: &mut Transform,
+    edge_x: Option<SnapEdgeX>,
+    offset_x: f32,
+    edge_y: Option<SnapEdgeY>,
+    offset_y: f32,
+) {
     if let Some(edge) = edge_x {
         match edge {
             SnapEdgeX::Left => {
@@ -813,8 +819,7 @@ pub fn draw_transform_handles(
     // This prevents drags that start outside (e.g. resizing a dock splitter)
     // from triggering marquee selection or source moves when entering the panel.
     let drag_origin_id = egui::Id::new("transform_drag_inside_panel");
-    let mut drag_started_inside: bool =
-        ui.data(|d| d.get_temp(drag_origin_id).unwrap_or(false));
+    let mut drag_started_inside: bool = ui.data(|d| d.get_temp(drag_origin_id).unwrap_or(false));
     if primary_pressed {
         drag_started_inside = pointer.map_or(false, |p| panel_rect.contains(p));
     }
@@ -1167,7 +1172,10 @@ pub fn draw_transform_handles(
         // Clear the other path's drag state so a marquee started while a source
         // was selected doesn't persist after deselection switches code paths.
         let other_drag_id = egui::Id::new("transform_drag_main");
-        ui.memory_mut(|m| m.data.insert_temp::<DragMode>(other_drag_id, DragMode::None));
+        ui.memory_mut(|m| {
+            m.data
+                .insert_temp::<DragMode>(other_drag_id, DragMode::None)
+        });
         return;
     };
     let Some(source) = state.library.iter().find(|s| s.id == selected_id) else {
@@ -1194,7 +1202,8 @@ pub fn draw_transform_handles(
     if let Some(mouse_pos) = pointer {
         match &mut drag_mode {
             DragMode::None => {
-                if can_start_drag && panel_rect.contains(mouse_pos) && !ctx_menu_open && !is_locked {
+                if can_start_drag && panel_rect.contains(mouse_pos) && !ctx_menu_open && !is_locked
+                {
                     if let Some(handle) =
                         hit_test_handles(mouse_pos, screen_rect, transform.rotation)
                     {
@@ -1776,7 +1785,10 @@ pub fn draw_transform_handles(
     // Clear the other path's drag state so a marquee started with no selection
     // doesn't persist after a source becomes selected and switches code paths.
     let other_drag_id = egui::Id::new("transform_drag_marquee");
-    ui.memory_mut(|m| m.data.insert_temp::<DragMode>(other_drag_id, DragMode::None));
+    ui.memory_mut(|m| {
+        m.data
+            .insert_temp::<DragMode>(other_drag_id, DragMode::None)
+    });
 }
 
 // ── Source Context Menu ────────────────────────────────────────────────────

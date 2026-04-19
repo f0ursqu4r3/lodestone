@@ -1,7 +1,7 @@
+use crate::gstreamer::StreamDestination;
 use crate::state::{AppState, RecordingStatus};
 use crate::ui::layout::PanelId;
 use crate::ui::theme::active_theme;
-use crate::gstreamer::StreamDestination;
 
 /// Stream configuration panel: destination, RTMP URL, and stream key.
 ///

@@ -4,7 +4,7 @@
 //! Each source is shown as a row with an icon, name, and visibility toggle.
 //! Supports selection, reordering, add-from-library, and remove-from-scene.
 
-use crate::gstreamer::{resolve_camera_index, CaptureSourceConfig, GstCommand};
+use crate::gstreamer::{CaptureSourceConfig, GstCommand, resolve_camera_index};
 use crate::scene::{SceneId, SceneSource, SourceId, SourceOverrides, SourceProperties, SourceType};
 use crate::state::AppState;
 use crate::ui::draw_helpers::{draw_selection_highlight, source_icon, with_opacity};
@@ -513,7 +513,11 @@ fn draw_source_row(
     let mut cursor_x = paint_rect.left() + 4.0;
     let center_y = paint_rect.center().y;
 
-    let row_text_color = if is_selected { theme.accent } else { theme.text_primary };
+    let row_text_color = if is_selected {
+        theme.accent
+    } else {
+        theme.text_primary
+    };
 
     // Icon.
     let icon_size = 16.0;
@@ -691,18 +695,28 @@ fn start_capture_from_properties(
             );
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
-                config: CaptureSourceConfig::Window { mode: mode.clone(), capture_size },
+                config: CaptureSourceConfig::Window {
+                    mode: mode.clone(),
+                    capture_size,
+                },
                 fps: state.settings.video.fps,
             });
             state.capture_active = true;
         }
-        SourceProperties::Camera { device_index, device_name, device_uid } => {
-            let idx = resolve_camera_index(&state.available_cameras, device_uid, device_name, *device_index);
+        SourceProperties::Camera {
+            device_index,
+            device_name,
+            device_uid,
+        } => {
+            let idx = resolve_camera_index(
+                &state.available_cameras,
+                device_uid,
+                device_name,
+                *device_index,
+            );
             let _ = tx.try_send(GstCommand::AddCaptureSource {
                 source_id,
-                config: CaptureSourceConfig::Camera {
-                    device_index: idx,
-                },
+                config: CaptureSourceConfig::Camera { device_index: idx },
                 fps: state.settings.video.fps,
             });
             state.capture_active = true;
@@ -721,7 +735,11 @@ fn start_capture_from_properties(
                     }
                 }
             };
-            let _ = tx.try_send(GstCommand::AddCaptureSource { source_id, config, fps: state.settings.video.fps });
+            let _ = tx.try_send(GstCommand::AddCaptureSource {
+                source_id,
+                config,
+                fps: state.settings.video.fps,
+            });
         }
         SourceProperties::GameCapture {
             process_name,
@@ -765,7 +783,11 @@ fn stop_capture_for_source(
 ) {
     if matches!(
         source_type,
-        SourceType::Display | SourceType::Window | SourceType::Camera | SourceType::Audio | SourceType::GameCapture
+        SourceType::Display
+            | SourceType::Window
+            | SourceType::Camera
+            | SourceType::Audio
+            | SourceType::GameCapture
     ) && let Some(tx) = cmd_tx
     {
         let _ = tx.try_send(GstCommand::RemoveCaptureSource { source_id });

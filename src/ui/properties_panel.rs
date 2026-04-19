@@ -185,9 +185,8 @@ fn draw_transform_section(
         let mut transform_changed = false;
 
         // X / Y row
-        transform_changed |= transform_row_2(
-            ui, "X", &mut transform.x, "Y", &mut transform.y, text_color,
-        );
+        transform_changed |=
+            transform_row_2(ui, "X", &mut transform.x, "Y", &mut transform.y, text_color);
 
         ui.add_space(2.0);
 
@@ -287,8 +286,10 @@ fn draw_transform_section(
             let source = &mut state.library[lib_idx];
             changed |= transform_row_2(
                 ui,
-                "X", &mut source.transform.x,
-                "Y", &mut source.transform.y,
+                "X",
+                &mut source.transform.x,
+                "Y",
+                &mut source.transform.y,
                 theme.text_muted,
             );
         }
@@ -540,9 +541,7 @@ fn draw_effects_section(
     // "+ Add" button row.
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let btn = ui.small_button(
-                egui::RichText::new("+ Add").color(theme.accent).size(10.0),
-            );
+            let btn = ui.small_button(egui::RichText::new("+ Add").color(theme.accent).size(10.0));
             egui::Popup::from_toggle_button_response(&btn)
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
                 .show(|ui| {
@@ -622,7 +621,8 @@ fn draw_effects_section(
                 .map(|d| d.name.clone())
                 .unwrap_or_else(|| effect.effect_id.clone());
 
-            let expand_id = ui.make_persistent_id(format!("effect_expand_{}_{}", selected_id.0, idx));
+            let expand_id =
+                ui.make_persistent_id(format!("effect_expand_{}_{}", selected_id.0, idx));
             let expanded: bool = ui.data(|d| d.get_temp(expand_id).unwrap_or(false));
 
             let is_dragging = dragging_idx == Some(idx);
@@ -646,7 +646,10 @@ fn draw_effects_section(
                         let grip_response = ui.add(
                             egui::Label::new(
                                 egui::RichText::new(egui_phosphor::regular::DOTS_SIX_VERTICAL)
-                                    .color(crate::ui::draw_helpers::with_opacity(theme.text_muted, opacity))
+                                    .color(crate::ui::draw_helpers::with_opacity(
+                                        theme.text_muted,
+                                        opacity,
+                                    ))
                                     .size(10.0),
                             )
                             .sense(egui::Sense::drag()),
@@ -687,7 +690,11 @@ fn draw_effects_section(
                             egui::Label::new(
                                 egui::RichText::new(&effect_name)
                                     .color(crate::ui::draw_helpers::with_opacity(
-                                        if effect.enabled { theme.text_primary } else { theme.text_muted },
+                                        if effect.enabled {
+                                            theme.text_primary
+                                        } else {
+                                            theme.text_muted
+                                        },
                                         opacity,
                                     ))
                                     .size(11.0),
@@ -762,8 +769,7 @@ fn draw_effects_section(
                                     if ui.add(slider).changed() {
                                         if in_active_scene {
                                             if let Some(scene) = state.active_scene_mut() {
-                                                if let Some(ss) =
-                                                    scene.find_source_mut(selected_id)
+                                                if let Some(ss) = scene.find_source_mut(selected_id)
                                                 {
                                                     let chain = ss
                                                         .overrides
@@ -850,10 +856,7 @@ fn draw_effects_section(
             if in_active_scene {
                 if let Some(scene) = state.active_scene_mut() {
                     if let Some(ss) = scene.find_source_mut(selected_id) {
-                        let chain = ss
-                            .overrides
-                            .effects
-                            .get_or_insert_with(|| effects.clone());
+                        let chain = ss.overrides.effects.get_or_insert_with(|| effects.clone());
                         mutate(chain);
                     }
                 }
@@ -868,10 +871,7 @@ fn draw_effects_section(
             if in_active_scene {
                 if let Some(scene) = state.active_scene_mut() {
                     if let Some(ss) = scene.find_source_mut(selected_id) {
-                        let chain = ss
-                            .overrides
-                            .effects
-                            .get_or_insert_with(|| effects.clone());
+                        let chain = ss.overrides.effects.get_or_insert_with(|| effects.clone());
                         if idx < chain.len() {
                             chain.remove(idx);
                         }
@@ -1188,7 +1188,10 @@ fn draw_source_properties(
                         });
                         let _ = tx.try_send(GstCommand::AddCaptureSource {
                             source_id: selected_id,
-                            config: CaptureSourceConfig::Window { mode: new_mode, capture_size },
+                            config: CaptureSourceConfig::Window {
+                                mode: new_mode,
+                                capture_size,
+                            },
                             fps: state.settings.video.fps,
                         });
                     }
@@ -1319,8 +1322,8 @@ fn draw_source_properties(
                             } else {
                                 format!("[{}] {}", win.process_name, win.title)
                             };
-                            let is_selected = *window_title == win.title
-                                && *process_name == win.process_name;
+                            let is_selected =
+                                *window_title == win.title && *process_name == win.process_name;
                             if ui.selectable_label(is_selected, &label).clicked() {
                                 *process_name = win.process_name.clone();
                                 *window_title = win.title.clone();
@@ -1338,8 +1341,7 @@ fn draw_source_properties(
                         .on_hover_text("Refresh window list")
                         .clicked()
                     {
-                        state.available_apps =
-                            crate::gstreamer::devices::enumerate_applications();
+                        state.available_apps = crate::gstreamer::devices::enumerate_applications();
                     }
                 });
             }
@@ -1400,8 +1402,7 @@ fn draw_source_properties(
                         .on_hover_text("Refresh application list")
                         .clicked()
                     {
-                        state.available_apps =
-                            crate::gstreamer::devices::enumerate_applications();
+                        state.available_apps = crate::gstreamer::devices::enumerate_applications();
                     }
                 });
 
@@ -1467,18 +1468,16 @@ fn draw_source_properties(
                         format!("Capturing: {app_name}")
                     }
                     WindowCaptureMode::AnyFullscreen => "Capturing fullscreen app".to_string(),
-                    WindowCaptureMode::ForegroundWindow => {
-                        "Tracking foreground window".to_string()
-                    }
+                    WindowCaptureMode::ForegroundWindow => "Tracking foreground window".to_string(),
                     WindowCaptureMode::ForegroundOnHotkey => {
                         "Capturing window (press Ctrl+Shift+W to switch)".to_string()
                     }
                 }
             } else {
                 match mode {
-                    WindowCaptureMode::SpecificWindow {
-                        window_title, ..
-                    } if !window_title.is_empty() => {
+                    WindowCaptureMode::SpecificWindow { window_title, .. }
+                        if !window_title.is_empty() =>
+                    {
                         format!("Waiting for \"{}\"...", window_title)
                     }
                     WindowCaptureMode::Application { app_name, .. } if !app_name.is_empty() => {
@@ -1528,7 +1527,10 @@ fn draw_source_properties(
                     });
                     let _ = tx.try_send(GstCommand::AddCaptureSource {
                         source_id: selected_id,
-                        config: CaptureSourceConfig::Window { mode: new_mode, capture_size },
+                        config: CaptureSourceConfig::Window {
+                            mode: new_mode,
+                            capture_size,
+                        },
                         fps: state.settings.video.fps,
                     });
                 }
@@ -2241,9 +2243,10 @@ fn draw_source_properties(
 
                 if *process_name != prev_process {
                     // Update window_title from the selected process.
-                    if let Some(win) = windows.iter().find(|w| {
-                        w.process_name.eq_ignore_ascii_case(process_name)
-                    }) {
+                    if let Some(win) = windows
+                        .iter()
+                        .find(|w| w.process_name.eq_ignore_ascii_case(process_name))
+                    {
                         *window_title = win.title.clone();
                     }
 

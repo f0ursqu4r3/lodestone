@@ -23,11 +23,7 @@ const DLL_PROCESS_DETACH: u32 = 0;
 static mut DLL_MODULE: HANDLE = ptr::null_mut();
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn DllMain(
-    module: HANDLE,
-    reason: u32,
-    _reserved: *mut c_void,
-) -> i32 {
+pub unsafe extern "system" fn DllMain(module: HANDLE, reason: u32, _reserved: *mut c_void) -> i32 {
     match reason {
         DLL_PROCESS_ATTACH => {
             unsafe { DLL_MODULE = module };

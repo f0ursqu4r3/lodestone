@@ -19,7 +19,12 @@ pub struct CameraDevice {
 /// Resolve a camera UID to its current device index.
 ///
 /// Falls back to matching by name, then to `fallback_index` if neither matches.
-pub fn resolve_camera_index(cameras: &[CameraDevice], uid: &str, name: &str, fallback_index: u32) -> u32 {
+pub fn resolve_camera_index(
+    cameras: &[CameraDevice],
+    uid: &str,
+    name: &str,
+    fallback_index: u32,
+) -> u32 {
     if !uid.is_empty() {
         if let Some(cam) = cameras.iter().find(|c| c.uid == uid) {
             return cam.device_index;
@@ -307,7 +312,11 @@ mod win32 {
         pub fn GetClientRect(hwnd: HWND, lpRect: *mut RECT) -> i32;
         pub fn GetWindowRect(hwnd: HWND, lpRect: *mut RECT) -> i32;
         pub fn IsWindow(hwnd: HWND) -> BOOL;
-        pub fn OpenProcess(dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwProcessId: DWORD) -> HANDLE;
+        pub fn OpenProcess(
+            dwDesiredAccess: DWORD,
+            bInheritHandle: BOOL,
+            dwProcessId: DWORD,
+        ) -> HANDLE;
         pub fn CloseHandle(hObject: HANDLE) -> BOOL;
         pub fn GetSystemMetrics(nIndex: i32) -> i32;
     }
@@ -336,27 +345,20 @@ fn is_known_non_capturable_window(title: &str, class_name: &str) -> bool {
 /// Get the process executable name for a PID on Windows.
 #[cfg(target_os = "windows")]
 fn get_process_name(pid: u32) -> String {
-    let handle = unsafe {
-        win32::OpenProcess(win32::PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
-    };
+    let handle = unsafe { win32::OpenProcess(win32::PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
         return String::new();
     }
     let mut buf = [0u16; 260];
     let mut size = buf.len() as u32;
-    let ok = unsafe {
-        win32::QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut size)
-    };
+    let ok = unsafe { win32::QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut size) };
     unsafe { win32::CloseHandle(handle) };
     if ok == 0 || size == 0 {
         return String::new();
     }
     let path = String::from_utf16_lossy(&buf[..size as usize]);
     // Extract just the filename from the full path.
-    path.rsplit('\\')
-        .next()
-        .unwrap_or(&path)
-        .to_string()
+    path.rsplit('\\').next().unwrap_or(&path).to_string()
 }
 
 /// Check if a window covers the full primary screen on Windows.
@@ -510,9 +512,9 @@ pub fn find_window_by_process_and_title(
 ) -> Option<(u64, u32, u32)> {
     let windows = enumerate_windows();
     // Prefer exact title match, then substring match.
-    let exact = windows.iter().find(|w| {
-        w.process_name.eq_ignore_ascii_case(process_name) && w.title == window_title
-    });
+    let exact = windows
+        .iter()
+        .find(|w| w.process_name.eq_ignore_ascii_case(process_name) && w.title == window_title);
     if let Some(w) = exact {
         return Some((w.native_handle, w.bounds.2 as u32, w.bounds.3 as u32));
     }
@@ -857,6 +859,9 @@ mod tests {
     fn known_shell_windows_are_not_capturable() {
         assert!(is_known_non_capturable_window("Program Manager", "Progman"));
         assert!(is_known_non_capturable_window("Anything", "WorkerW"));
-        assert!(!is_known_non_capturable_window("Untitled - Notepad", "Notepad"));
+        assert!(!is_known_non_capturable_window(
+            "Untitled - Notepad",
+            "Notepad"
+        ));
     }
 }

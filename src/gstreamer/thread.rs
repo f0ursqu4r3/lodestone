@@ -7,7 +7,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
-use super::capture::{build_audio_capture_pipeline, build_capture_pipeline};
+#[cfg(not(target_os = "windows"))]
+use super::capture::build_audio_capture_pipeline;
+#[cfg(target_os = "windows")]
+use super::capture::build_audio_capture_pipeline_with_source;
+use super::capture::build_capture_pipeline;
 use super::commands::{
     AudioEncoderConfig, AudioSourceKind, AvailableEncoder, CaptureSourceConfig, EncoderConfig,
     EncoderType, GstCommand, GstThreadChannels, RecordingFormat, StreamDestination,
@@ -586,39 +590,12 @@ impl GstThread {
             }
         }
 
-        let (pipeline, appsink, volume_name) = build_audio_capture_pipeline(
-            AudioSourceKind::Mic,
-            device_uid,
-            AudioEncoderConfig::default().sample_rate,
-        )?;
+        let (pipeline, appsink, volume_name) = self
+            .build_started_audio_capture_pipeline(AudioSourceKind::Mic, device_uid)
+            .map_err(|err| anyhow::anyhow!("Failed to start selected audio device: {err}"))?;
         let volume = pipeline
             .by_name(&volume_name)
             .context("Failed to find audio source volume element")?;
-        if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
-            let detail = pipeline
-                .bus()
-                .and_then(|bus| {
-                    bus.timed_pop_filtered(
-                        gstreamer::ClockTime::from_mseconds(100),
-                        &[gstreamer::MessageType::Error],
-                    )
-                })
-                .and_then(|msg| match msg.view() {
-                    gstreamer::MessageView::Error(err) => {
-                        let mut detail = err.error().to_string();
-                        if let Some(debug) = err.debug()
-                            && !debug.is_empty()
-                        {
-                            detail.push_str(&format!(" ({debug})"));
-                        }
-                        Some(detail)
-                    }
-                    _ => None,
-                })
-                .unwrap_or_else(|| e.to_string());
-            let _ = pipeline.set_state(gstreamer::State::Null);
-            anyhow::bail!("Failed to start selected audio device: {detail}");
-        }
 
         self.audio_pipelines.insert(
             source_id,
@@ -753,33 +730,9 @@ impl GstThread {
     fn start_audio_capture(&mut self, kind: AudioSourceKind, device_uid: &str) {
         self.stop_audio_capture(kind);
 
-        match build_audio_capture_pipeline(
-            kind,
-            device_uid,
-            AudioEncoderConfig::default().sample_rate,
-        ) {
+        match self.build_started_audio_capture_pipeline(kind, device_uid) {
             Ok((pipeline, appsink, volume_name)) => {
                 log::info!("Starting {kind:?} audio pipeline for device '{device_uid}'");
-                if let Err(e) = pipeline.set_state(gstreamer::State::Playing) {
-                    // Check the bus for more detailed error info
-                    if let Some(bus) = pipeline.bus()
-                        && let Some(msg) = bus.timed_pop_filtered(
-                            gstreamer::ClockTime::from_mseconds(100),
-                            &[gstreamer::MessageType::Error],
-                        )
-                        && let gstreamer::MessageView::Error(err) = msg.view()
-                    {
-                        log::error!("Audio pipeline error detail: {}", err.error());
-                        if let Some(debug) = err.debug() {
-                            log::error!("Audio pipeline debug: {debug}");
-                        }
-                    }
-                    let _ = pipeline.set_state(gstreamer::State::Null);
-                    let _ = self.channels.error_tx.send(GstError::AudioCaptureFailure {
-                        message: format!("Failed to start {kind:?} audio capture: {e}"),
-                    });
-                    return;
-                }
                 match kind {
                     AudioSourceKind::Mic => {
                         self.mic_pipeline = Some(pipeline);
@@ -801,6 +754,82 @@ impl GstThread {
                 });
             }
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn audio_capture_source_candidates() -> &'static [&'static str] {
+        &["wasapi2src", "wasapisrc"]
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn audio_capture_source_candidates() -> &'static [&'static str] {
+        &["default"]
+    }
+
+    fn build_started_audio_capture_pipeline(
+        &self,
+        kind: AudioSourceKind,
+        device_uid: &str,
+    ) -> anyhow::Result<(gstreamer::Pipeline, AppSink, String)> {
+        let mut errors = Vec::new();
+
+        for source_name in Self::audio_capture_source_candidates() {
+            #[cfg(target_os = "windows")]
+            let build_result = {
+                build_audio_capture_pipeline_with_source(
+                    kind,
+                    device_uid,
+                    AudioEncoderConfig::default().sample_rate,
+                    Some(source_name),
+                )
+            };
+
+            #[cfg(not(target_os = "windows"))]
+            let build_result = build_audio_capture_pipeline(
+                kind,
+                device_uid,
+                AudioEncoderConfig::default().sample_rate,
+            );
+
+            let (pipeline, appsink, volume_name) = match build_result {
+                Ok(parts) => parts,
+                Err(err) => {
+                    #[cfg(target_os = "windows")]
+                    errors.push(format!("{source_name}: {err}"));
+                    #[cfg(not(target_os = "windows"))]
+                    errors.push(err.to_string());
+                    continue;
+                }
+            };
+
+            if let Err(err) = pipeline.set_state(gstreamer::State::Playing) {
+                let detail = Self::pipeline_error_detail(&pipeline, &err.to_string());
+                let _ = pipeline.set_state(gstreamer::State::Null);
+                #[cfg(target_os = "windows")]
+                {
+                    log::warn!(
+                        "Failed to start {kind:?} audio capture with {source_name}: {detail}"
+                    );
+                    errors.push(format!("{source_name}: {detail}"));
+                    continue;
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    errors.push(detail);
+                }
+            } else {
+                return Ok((pipeline, appsink, volume_name));
+            }
+        }
+
+        anyhow::bail!(
+            "{}",
+            if errors.is_empty() {
+                "Unknown audio device startup failure".to_string()
+            } else {
+                errors.join("; ")
+            }
+        )
     }
 
     /// Stop audio capture for the given source kind.
@@ -1760,6 +1789,30 @@ impl GstThread {
             }
         }
         result
+    }
+
+    fn pipeline_error_detail(pipeline: &gstreamer::Pipeline, fallback: &str) -> String {
+        pipeline
+            .bus()
+            .and_then(|bus| {
+                bus.timed_pop_filtered(
+                    gstreamer::ClockTime::from_mseconds(100),
+                    &[gstreamer::MessageType::Error],
+                )
+            })
+            .and_then(|msg| match msg.view() {
+                gstreamer::MessageView::Error(err) => {
+                    let mut detail = err.error().to_string();
+                    if let Some(debug) = err.debug()
+                        && !debug.is_empty()
+                    {
+                        detail.push_str(&format!(" ({debug})"));
+                    }
+                    Some(detail)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| fallback.to_string())
     }
 
     /// Poll audio levels from capture pipelines and send updates.

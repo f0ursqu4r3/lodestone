@@ -5,7 +5,7 @@ use crate::ui::layout::PanelId;
 use crate::ui::theme::{Theme, active_theme};
 
 const STRIP_WIDTH: f32 = 88.0;
-const STRIP_MIN_HEIGHT: f32 = 180.0;
+const STRIP_HEIGHT_PADDING: f32 = 12.0;
 const METER_WIDTH: f32 = 6.0;
 const SCALE_WIDTH: f32 = 18.0;
 const FADER_WIDTH: f32 = 16.0;
@@ -68,7 +68,13 @@ pub fn draw(ui: &mut egui::Ui, state: &mut AppState, _panel_id: PanelId) {
             return;
         }
 
-        let strip_height = ui.available_height().max(STRIP_MIN_HEIGHT);
+        let strip_height = (ui.available_height() - STRIP_HEIGHT_PADDING)
+            .max(0.0)
+            .min(ui.available_height());
+
+        if strip_height <= 0.0 {
+            return;
+        }
 
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
@@ -157,7 +163,8 @@ fn draw_audio_strip(
                 .corner_radius(egui::CornerRadius::same(theme.radius_sm as u8))
                 .inner_margin(egui::Margin::same(8))
                 .show(ui, |ui| {
-                    let meter_cluster_height = (strip_height - 104.0).max(108.0);
+                    let meter_cluster_height =
+                        (strip_height - 124.0).clamp(32.0, (strip_height - 84.0).max(32.0));
                     ui.set_width(ui.available_width());
                     ui.set_max_height(strip_height - 2.0);
                     ui.vertical_centered(|ui| {

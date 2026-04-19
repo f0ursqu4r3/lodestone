@@ -251,10 +251,21 @@ pub fn build_display_capture_pipeline(
 /// Pipeline: audio-src → audioconvert → audioresample → volume → level → appsink
 /// (osxaudiosrc on macOS, wasapisrc on Windows)
 /// Returns (pipeline, appsink, volume_element_name).
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 pub fn build_audio_capture_pipeline(
     source_kind: AudioSourceKind,
     device_uid: &str,
     sample_rate: u32,
+) -> Result<(gstreamer::Pipeline, AppSink, String)> {
+    build_audio_capture_pipeline_with_source(source_kind, device_uid, sample_rate, None)
+}
+
+/// Build an audio capture pipeline, optionally forcing a specific platform source element.
+pub fn build_audio_capture_pipeline_with_source(
+    source_kind: AudioSourceKind,
+    device_uid: &str,
+    sample_rate: u32,
+    #[allow(unused_variables)] preferred_source: Option<&str>,
 ) -> Result<(gstreamer::Pipeline, AppSink, String)> {
     let name = match source_kind {
         AudioSourceKind::Mic => "mic-capture",
@@ -273,30 +284,17 @@ pub fn build_audio_capture_pipeline(
         }
         #[cfg(target_os = "windows")]
         {
-            // Prefer wasapi2src (modern WASAPI2 plugin, better device ID handling)
-            // over the legacy wasapisrc. An empty UID selects the default device.
+            let source_name = preferred_source.unwrap_or("wasapi2src");
+            let builder = gstreamer::ElementFactory::make(source_name).name(format!("{name}-src"));
             if device_uid.is_empty() {
-                gstreamer::ElementFactory::make("wasapi2src")
-                    .name(format!("{name}-src"))
+                builder
                     .build()
-                    .or_else(|_| {
-                        gstreamer::ElementFactory::make("wasapisrc")
-                            .name(format!("{name}-src"))
-                            .build()
-                    })
-                    .context(format!("Failed to create audio source for {name}"))?
+                    .context(format!("Failed to create {source_name} for {name}"))?
             } else {
-                gstreamer::ElementFactory::make("wasapi2src")
-                    .name(format!("{name}-src"))
+                builder
                     .property("device", device_uid)
                     .build()
-                    .or_else(|_| {
-                        gstreamer::ElementFactory::make("wasapisrc")
-                            .name(format!("{name}-src"))
-                            .property("device", device_uid)
-                            .build()
-                    })
-                    .context(format!("Failed to create audio source for {name}"))?
+                    .context(format!("Failed to create {source_name} for {name}"))?
             }
         }
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]

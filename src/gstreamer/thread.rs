@@ -95,6 +95,30 @@ impl PipelineKind {
     }
 }
 
+/// Parameters needed to (re)build a stream pipeline. Cached so reconnect
+/// doesn't require cooperation from the UI layer — the backend owns recovery.
+#[derive(Debug, Clone)]
+struct StreamStartParams {
+    destination: StreamDestination,
+    #[allow(dead_code)]
+    stream_key: String,
+    encoder_config: EncoderConfig,
+    /// Fully-composed RTMP URL including stream key, derived from
+    /// `destination` + `stream_key` at initial start time.
+    rtmp_url: String,
+}
+
+/// Active reconnect bookkeeping for the stream pipeline.
+#[derive(Debug, Clone)]
+struct StreamReconnectState {
+    /// 1-based attempt counter for the retry currently scheduled or in flight.
+    attempt: u32,
+    /// Monotonic deadline after which we should try to rebuild the pipeline.
+    next_try_at: std::time::Instant,
+    /// The error that caused this reconnect to be scheduled.
+    last_error: String,
+}
+
 /// A fatal error posted by a pipeline on its GStreamer bus.
 #[derive(Debug)]
 struct BusError {
@@ -183,6 +207,14 @@ struct GstThread {
     /// Whether the watchdog has already fired for the current stream session.
     /// Prevents spamming error_tx when repeated ticks notice the same stall.
     stream_stall_reported: bool,
+    /// Parameters used to build the current stream pipeline. Cached so the
+    /// reconnect loop can rebuild after a drop without a round-trip to the UI.
+    /// Cleared when the user explicitly stops the stream.
+    stream_start_params: Option<StreamStartParams>,
+    /// Active reconnect attempt, if any. Mutually exclusive with
+    /// `stream_handles.is_some()` — a live pipeline has no pending reconnect,
+    /// and a pending reconnect has no pipeline.
+    stream_reconnect: Option<StreamReconnectState>,
     record_handles: Option<RecordPipelineHandles>,
     record_path: Option<std::path::PathBuf>,
     #[cfg(target_os = "macos")]
@@ -243,6 +275,8 @@ impl GstThread {
             stream_last_output_bytes: 0,
             stream_last_progress_at: None,
             stream_stall_reported: false,
+            stream_start_params: None,
+            stream_reconnect: None,
             record_handles: None,
             record_path: None,
             #[cfg(target_os = "macos")]
@@ -258,8 +292,16 @@ impl GstThread {
     }
 
     fn publish_runtime_state(&self) {
+        let stream_reconnecting = self.stream_reconnect.as_ref().map(|rc| {
+            crate::gstreamer::types::ReconnectInfo {
+                attempt: rc.attempt,
+                max_attempts: Self::MAX_STREAM_RECONNECT_ATTEMPTS,
+                last_error: rc.last_error.clone(),
+            }
+        });
         let _ = self.channels.runtime_state_tx.send(OutputRuntimeState {
             stream_active: self.stream_handles.is_some(),
+            stream_reconnecting,
             recording_path: self.record_path.clone(),
             virtual_camera_active: self.virtual_camera_is_active(),
         });
@@ -1124,8 +1166,8 @@ impl GstThread {
         stream_key: String,
         encoder_config: EncoderConfig,
     ) {
-        if self.stream_handles.is_some() {
-            log::debug!("Ignoring duplicate StartStream command while stream is active");
+        if self.stream_handles.is_some() || self.stream_reconnect.is_some() {
+            log::debug!("Ignoring StartStream while stream or reconnect is active");
             return;
         }
 
@@ -1133,40 +1175,63 @@ impl GstThread {
             StreamDestination::CustomRtmp { url } => url.clone(),
             other => format!("{}/{}", other.rtmp_url(), stream_key),
         };
+        let params = StreamStartParams {
+            destination,
+            stream_key,
+            encoder_config,
+            rtmp_url,
+        };
 
-        let audio_config = AudioEncoderConfig::default();
-        match build_stream_pipeline_with_audio(
-            &encoder_config,
-            &audio_config,
-            &rtmp_url,
-            self.has_system_audio,
-        ) {
-            Ok(handles) => {
-                if let Err(e) = handles.pipeline.set_state(gstreamer::State::Playing) {
-                    let _ = self.channels.error_tx.send(GstError::EncodeFailure {
-                        message: format!("Failed to start stream: {e}"),
-                    });
-                    return;
-                }
-                log::info!("Stream pipeline started to {}", destination.rtmp_url());
-                self.stream_handles = Some(handles);
-                let now = std::time::Instant::now();
-                self.stream_started_at = Some(now);
-                self.stream_total_frames = 0;
-                self.stream_dropped_frames = 0;
-                self.stream_last_stats_at = Some(now);
-                self.stream_last_output_bytes = 0;
-                self.stream_last_progress_at = None;
-                self.stream_stall_reported = false;
-                let _ = self.channels.stats_tx.send(PipelineStats::default());
+        match self.start_stream_pipeline(&params) {
+            Ok(()) => {
+                self.stream_start_params = Some(params);
                 self.publish_runtime_state();
             }
             Err(e) => {
-                let _ = self.channels.error_tx.send(GstError::EncodeFailure {
-                    message: format!("{e}"),
-                });
+                // Initial start failure: don't enter reconnect loop — the user
+                // likely has bad config (invalid RTMP URL, missing encoder).
+                // Surface immediately so they can fix it.
+                let _ = self
+                    .channels
+                    .error_tx
+                    .send(GstError::EncodeFailure { message: e });
             }
         }
+    }
+
+    /// Build and start the stream pipeline from the given params. Does *not*
+    /// touch `stream_start_params` or `stream_reconnect` — callers decide how
+    /// to manage those fields around the attempt.
+    fn start_stream_pipeline(&mut self, params: &StreamStartParams) -> Result<(), String> {
+        let audio_config = AudioEncoderConfig::default();
+        let handles = build_stream_pipeline_with_audio(
+            &params.encoder_config,
+            &audio_config,
+            &params.rtmp_url,
+            self.has_system_audio,
+        )
+        .map_err(|e| e.to_string())?;
+        if let Err(e) = handles.pipeline.set_state(gstreamer::State::Playing) {
+            // Teardown to release any partially-acquired GStreamer resources.
+            let _ = handles.pipeline.set_state(gstreamer::State::Null);
+            return Err(format!("Failed to start stream: {e}"));
+        }
+
+        log::info!(
+            "Stream pipeline started to {}",
+            params.destination.rtmp_url()
+        );
+        self.stream_handles = Some(handles);
+        let now = std::time::Instant::now();
+        self.stream_started_at = Some(now);
+        self.stream_total_frames = 0;
+        self.stream_dropped_frames = 0;
+        self.stream_last_stats_at = Some(now);
+        self.stream_last_output_bytes = 0;
+        self.stream_last_progress_at = None;
+        self.stream_stall_reported = false;
+        let _ = self.channels.stats_tx.send(PipelineStats::default());
+        Ok(())
     }
 
     fn handle_stop_stream(&mut self) {
@@ -1915,27 +1980,11 @@ impl GstThread {
     fn stop_pipeline(&mut self, kind: PipelineKind) {
         match kind {
             PipelineKind::Stream => {
-                if let Some(handles) = self.stream_handles.take() {
-                    let _ = handles.video_appsrc.end_of_stream();
-                    let _ = handles.audio_appsrc_mic.end_of_stream();
-                    if let Some(ref sys) = handles.audio_appsrc_system {
-                        let _ = sys.end_of_stream();
-                    }
-                    let bus = handles.pipeline.bus().unwrap();
-                    let _ = bus.timed_pop_filtered(
-                        gstreamer::ClockTime::from_seconds(2),
-                        &[gstreamer::MessageType::Eos],
-                    );
-                    let _ = handles.pipeline.set_state(gstreamer::State::Null);
-                }
-                self.stream_started_at = None;
-                self.stream_total_frames = 0;
-                self.stream_dropped_frames = 0;
-                self.stream_last_stats_at = None;
-                self.stream_last_output_bytes = 0;
-                self.stream_last_progress_at = None;
-                self.stream_stall_reported = false;
-                let _ = self.channels.stats_tx.send(PipelineStats::default());
+                self.tear_down_stream_handles();
+                // User-intent stop: abandon any pending reconnect and forget
+                // the cached params so a later StartStream re-primes them.
+                self.stream_start_params = None;
+                self.stream_reconnect = None;
             }
             PipelineKind::Record => {
                 if let Some(handles) = self.record_handles.take() {
@@ -2028,6 +2077,26 @@ impl GstThread {
         result
     }
 
+    /// Maximum consecutive reconnect attempts before we give up and surface a
+    /// terminal error to the user. Six retries over the backoff schedule
+    /// covers ~60 seconds of recovery time — long enough to outlast a brief
+    /// ISP hiccup but short enough that the UI doesn't stay stuck forever.
+    const MAX_STREAM_RECONNECT_ATTEMPTS: u32 = 6;
+
+    /// Exponential-ish backoff for stream reconnect attempts. `attempt` is
+    /// 1-based: attempt 1 = first retry, fires ~1s after the drop.
+    fn reconnect_delay(attempt: u32) -> std::time::Duration {
+        let secs = match attempt {
+            0 | 1 => 1,
+            2 => 2,
+            3 => 5,
+            4 => 10,
+            5 => 20,
+            _ => 30,
+        };
+        std::time::Duration::from_secs(secs)
+    }
+
     /// How long a freshly-started stream has to produce its first output byte
     /// before the watchdog gives up. Covers RTMP TCP + handshake round trips
     /// on slow networks.
@@ -2073,11 +2142,134 @@ impl GstThread {
         };
         log::error!("[stream-pipeline] watchdog tripped: {message}");
         self.stream_stall_reported = true;
-        let _ = self
-            .channels
-            .error_tx
-            .send(GstError::StreamConnectionLost { message });
-        self.stop_pipeline(PipelineKind::Stream);
+        self.schedule_stream_reconnect(message);
+    }
+
+    /// Tear down the current stream pipeline and enter (or advance) the
+    /// reconnect state machine with `reason` as the triggering error. Keeps
+    /// `stream_start_params` around so the reconnect tick can rebuild.
+    ///
+    /// If there are no cached params (e.g. stream start itself failed), or
+    /// if we've already exhausted our retries, this reports a terminal
+    /// `StreamConnectionLost` error and clears all stream state.
+    fn schedule_stream_reconnect(&mut self, reason: String) {
+        self.tear_down_stream_handles();
+
+        let Some(_params) = self.stream_start_params.as_ref() else {
+            // No cached params — nothing to retry against. Surface the error
+            // and stay offline.
+            let _ = self
+                .channels
+                .error_tx
+                .send(GstError::StreamConnectionLost { message: reason });
+            self.stream_reconnect = None;
+            self.publish_runtime_state();
+            return;
+        };
+
+        let next_attempt = self
+            .stream_reconnect
+            .as_ref()
+            .map(|rc| rc.attempt + 1)
+            .unwrap_or(1);
+
+        if next_attempt > Self::MAX_STREAM_RECONNECT_ATTEMPTS {
+            log::error!(
+                "Stream reconnect gave up after {} attempts: {reason}",
+                Self::MAX_STREAM_RECONNECT_ATTEMPTS
+            );
+            let _ = self.channels.error_tx.send(GstError::StreamConnectionLost {
+                message: format!(
+                    "Reconnect failed after {} attempts: {reason}",
+                    Self::MAX_STREAM_RECONNECT_ATTEMPTS
+                ),
+            });
+            self.stream_reconnect = None;
+            self.stream_start_params = None;
+            self.publish_runtime_state();
+            return;
+        }
+
+        let delay = Self::reconnect_delay(next_attempt);
+        log::warn!(
+            "Stream reconnect attempt {}/{} scheduled in {}s: {reason}",
+            next_attempt,
+            Self::MAX_STREAM_RECONNECT_ATTEMPTS,
+            delay.as_secs()
+        );
+        self.stream_reconnect = Some(StreamReconnectState {
+            attempt: next_attempt,
+            next_try_at: std::time::Instant::now() + delay,
+            last_error: reason,
+        });
+        self.publish_runtime_state();
+    }
+
+    /// Tear down just the GStreamer pipeline handles + per-session counters
+    /// for the stream pipeline. Leaves `stream_start_params` and
+    /// `stream_reconnect` untouched so reconnect can proceed.
+    fn tear_down_stream_handles(&mut self) {
+        if let Some(handles) = self.stream_handles.take() {
+            let _ = handles.video_appsrc.end_of_stream();
+            let _ = handles.audio_appsrc_mic.end_of_stream();
+            if let Some(ref sys) = handles.audio_appsrc_system {
+                let _ = sys.end_of_stream();
+            }
+            if let Some(bus) = handles.pipeline.bus() {
+                let _ = bus.timed_pop_filtered(
+                    gstreamer::ClockTime::from_mseconds(500),
+                    &[gstreamer::MessageType::Eos],
+                );
+            }
+            let _ = handles.pipeline.set_state(gstreamer::State::Null);
+        }
+        self.stream_started_at = None;
+        self.stream_total_frames = 0;
+        self.stream_dropped_frames = 0;
+        self.stream_last_stats_at = None;
+        self.stream_last_output_bytes = 0;
+        self.stream_last_progress_at = None;
+        self.stream_stall_reported = false;
+        let _ = self.channels.stats_tx.send(PipelineStats::default());
+    }
+
+    /// If a reconnect is scheduled and its deadline has arrived, try to
+    /// rebuild the stream pipeline. On failure, bump the attempt counter and
+    /// reschedule via `schedule_stream_reconnect`.
+    fn tick_stream_reconnect(&mut self, now: std::time::Instant) {
+        let Some(rc) = self.stream_reconnect.as_ref() else {
+            return;
+        };
+        if now < rc.next_try_at {
+            return;
+        }
+        let Some(params) = self.stream_start_params.clone() else {
+            // Params disappeared — shouldn't happen, but bail cleanly.
+            self.stream_reconnect = None;
+            self.publish_runtime_state();
+            return;
+        };
+
+        let attempt = rc.attempt;
+        log::info!(
+            "Reconnecting stream: attempt {}/{}",
+            attempt,
+            Self::MAX_STREAM_RECONNECT_ATTEMPTS
+        );
+        match self.start_stream_pipeline(&params) {
+            Ok(()) => {
+                log::info!("Stream reconnect attempt {attempt} succeeded");
+                self.stream_reconnect = None;
+                self.publish_runtime_state();
+            }
+            Err(e) => {
+                log::warn!("Stream reconnect attempt {attempt} failed: {e}");
+                // schedule_stream_reconnect will increment based on the current
+                // attempt counter it sees, so leave stream_reconnect populated
+                // for it to read.
+                self.schedule_stream_reconnect(e);
+            }
+        }
     }
 
     /// Poll the stream and record pipeline buses for errors, warnings, and
@@ -2110,28 +2302,35 @@ impl GstThread {
         if let Some(err) = drain.error {
             let detail = err.formatted();
             log::error!("[{tag}] fatal bus error: {detail}");
-            let gst_err = match kind {
-                // RTMP sink errors are almost always network/connection issues;
-                // tag them accordingly so the UI can distinguish "stream died"
-                // from "encoder blew up".
-                PipelineKind::Stream if err.element.as_deref() == Some("stream-sink") => {
-                    GstError::StreamConnectionLost { message: detail }
+            match kind {
+                // Stream errors feed the reconnect loop — schedule_stream_reconnect
+                // decides whether to retry or surface a terminal error.
+                PipelineKind::Stream => {
+                    self.schedule_stream_reconnect(detail);
                 }
-                _ => GstError::EncodeFailure { message: detail },
-            };
-            let _ = self.channels.error_tx.send(gst_err);
-            self.stop_pipeline(kind);
+                PipelineKind::Record => {
+                    let _ = self
+                        .channels
+                        .error_tx
+                        .send(GstError::EncodeFailure { message: detail });
+                    self.stop_pipeline(PipelineKind::Record);
+                }
+            }
             return;
         }
         if drain.got_eos {
             log::warn!("[{tag}] unexpected EOS from pipeline, stopping");
             let msg = format!("{tag} ended unexpectedly");
-            let gst_err = match kind {
-                PipelineKind::Stream => GstError::StreamConnectionLost { message: msg },
-                PipelineKind::Record => GstError::EncodeFailure { message: msg },
-            };
-            let _ = self.channels.error_tx.send(gst_err);
-            self.stop_pipeline(kind);
+            match kind {
+                PipelineKind::Stream => self.schedule_stream_reconnect(msg),
+                PipelineKind::Record => {
+                    let _ = self
+                        .channels
+                        .error_tx
+                        .send(GstError::EncodeFailure { message: msg });
+                    self.stop_pipeline(PipelineKind::Record);
+                }
+            }
         }
     }
 
@@ -2438,6 +2637,10 @@ impl GstThread {
             // encoder failure, mux deadlock) surface immediately instead of
             // silently piling up while the UI shows "streaming".
             self.poll_encode_buses();
+
+            // If a stream reconnect is pending and its deadline has arrived,
+            // attempt to rebuild the pipeline. Does nothing otherwise.
+            self.tick_stream_reconnect(std::time::Instant::now());
 
             // Brief sleep to avoid busy-spinning
             std::thread::sleep(std::time::Duration::from_millis(1));

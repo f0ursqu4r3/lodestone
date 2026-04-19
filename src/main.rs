@@ -2839,6 +2839,12 @@ impl ApplicationHandler for AppManager {
                             dropped_frames: 0,
                         };
                     }
+                } else if let Some(ref rc) = runtime.stream_reconnecting {
+                    app_state.stream_status = crate::state::StreamStatus::Reconnecting {
+                        attempt: rc.attempt,
+                        max_attempts: rc.max_attempts,
+                        last_error: rc.last_error.clone(),
+                    };
                 } else {
                     app_state.stream_status = crate::state::StreamStatus::Offline;
                 }

@@ -209,37 +209,54 @@ fn draw_scene_switcher(ui: &mut egui::Ui, state: &mut AppState) {
 /// Stream stats: green dot, uptime, bitrate, dropped frames.
 fn draw_stream_stats(ui: &mut egui::Ui, state: &AppState) {
     let theme = active_theme(ui.ctx());
-    if let StreamStatus::Live {
-        uptime_secs,
-        bitrate_kbps,
-        dropped_frames,
-    } = &state.stream_status
-    {
-        let total = *uptime_secs as u64;
-        let hours = total / 3600;
-        let minutes = (total % 3600) / 60;
-        let seconds = total % 60;
+    match &state.stream_status {
+        StreamStatus::Live {
+            uptime_secs,
+            bitrate_kbps,
+            dropped_frames,
+        } => {
+            let total = *uptime_secs as u64;
+            let hours = total / 3600;
+            let minutes = (total % 3600) / 60;
+            let seconds = total % 60;
 
-        ui.label(
-            RichText::new(format!("Dropped: {dropped_frames}"))
-                .size(11.0)
-                .color(theme.text_secondary),
-        );
-        ui.label(
-            RichText::new(format!("{bitrate_kbps:.0} kbps"))
-                .size(11.0)
-                .color(theme.text_secondary),
-        );
-        ui.label(
-            RichText::new(format!("{hours:02}:{minutes:02}:{seconds:02}"))
-                .size(11.0)
-                .color(theme.text_primary),
-        );
+            ui.label(
+                RichText::new(format!("Dropped: {dropped_frames}"))
+                    .size(11.0)
+                    .color(theme.text_secondary),
+            );
+            ui.label(
+                RichText::new(format!("{bitrate_kbps:.0} kbps"))
+                    .size(11.0)
+                    .color(theme.text_secondary),
+            );
+            ui.label(
+                RichText::new(format!("{hours:02}:{minutes:02}:{seconds:02}"))
+                    .size(11.0)
+                    .color(theme.text_primary),
+            );
 
-        // Green dot
-        let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-        ui.painter()
-            .circle_filled(dot_rect.center(), 4.0, theme.success);
+            let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
+            ui.painter()
+                .circle_filled(dot_rect.center(), 4.0, theme.success);
+        }
+        StreamStatus::Reconnecting {
+            attempt,
+            max_attempts,
+            last_error,
+        } => {
+            let label = ui.label(
+                RichText::new(format!("Reconnecting ({attempt}/{max_attempts})"))
+                    .size(11.0)
+                    .color(theme.warning),
+            );
+            label.on_hover_text(last_error);
+            let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
+            ui.painter()
+                .circle_filled(dot_rect.center(), 4.0, theme.warning);
+            ui.ctx().request_repaint();
+        }
+        StreamStatus::Offline | StreamStatus::Connecting => {}
     }
 }
 
@@ -247,6 +264,10 @@ fn draw_stream_stats(ui: &mut egui::Ui, state: &AppState) {
 fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
     let theme = active_theme(ui.ctx());
     let is_live = state.stream_status.is_live();
+    let is_reconnecting = matches!(state.stream_status, StreamStatus::Reconnecting { .. });
+    // "Busy" means the backend currently owns a stream session — either live
+    // or reconnecting — and the button should act as a stop.
+    let is_busy = is_live || is_reconnecting;
 
     let (label, fill, text_color) = if is_live {
         // Pulsing red fill when live.
@@ -257,11 +278,19 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
         let b = (theme.danger.b() as f64 * pulse) as u8;
         let pulsed = Color32::from_rgb(r, g, b);
         ("LIVE", pulsed, Color32::WHITE)
+    } else if is_reconnecting {
+        ("RECONNECTING", theme.warning, Color32::WHITE)
     } else {
         ("Go Live", theme.bg_elevated, theme.text_secondary)
     };
 
-    let stroke_color = if is_live { theme.danger } else { theme.border };
+    let stroke_color = if is_live {
+        theme.danger
+    } else if is_reconnecting {
+        theme.warning
+    } else {
+        theme.border
+    };
 
     let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(text_color))
         .fill(fill)
@@ -272,7 +301,7 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
     if ui.add(btn).clicked()
         && let Some(ref tx) = state.command_tx
     {
-        if is_live {
+        if is_busy {
             let _ = tx.try_send(crate::gstreamer::GstCommand::StopStream);
         } else if let Some(error_msg) = validate_stream_settings(state) {
             state
@@ -287,8 +316,9 @@ fn draw_go_live_button(ui: &mut egui::Ui, state: &mut AppState) {
         }
     }
 
-    // Request repaint for pulse animation when live.
-    if is_live {
+    // Pulse animation while live; subtle repaint while reconnecting so the
+    // attempt counter stays fresh when it ticks.
+    if is_busy {
         ui.ctx().request_repaint();
     }
 }

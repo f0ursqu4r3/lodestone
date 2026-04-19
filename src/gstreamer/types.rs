@@ -15,8 +15,25 @@ pub struct RgbaFrame {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OutputRuntimeState {
     pub stream_active: bool,
+    /// Set while the backend is actively trying to reconnect a dropped stream.
+    /// Mutually exclusive with `stream_active = true` — a live stream never has
+    /// this populated. `None` means either "live" or "idle", disambiguated by
+    /// `stream_active`.
+    pub stream_reconnecting: Option<ReconnectInfo>,
     pub recording_path: Option<PathBuf>,
     pub virtual_camera_active: bool,
+}
+
+/// Snapshot of an in-progress reconnect attempt, surfaced to the UI so the
+/// user sees "reconnecting…" instead of a silent drop back to offline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReconnectInfo {
+    /// 1-based count of the retry currently in flight (or just scheduled).
+    pub attempt: u32,
+    /// Total retries we will try before giving up.
+    pub max_attempts: u32,
+    /// Error message from the failure that triggered reconnection.
+    pub last_error: String,
 }
 
 /// Pipeline statistics sent periodically from the GStreamer thread.

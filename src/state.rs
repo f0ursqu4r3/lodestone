@@ -83,6 +83,13 @@ pub enum StreamStatus {
         bitrate_kbps: f64,
         dropped_frames: u64,
     },
+    /// Stream dropped; backend is retrying with exponential backoff.
+    #[allow(dead_code)]
+    Reconnecting {
+        attempt: u32,
+        max_attempts: u32,
+        last_error: String,
+    },
 }
 
 impl StreamStatus {

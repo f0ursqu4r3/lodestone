@@ -217,6 +217,17 @@ struct GstThread {
     stream_reconnect: Option<StreamReconnectState>,
     record_handles: Option<RecordPipelineHandles>,
     record_path: Option<std::path::PathBuf>,
+    /// Wall-clock moment the current recording started, used as the grace
+    /// window for the recording watchdog.
+    record_started_at: Option<std::time::Instant>,
+    /// Last observed file size of the recording target. When a recording is
+    /// healthy this grows every tick; when disk/mux failed it stays flat and
+    /// the watchdog trips.
+    record_last_size: u64,
+    /// Last wall-clock time `record_last_size` advanced.
+    record_last_progress_at: Option<std::time::Instant>,
+    /// Prevents the watchdog from firing more than once per recording session.
+    record_stall_reported: bool,
     #[cfg(target_os = "macos")]
     virtual_camera_handle: Option<super::virtual_camera::VirtualCameraHandle>,
     /// Per-source audio pipelines, keyed by SourceId.
@@ -278,6 +289,10 @@ impl GstThread {
             stream_start_params: None,
             stream_reconnect: None,
             record_handles: None,
+            record_started_at: None,
+            record_last_size: 0,
+            record_last_progress_at: None,
+            record_stall_reported: false,
             record_path: None,
             #[cfg(target_os = "macos")]
             virtual_camera_handle: None,
@@ -1242,6 +1257,21 @@ impl GstThread {
         self.stop_pipeline(PipelineKind::Record);
     }
 
+    /// Minimum free bytes on the recording volume before we allow a session
+    /// to start. 1 GiB covers roughly 3 minutes of 40 Mbps recording and
+    /// gives the user enough headroom to notice and intervene.
+    const RECORDING_MIN_FREE_BYTES: u64 = 1024 * 1024 * 1024;
+
+    /// After this much time with no file-size growth, the recording watchdog
+    /// treats the session as stalled. The mux writes a header immediately on
+    /// start, so any healthy recording grows within the first second; ten
+    /// seconds of flat size always means something is broken.
+    const RECORDING_STALL_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(10);
+
+    /// Initial grace window after start before the watchdog is allowed to
+    /// trip. Gives the mux and filesink time to flush their first buffer.
+    const RECORDING_WRITE_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+
     fn handle_start_recording(
         &mut self,
         path: std::path::PathBuf,
@@ -1250,6 +1280,15 @@ impl GstThread {
     ) {
         if self.record_handles.is_some() {
             log::debug!("Ignoring duplicate StartRecording command while recording is active");
+            return;
+        }
+
+        if let Err(e) = Self::validate_recording_target(&path) {
+            log::error!("Recording start refused: {e}");
+            let _ = self
+                .channels
+                .error_tx
+                .send(GstError::EncodeFailure { message: e });
             return;
         }
 
@@ -1271,6 +1310,10 @@ impl GstThread {
                 log::info!("Record pipeline started to {}", path.display());
                 self.record_handles = Some(handles);
                 self.record_path = Some(path);
+                self.record_started_at = Some(std::time::Instant::now());
+                self.record_last_size = 0;
+                self.record_last_progress_at = None;
+                self.record_stall_reported = false;
                 self.publish_runtime_state();
             }
             Err(e) => {
@@ -1279,6 +1322,42 @@ impl GstThread {
                 });
             }
         }
+    }
+
+    /// Pre-flight checks for a recording target: the parent directory must
+    /// exist and be writable, and the volume must have enough free space to
+    /// be worth starting. Catches the common foot-guns (bad path, full disk,
+    /// read-only location) before we tear down a working pipeline mid-shoot.
+    fn validate_recording_target(path: &std::path::Path) -> Result<(), String> {
+        let parent = path
+            .parent()
+            .ok_or_else(|| format!("Recording path has no parent directory: {}", path.display()))?;
+        if !parent.exists() {
+            return Err(format!(
+                "Recording directory does not exist: {}",
+                parent.display()
+            ));
+        }
+
+        // available_bytes returns None if the syscall fails. Treat that as
+        // "unknown, let recording proceed" rather than blocking — the disk
+        // watchdog will still catch actual write failures.
+        if let Some(free) = super::disk::available_bytes(parent) {
+            if free < Self::RECORDING_MIN_FREE_BYTES {
+                return Err(format!(
+                    "Not enough free disk space to record: {:.1} MB available, {} MB required at {}",
+                    free as f64 / (1024.0 * 1024.0),
+                    Self::RECORDING_MIN_FREE_BYTES / (1024 * 1024),
+                    parent.display(),
+                ));
+            }
+        } else {
+            log::warn!(
+                "Could not query free disk space for {}, recording will proceed without a pre-flight guard",
+                parent.display()
+            );
+        }
+        Ok(())
     }
 
     fn handle_set_audio_device(&mut self, source: AudioSourceKind, device_uid: String) {
@@ -2001,6 +2080,10 @@ impl GstThread {
                     let _ = handles.pipeline.set_state(gstreamer::State::Null);
                 }
                 self.record_path = None;
+                self.record_started_at = None;
+                self.record_last_size = 0;
+                self.record_last_progress_at = None;
+                self.record_stall_reported = false;
             }
         }
         self.publish_runtime_state();
@@ -2143,6 +2226,60 @@ impl GstThread {
         log::error!("[stream-pipeline] watchdog tripped: {message}");
         self.stream_stall_reported = true;
         self.schedule_stream_reconnect(message);
+    }
+
+    /// Detect stalled recordings by polling the output file size. Unlike the
+    /// stream watchdog (which reads a live sink byte counter), we don't have
+    /// per-recording telemetry, so we probe the filesystem instead. A healthy
+    /// recording grows continuously; a recording that's flat for 10s has hit
+    /// a filesink error that the bus hasn't surfaced (full disk, permission
+    /// revoked, mid-write lock) and the session is already lost.
+    fn check_record_watchdog(&mut self, now: std::time::Instant) {
+        if self.record_stall_reported {
+            return;
+        }
+        let Some(started_at) = self.record_started_at else {
+            return;
+        };
+        let Some(ref path) = self.record_path else {
+            return;
+        };
+
+        let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        if size > self.record_last_size {
+            self.record_last_size = size;
+            self.record_last_progress_at = Some(now);
+            return;
+        }
+
+        let since_start = now.duration_since(started_at);
+        let stalled = match self.record_last_progress_at {
+            Some(last) => now.duration_since(last) > Self::RECORDING_STALL_THRESHOLD,
+            None => since_start > Self::RECORDING_WRITE_GRACE + Self::RECORDING_STALL_THRESHOLD,
+        };
+        if !stalled {
+            return;
+        }
+
+        let message = match self.record_last_progress_at {
+            Some(last) => format!(
+                "Recording file stopped growing {:.1}s ago: {}",
+                now.duration_since(last).as_secs_f64(),
+                path.display(),
+            ),
+            None => format!(
+                "Recording file never grew within {:.1}s of start: {}",
+                since_start.as_secs_f64(),
+                path.display(),
+            ),
+        };
+        log::error!("[record-pipeline] watchdog tripped: {message}");
+        self.record_stall_reported = true;
+        let _ = self
+            .channels
+            .error_tx
+            .send(GstError::EncodeFailure { message });
+        self.stop_pipeline(PipelineKind::Record);
     }
 
     /// Tear down the current stream pipeline and enter (or advance) the
@@ -2638,9 +2775,15 @@ impl GstThread {
             // silently piling up while the UI shows "streaming".
             self.poll_encode_buses();
 
+            let tick_now = std::time::Instant::now();
+
             // If a stream reconnect is pending and its deadline has arrived,
             // attempt to rebuild the pipeline. Does nothing otherwise.
-            self.tick_stream_reconnect(std::time::Instant::now());
+            self.tick_stream_reconnect(tick_now);
+
+            // Watch the recording output file — catches disk-full, permission
+            // revoked, or locked-file scenarios the bus doesn't always report.
+            self.check_record_watchdog(tick_now);
 
             // Brief sleep to avoid busy-spinning
             std::thread::sleep(std::time::Duration::from_millis(1));

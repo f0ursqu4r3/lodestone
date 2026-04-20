@@ -1,6 +1,7 @@
 pub mod capture;
 pub mod commands;
 pub mod devices;
+pub mod disk;
 pub mod encode;
 pub mod error;
 #[cfg(target_os = "windows")]
